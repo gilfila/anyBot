@@ -9,6 +9,8 @@ import {
   CircleHelp,
   Clock,
   Cpu,
+  Download,
+  ExternalLink,
   Folder,
   FileText,
   Mic,
@@ -386,12 +388,13 @@ export function App() {
             You<small>Workspace owner</small>
           </div>
           <button
-            className="settings-cog"
-            title="Settings"
-            aria-label="Settings"
+            className={`settings-cog${data.update ? " has-update" : ""}`}
+            title={data.update ? `Update available: v${data.update.version}` : "Settings"}
+            aria-label={data.update ? `Settings — update available (v${data.update.version})` : "Settings"}
             onClick={() => setView("settings")}
           >
             <Settings2 size={17} />
+            {data.update && <i className="update-dot" />}
           </button>
         </div>
       </aside>
@@ -1075,6 +1078,39 @@ export function App() {
               title="Settings"
               description="Manage your team, harnesses, and runtime preferences."
             />
+            {data.update && (
+              <div className="update-banner">
+                <div className="update-banner-icon">
+                  <Download size={20} />
+                </div>
+                <div className="update-banner-content">
+                  <strong>Update available: v{data.update.version}</strong>
+                  <p>{data.update.name}</p>
+                  {data.update.body && (
+                    <p className="update-body">
+                      {data.update.body.length > 200
+                        ? `${data.update.body.slice(0, 200)}…`
+                        : data.update.body}
+                    </p>
+                  )}
+                </div>
+                <div className="update-banner-actions">
+                  <button
+                    className="primary"
+                    onClick={() => act("update.open")}
+                  >
+                    <ExternalLink size={14} />
+                    View release
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={() => act("update.dismiss", { version: data.update.version })}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="settings-nav">
               <button
                 className="settings-nav-item"
