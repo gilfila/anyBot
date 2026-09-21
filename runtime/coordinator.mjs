@@ -38,6 +38,12 @@ const timeoutMinutes = (value) => {
     throw new Error("Run duration must be a whole number from 10 to 1440 minutes");
   return minutes;
 };
+const permissionMode = (value) => {
+  const mode = value === undefined || value === "" ? "ask" : value;
+  if (mode !== "ask" && mode !== "dontAsk")
+    throw new Error("Permission mode must be ask or dontAsk");
+  return mode;
+};
 
 export function delegationFrom(output) {
   const blocks = [...output.matchAll(/```anybot\s*\n([\s\S]*?)\n```/g)];
@@ -238,7 +244,7 @@ export class Coordinator extends EventEmitter {
     );
     this.store.transaction(() => {
       this.store.run(
-        "INSERT INTO employees(id,name,role,harness,instructions,workspace,trusted,created,model,timeoutMinutes) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO employees(id,name,role,harness,instructions,workspace,trusted,created,model,timeoutMinutes,permissionMode) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         employeeId,
         name,
         role,
@@ -249,6 +255,7 @@ export class Coordinator extends EventEmitter {
         now(),
         modelName(payload.model),
         timeoutMinutes(payload.timeoutMinutes),
+        permissionMode(payload.permissionMode),
       );
       this.store.event("employee.created", {
         employeeId,
@@ -318,7 +325,7 @@ export class Coordinator extends EventEmitter {
     );
     this.store.transaction(() => {
       this.store.run(
-        "UPDATE employees SET name=?,role=?,harness=?,instructions=?,workspace=?,model=?,timeoutMinutes=?,revision=revision+1 WHERE id=?",
+        "UPDATE employees SET name=?,role=?,harness=?,instructions=?,workspace=?,model=?,timeoutMinutes=?,permissionMode=?,revision=revision+1 WHERE id=?",
         name,
         role,
         harness,
@@ -326,6 +333,11 @@ export class Coordinator extends EventEmitter {
         workspace,
         modelName(payload.model),
         timeoutMinutes(payload.timeoutMinutes),
+        permissionMode(
+          payload.permissionMode === undefined
+            ? employee.permissionMode || "dontAsk"
+            : payload.permissionMode,
+        ),
         employee.id,
       );
       this.store.event("employee.updated", {
@@ -588,6 +600,7 @@ export class Coordinator extends EventEmitter {
         workspace: employee.workspace,
         prompt,
         signal: controller.signal,
+        permissionMode: employee.permissionMode || "dontAsk",
         onText: (output) => {
           if (
             this.closed ||

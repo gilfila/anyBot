@@ -91,6 +91,24 @@ test("built-in structured parsers expose text, final, and error semantics", () =
   assert.deepEqual(invocation("cursor"), [
     "--print", "--force", "--output-format", "stream-json", "--stream-partial-output",
   ]);
+  assert.deepEqual(invocation("cursor", "", "dontAsk"), [
+    "--print", "--force", "--output-format", "stream-json", "--stream-partial-output",
+  ]);
+  assert.deepEqual(invocation("cursor", "", "ask"), [
+    "--print", "--output-format", "stream-json", "--stream-partial-output",
+  ]);
+  assert.deepEqual(invocation("claude"), [
+    "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk",
+  ]);
+  assert.deepEqual(invocation("claude", "", "dontAsk"), [
+    "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk",
+  ]);
+  assert.deepEqual(invocation("claude", "", "ask"), [
+    "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "default",
+  ]);
+  assert.deepEqual(invocation("claude", "sonnet", "ask").slice(-4), [
+    "--permission-mode", "default", "--model", "sonnet",
+  ]);
 });
 
 test("provider model discovery reads the configured model without inventing a catalog", async (t) => {

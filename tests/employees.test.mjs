@@ -37,12 +37,14 @@ async function fixture(t) {
 
 test("employee edits preserve identity and reject stale updates", async (t) => {
   const { c, employee } = await fixture(t);
+  assert.equal(employee.permissionMode, "ask");
   const payload = {
     ...employee,
     trusted: true,
     name: "Sam the reviewer",
     harness: "claude",
     model: "sonnet",
+    permissionMode: "dontAsk",
   };
   await c.command("employees.update", payload);
   const edited = c.snapshot().employees[0];
@@ -50,6 +52,7 @@ test("employee edits preserve identity and reject stale updates", async (t) => {
   assert.equal(edited.revision, 2);
   assert.equal(edited.model, "sonnet");
   assert.equal(edited.timeoutMinutes, 10);
+  assert.equal(edited.permissionMode, "dontAsk");
   await assert.rejects(c.command("employees.update", payload), /Reload/);
   assert.deepEqual(invocation("claude", "sonnet").slice(-2), [
     "--model",
@@ -157,6 +160,25 @@ test("queued or delegated work blocks employee reconfiguration", async (t) => {
   assert.equal(c.snapshot().employees[0].name, "Sam");
 });
 
+
+test("new employees default to ask permission mode and updates persist", async (t) => {
+  const { c, employee } = await fixture(t);
+  assert.equal(employee.permissionMode, "ask");
+  await c.command("employees.update", {
+    ...employee,
+    trusted: true,
+    permissionMode: "dontAsk",
+  });
+  assert.equal(c.snapshot().employees[0].permissionMode, "dontAsk");
+  const revised = c.snapshot().employees[0];
+  await c.command("employees.update", {
+    ...revised,
+    trusted: true,
+    permissionMode: "ask",
+  });
+  assert.equal(c.snapshot().employees[0].permissionMode, "ask");
+});
+
 test("schema one employee records migrate without losing fields", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "anybot-migration-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -174,9 +196,10 @@ test("schema one employee records migrate without losing fields", async (t) => {
   assert.equal(employee.revision, 1);
   assert.equal(employee.model, "");
   assert.equal(employee.timeoutMinutes, 10);
+  assert.equal(employee.permissionMode, "dontAsk");
   assert.equal(
     store.one("SELECT value FROM metadata WHERE key='schema'").value,
-    "3",
+    "4",
   );
   store.close();
 });

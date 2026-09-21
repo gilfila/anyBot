@@ -308,8 +308,8 @@ export function childEnvironment(env = process.env) {
   );
 }
 
-export function invocation(harness, model = "") {
-  if (model) return [...invocation(harness), "--model", model];
+export function invocation(harness, model = "", permissionMode = "dontAsk") {
+  if (model) return [...invocation(harness, "", permissionMode), "--model", model];
   switch (harness) {
     case "claude":
       return [
@@ -318,7 +318,7 @@ export function invocation(harness, model = "") {
         "stream-json",
         "--verbose",
         "--permission-mode",
-        "dontAsk",
+        permissionMode === "ask" ? "default" : "dontAsk",
       ];
     case "codex":
       return [
@@ -343,13 +343,20 @@ export function invocation(harness, model = "") {
         "600",
       ];
     case "cursor":
-      return [
-        "--print",
-        "--force",
-        "--output-format",
-        "stream-json",
-        "--stream-partial-output",
-      ];
+      return permissionMode === "ask"
+        ? [
+            "--print",
+            "--output-format",
+            "stream-json",
+            "--stream-partial-output",
+          ]
+        : [
+            "--print",
+            "--force",
+            "--output-format",
+            "stream-json",
+            "--stream-partial-output",
+          ];
     default:
       throw new Error("Unknown harness");
   }
@@ -521,7 +528,7 @@ export async function probeAll(modelCatalog = {}) {
 }
 
 export async function runHarness(
-  { harness, model, workspace, prompt, signal, onText, timeoutMs = 600000 },
+  { harness, model, workspace, prompt, signal, onText, timeoutMs = 600000, permissionMode = "dontAsk" },
   { resolve = resolveExecutable, args, outputFormat } = {},
 ) {
   const executable = await resolve(harness);
@@ -532,7 +539,7 @@ export async function runHarness(
   if (signal.aborted) throw new Error("Run cancelled");
   const child = spawn(
     executable.file,
-    [...executable.prefix, ...(args ?? invocation(harness, model))],
+    [...executable.prefix, ...(args ?? invocation(harness, model, permissionMode))],
     {
       cwd: workspace,
       env: childEnvironment(),
