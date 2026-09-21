@@ -392,6 +392,75 @@ else {
       });
       return result.canceled ? null : result.filePaths[0];
     });
+    ipcMain.handle("anybot:listDirectory", async (event, dirPath) => {
+      validateSender(event);
+      try {
+        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+        return {
+          entries: entries.map((entry) => ({
+            name: entry.name,
+            path: path.join(dirPath, entry.name),
+            isDirectory: entry.isDirectory(),
+            size: entry.isFile() ? fs.statSync(path.join(dirPath, entry.name)).size : undefined,
+          })),
+        };
+      } catch (error) {
+        throw new Error(`Cannot read directory: ${error.message}`);
+      }
+    });
+    ipcMain.handle("anybot:revealPath", async (event, filePath) => {
+      validateSender(event);
+      shell.showItemInFolder(filePath);
+      return { revealed: true };
+    });
+    ipcMain.handle("anybot:runCommand", async (event, { id, command }) => {
+      validateSender(event);
+      const { spawn } = require("node:child_process");
+      return new Promise((resolve) => {
+        const isWindows = process.platform === "win32";
+        const shell = isWindows ? "cmd.exe" : "/bin/sh";
+        const shellArgs = isWindows ? ["/c", command] : ["-c", command];
+        
+        const child = spawn(shell, shellArgs, {
+          cwd: app.getPath("userData"),
+          env: { ...process.env, FORCE_COLOR: "0" },
+        });
+        
+        let output = "";
+        
+        child.stdout.on("data", (data) => {
+          const chunk = data.toString();
+          output += chunk;
+          window?.webContents.send("anybot:commandOutput", { id, chunk });
+        });
+        
+        child.stderr.on("data", (data) => {
+          const chunk = data.toString();
+          output += chunk;
+          window?.webContents.send("anybot:commandOutput", { id, chunk });
+        });
+        
+        child.on("close", (exitCode) => {
+          resolve({ output, exitCode: exitCode ?? 0 });
+        });
+        
+        child.on("error", (error) => {
+          resolve({ output: error.message, exitCode: 1 });
+        });
+        
+        setTimeout(() => {
+          if (!child.killed) {
+            child.kill();
+            resolve({ output: output + "\n[Command timed out after 60s]", exitCode: 124 });
+          }
+        }, 60000);
+      });
+    });
+    ipcMain.handle("anybot:openUrl", async (event, url) => {
+      validateSender(event);
+      shell.openExternal(url);
+      return { opened: true };
+    });
     startWorker();
     startMobileGateway().catch((error) => {
       mobileError = String(error.message);
