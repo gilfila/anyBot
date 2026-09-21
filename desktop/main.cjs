@@ -8,6 +8,7 @@ const {
   Menu,
   nativeImage,
   shell,
+  net,
 } = require("electron");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
@@ -22,6 +23,14 @@ let window,
   launchAtLogin = false,
   keepRunningInTray = true,
   userDataFallback = false;
+
+const GITHUB_OWNER = "gilfila";
+const GITHUB_REPO = "anyBot";
+const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+
+let updateInfo = null;
+let dismissedVersion = null;
+let updateCheckTimer = null;
 const pending = new Map();
 const readyWaiters = new Set();
 let mobileGateway, mobileUrl, mobileError;
@@ -115,6 +124,146 @@ function applyTrayPreference(enabled) {
   keepRunningInTray = Boolean(enabled);
   saveStartupPreference();
 }
+
+function updatePrefsPath() {
+  return path.join(app.getPath("userData"), "update-prefs.json");
+}
+
+function loadDismissedVersion() {
+  try {
+    const data = JSON.parse(fs.readFileSync(updatePrefsPath(), "utf8"));
+    return data.dismissedVersion || null;
+  } catch {
+    return null;
+  }
+}
+
+function saveDismissedVersion(version) {
+  try {
+    fs.mkdirSync(app.getPath("userData"), { recursive: true });
+    fs.writeFileSync(
+      updatePrefsPath(),
+      JSON.stringify({ dismissedVersion: version }, null, 2),
+    );
+  } catch {
+    // Preference write failure must not interrupt normal operation.
+  }
+}
+
+function compareVersions(a, b) {
+  const pa = a.replace(/^v/, "").split(".").map(Number);
+  const pb = b.replace(/^v/, "").split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na > nb) return 1;
+    if (na < nb) return -1;
+  }
+  return 0;
+}
+
+async function fetchLatestRelease() {
+  const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
+  return new Promise((resolve, reject) => {
+    const request = net.request({
+      url,
+      method: "GET",
+    });
+    request.setHeader("Accept", "application/vnd.github+json");
+    request.setHeader("User-Agent", `anyBot/${app.getVersion()}`);
+    request.setHeader("X-GitHub-Api-Version", "2022-11-28");
+
+    let data = "";
+    request.on("response", (response) => {
+      if (response.statusCode === 404) {
+        resolve(null);
+        return;
+      }
+      if (response.statusCode !== 200) {
+        reject(new Error(`GitHub API returned ${response.statusCode}`));
+        return;
+      }
+      response.on("data", (chunk) => {
+        data += chunk.toString();
+      });
+      response.on("end", () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch (e) {
+          reject(e);
+        }
+      });
+      response.on("error", reject);
+    });
+    request.on("error", reject);
+    request.end();
+  });
+}
+
+async function checkForUpdates() {
+  try {
+    const release = await fetchLatestRelease();
+    if (!release || !release.tag_name) {
+      updateInfo = null;
+      return null;
+    }
+
+    const currentVersion = app.getVersion();
+    const latestVersion = release.tag_name.replace(/^v/, "");
+
+    if (compareVersions(latestVersion, currentVersion) > 0) {
+      updateInfo = {
+        version: latestVersion,
+        tagName: release.tag_name,
+        name: release.name || `Version ${latestVersion}`,
+        body: release.body || "",
+        url: release.html_url,
+        publishedAt: release.published_at,
+      };
+    } else {
+      updateInfo = null;
+    }
+  } catch {
+    // Network errors or API failures should not disrupt the app.
+    // Keep the previous updateInfo state.
+  }
+  return updateInfo;
+}
+
+function getUpdateState() {
+  if (!updateInfo) return null;
+  if (dismissedVersion && compareVersions(updateInfo.version, dismissedVersion) <= 0) {
+    return null;
+  }
+  return updateInfo;
+}
+
+function dismissUpdate(version) {
+  if (version) {
+    dismissedVersion = version;
+    saveDismissedVersion(version);
+  }
+}
+
+function startUpdateChecker() {
+  dismissedVersion = loadDismissedVersion();
+  checkForUpdates().then(() => {
+    window?.webContents.send("anybot:changed");
+  });
+  updateCheckTimer = setInterval(() => {
+    checkForUpdates().then(() => {
+      window?.webContents.send("anybot:changed");
+    });
+  }, UPDATE_CHECK_INTERVAL_MS);
+}
+
+function stopUpdateChecker() {
+  if (updateCheckTimer) {
+    clearInterval(updateCheckTimer);
+    updateCheckTimer = null;
+  }
+}
+
 // Some Windows hosts have a broken or unavailable GPU driver. Keep the
 // local-first desktop shell usable by using Chromium's software compositor.
 app.commandLine.appendSwitch("disable-gpu");
@@ -158,13 +307,30 @@ else {
         return {
           ...result,
           runtime: { ...result.runtime, launchAtLogin, keepRunningInTray, userDataFallback },
+          update: getUpdateState(),
         };
       }
       if (method === "snapshot") {
         await waitForReady();
         const result = await request(method, payload);
         result.runtime = { ...result.runtime, launchAtLogin, keepRunningInTray, userDataFallback };
+        result.update = getUpdateState();
         return result;
+      }
+      if (method === "update.check") {
+        await checkForUpdates();
+        return { update: getUpdateState() };
+      }
+      if (method === "update.dismiss") {
+        dismissUpdate(payload?.version);
+        return { dismissed: true };
+      }
+      if (method === "update.open") {
+        const update = getUpdateState();
+        if (update?.url) {
+          shell.openExternal(update.url);
+        }
+        return { opened: !!update?.url };
       }
       if (method === "mobile.status")
         return {
@@ -179,6 +345,7 @@ else {
         await waitForReady();
         const result = await request("snapshot");
         result.runtime = { ...result.runtime, launchAtLogin, keepRunningInTray, userDataFallback };
+        result.update = getUpdateState();
         return result;
       }
       if (method === "mobile.pair") {
@@ -230,6 +397,7 @@ else {
       mobileError = String(error.message);
     });
     showWindow();
+    startUpdateChecker();
     const pixels = Buffer.alloc(16 * 16 * 4);
     for (let y = 0; y < 16; y++)
       for (let x = 0; x < 16; x++) {
@@ -404,6 +572,7 @@ app.on("before-quit", (event) => {
   if (quitting) return;
   event.preventDefault();
   quitting = true;
+  stopUpdateChecker();
   void mobileGateway?.close();
   ready = false;
   if (!worker) {

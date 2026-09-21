@@ -7,6 +7,7 @@ export const empty = {
   artifacts: [],
   harnesses: [],
   runtime: { paused: false, active: 0 },
+  update: null,
 };
 export const time = (date) =>
   new Date(date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
