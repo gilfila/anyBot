@@ -57,6 +57,8 @@ export function App() {
     [voiceAgent, setVoiceAgent] = useState(null);
   const recognition = useRef(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [dismissedRuns, setDismissedRuns] = useState(new Set());
+  const [lastSeenMessages, setLastSeenMessages] = useState({});
   const end = useRef(null);
   async function openArtifact(artifact) {
     setError("");
@@ -135,6 +137,11 @@ export function App() {
     );
     setView("chat");
     setDraft("");
+    const convMessages = data.messages.filter((m) => m.conversation === c.id);
+    const latestId = convMessages.length > 0 ? convMessages[convMessages.length - 1].id : null;
+    if (latestId) {
+      setLastSeenMessages((prev) => ({ ...prev, [c.id]: latestId }));
+    }
   }
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: "smooth" });
@@ -223,7 +230,10 @@ export function App() {
       title: employee.name,
       members: [employee.id],
     });
-    if (next) openConversation(next.conversations.at(-1));
+    if (next) {
+      const created = next.conversations.at(-1);
+      openConversation(created);
+    }
   }
   const sidebarTerm = sidebarSearch.trim().toLowerCase();
   const sidebarEmployees = data.employees
@@ -232,6 +242,23 @@ export function App() {
   const groupConversations = data.conversations.filter(
     (item) => item.members.length > 1 && (!sidebarTerm || item.title.toLowerCase().includes(sidebarTerm)),
   );
+  function getConversationForEmployee(employeeId) {
+    return data.conversations.find(
+      (c) => c.members.length === 1 && c.members[0] === employeeId,
+    );
+  }
+  function hasUnreadMessages(convId) {
+    if (!convId) return false;
+    const convMessages = data.messages.filter((m) => m.conversation === convId && m.author !== "human");
+    if (convMessages.length === 0) return false;
+    const lastSeenId = lastSeenMessages[convId];
+    if (!lastSeenId) return convMessages.length > 0;
+    const lastSeenIndex = convMessages.findIndex((m) => m.id === lastSeenId);
+    return lastSeenIndex < convMessages.length - 1;
+  }
+  function dismissRun(runId) {
+    setDismissedRuns((prev) => new Set([...prev, runId]));
+  }
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -260,18 +287,11 @@ export function App() {
         <div className="nav-label">WORKSPACE</div>
         <nav>
           <button
-            className={view === "team" ? "selected" : ""}
-            onClick={() => setView("team")}
-          >
-            <Users size={18} />
-            Your team<span className="nav-count">{data.employees.length}</span>
-          </button>
-          <button
             className={view === "work" ? "selected" : ""}
             onClick={() => setView("work")}
           >
             <Workflow size={18} />
-            Work activity
+            Activity
             {data.runtime.active > 0 && (
               <span className="nav-count">{data.runtime.active}</span>
             )}
@@ -283,33 +303,31 @@ export function App() {
             <Clock size={18} />
             Routines
           </button>
-          <button
-            className={view === "harnesses" ? "selected" : ""}
-            onClick={() => setView("harnesses")}
-          >
-            <Cpu size={18} />
-            Harnesses
-          </button>
         </nav>
         <div className="nav-label conversation-label">
           BOTS
           <span>{sidebarEmployees.length}</span>
         </div>
         <div className="conversation-list bot-list">
-          {sidebarEmployees.map((employee) => (
-            <button
-              key={employee.id}
-              className={
-                view === "chat" && conversation?.members.length === 1 && conversation.members[0] === employee.id
-                  ? "selected"
-                  : ""
-              }
-              onClick={() => directChat(employee)}
-            >
-              <Avatar small employee={employee} />
-              <span>{employee.name}</span>
-            </button>
-          ))}
+          {sidebarEmployees.map((employee) => {
+            const botConv = getConversationForEmployee(employee.id);
+            const unread = botConv && hasUnreadMessages(botConv.id);
+            return (
+              <button
+                key={employee.id}
+                className={
+                  view === "chat" && conversation?.members.length === 1 && conversation.members[0] === employee.id
+                    ? "selected"
+                    : ""
+                }
+                onClick={() => directChat(employee)}
+              >
+                <Avatar small employee={employee} />
+                <span>{employee.name}</span>
+                {unread && <i className="unread-dot" />}
+              </button>
+            );
+          })}
           {!sidebarEmployees.length && <p className="side-empty">No bots match your search.</p>}
         </div>
         <div className="nav-label conversation-label">
@@ -326,18 +344,22 @@ export function App() {
           {groupConversations.length === 0 ? (
             <p className="side-empty">Your group conversations will live here.</p>
           ) : (
-            groupConversations.map((c) => (
-              <button
-                key={c.id}
-                className={
-                  view === "chat" && c.id === conversationId ? "selected" : ""
-                }
-                onClick={() => openConversation(c)}
-              >
-                <MessageSquare size={16} />
-                <span>{c.title}</span>
-              </button>
-            ))
+            groupConversations.map((c) => {
+              const unread = hasUnreadMessages(c.id);
+              return (
+                <button
+                  key={c.id}
+                  className={
+                    view === "chat" && c.id === conversationId ? "selected" : ""
+                  }
+                  onClick={() => openConversation(c)}
+                >
+                  <MessageSquare size={16} />
+                  <span>{c.title}</span>
+                  {unread && <i className="unread-dot" />}
+                </button>
+              );
+            })
           )}
         </div>
         <div className="sidebar-bottom">
@@ -382,10 +404,10 @@ export function App() {
               {
                 {
                   team: "Your team",
-                  work: "Work activity",
+                  work: "Activity",
                   routines: "Routines",
                   harnesses: "Harnesses",
-                  settings: "Runtime & privacy",
+                  settings: "Settings",
                   chat: conversation?.title || "Conversation",
                 }[view]
               }
@@ -754,15 +776,25 @@ export function App() {
                 ))}
                 {runs
                   .filter((r) =>
-                    ["failed", "interrupted", "cancelled"].includes(r.status),
+                    ["failed", "interrupted", "cancelled"].includes(r.status) &&
+                    !dismissedRuns.has(r.id),
                   )
                   .map((r) => (
                     <div className="run-notice" key={r.id}>
-                      <Status status={r.status} />
-                      <span>
-                        {data.employees.find((e) => e.id === r.employee)?.name}:{" "}
-                        {r.error || "Stopped by you."}
-                      </span>
+                      <div className="run-notice-content">
+                        <Status status={r.status} />
+                        <span>
+                          {data.employees.find((e) => e.id === r.employee)?.name}:{" "}
+                          {r.error || "Stopped by you."}
+                        </span>
+                      </div>
+                      <button
+                        className="run-notice-dismiss"
+                        aria-label="Dismiss notice"
+                        onClick={() => dismissRun(r.id)}
+                      >
+                        <X size={14} />
+                      </button>
                     </div>
                   ))}
                 <div ref={end} />
@@ -900,7 +932,7 @@ export function App() {
           <div className="page">
             <PageTitle
               eyebrow="FOLLOW THE WORK"
-              title="Work activity"
+              title="Activity"
               description="Every assignment, handoff, and result — in one place."
             />
             <div className="activity-summary">
@@ -1039,10 +1071,37 @@ export function App() {
         {view === "settings" && (
           <div className="page">
             <PageTitle
-              eyebrow="LOCAL FIRST"
-              title="Runtime & privacy"
-              description="Your workspace runs here, under your desktop account."
+              eyebrow="CONFIGURE YOUR WORKSPACE"
+              title="Settings"
+              description="Manage your team, harnesses, and runtime preferences."
             />
+            <div className="settings-nav">
+              <button
+                className="settings-nav-item"
+                onClick={() => setView("team")}
+              >
+                <Users size={18} />
+                <div>
+                  <strong>Your team</strong>
+                  <small>Manage your AI employees</small>
+                </div>
+                <span className="settings-nav-count">{data.employees.length}</span>
+                <ChevronRight size={16} />
+              </button>
+              <button
+                className="settings-nav-item"
+                onClick={() => setView("harnesses")}
+              >
+                <Cpu size={18} />
+                <div>
+                  <strong>Harnesses</strong>
+                  <small>Connect AI tools and engines</small>
+                </div>
+                <span className="settings-nav-count">{data.harnesses.length}</span>
+                <ChevronRight size={16} />
+              </button>
+            </div>
+            <h2 className="settings-section-title">Runtime & Privacy</h2>
             <div className="settings-card">
               <div>
                 <h3>Background work</h3>
