@@ -6,6 +6,12 @@ The current product is intentionally local-owner first. The Electron desktop app
 
 ## Release history
 
+### 0.2.14
+
+- Slime avatars for employees (PR #4)
+- Working indicator at the bottom of chat (PR #4)
+- Collapsible sidebars (PR #4)
+
 ### 0.2.13
 
 - UI polish: dismissible banners, simplified sidebar, unread indicators (PR #1)
@@ -36,7 +42,7 @@ If the renderer or coordinator fails before the workspace appears, anyBot record
 
 ### Windows launch recovery
 
-If an older installation shows a Windows breakpoint dialog or does nothing, use the current NSIS installer [`release/anyBot Setup 0.2.13.exe`](release/anyBot%20Setup%200.2.13.exe), the verified launcher in [`release/Launch anyBot.cmd`](release/Launch%20anyBot.cmd), or [`release/win-unpacked/anyBot.exe`](release/win-unpacked/anyBot.exe). A portable self-extractor is available at [`release/anyBot 0.2.13.exe`](release/anyBot%200.2.13.exe) when the NSIS installer is inconvenient. Remove the stale **anyBot** entry from Windows Settings â†’ Apps before reinstalling; an ACL-corrupted `%LOCALAPPDATA%\\Programs\\anyBot` directory can prevent Windows from replacing the old executable.
+If an older installation shows a Windows breakpoint dialog or does nothing, use the current NSIS installer [`release/anyBot Setup 0.2.14.exe`](release/anyBot%20Setup%200.2.14.exe), the verified launcher in [`release/Launch anyBot.cmd`](release/Launch%20anyBot.cmd), or [`release/win-unpacked/anyBot.exe`](release/win-unpacked/anyBot.exe). A portable self-extractor is available at [`release/anyBot 0.2.14.exe`](release/anyBot%200.2.14.exe) when the NSIS installer is inconvenient. Remove the stale **anyBot** entry from Windows Settings â†’ Apps before reinstalling; an ACL-corrupted `%LOCALAPPDATA%\\Programs\\anyBot` directory can prevent Windows from replacing the old executable.
 
 To verify downloaded binaries against the tested build, run `npm run release:manifest` and compare the generated [`release/SHA256SUMS.txt`](release/SHA256SUMS.txt). The manifest is an integrity check, not a code-signing replacement.
 
