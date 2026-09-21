@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   Archive,
   ArrowUp,
@@ -13,6 +13,8 @@ import {
   ExternalLink,
   Folder,
   FileText,
+  FolderTree,
+  Globe,
   Mic,
   MessageSquare,
   Monitor,
@@ -28,6 +30,7 @@ import {
   Settings2,
   ShieldCheck,
   Square,
+  Terminal,
   Users,
   Workflow,
   Volume2,
@@ -47,6 +50,9 @@ import { EmployeeForm } from "./components/EmployeeForm.jsx";
 import { ConversationForm } from "./components/ConversationForm.jsx";
 import { ConversationMembersForm } from "./components/ConversationMembersForm.jsx";
 import { RoutineForm } from "./components/RoutineForm.jsx";
+import { MessageContent } from "./components/MessageContent.jsx";
+import { WorkspaceTools } from "./components/WorkspaceTools.jsx";
+import { HtmlPreviewModal } from "./components/HtmlPreviewModal.jsx";
 
 export function App() {
   const harnessName = (id) =>
@@ -79,6 +85,11 @@ export function App() {
       return saved !== null ? JSON.parse(saved) : true;
     } catch { return true; }
   });
+  const [activeToolsPanel, setActiveToolsPanel] = useState(null);
+  const [htmlPreview, setHtmlPreview] = useState(null);
+  const [browserUrl, setBrowserUrl] = useState('');
+  const [browserHtml, setBrowserHtml] = useState('');
+  const [explorerPath, setExplorerPath] = useState('');
   const end = useRef(null);
   
   function toggleLeftSidebar() {
@@ -96,6 +107,24 @@ export function App() {
       return next;
     });
   }
+  
+  const openHtmlPreview = useCallback((html, type) => {
+    setHtmlPreview({ html, type });
+  }, []);
+  
+  const openInBrowser = useCallback((html) => {
+    setBrowserHtml(html);
+    setActiveToolsPanel('browser');
+    setHtmlPreview(null);
+  }, []);
+  
+  const toggleToolsPanel = useCallback((panel) => {
+    if (activeToolsPanel === panel) {
+      setActiveToolsPanel(null);
+    } else {
+      setActiveToolsPanel(panel);
+    }
+  }, [activeToolsPanel]);
   async function openArtifact(artifact) {
     setError("");
     try {
@@ -296,7 +325,7 @@ export function App() {
     setDismissedRuns((prev) => new Set([...prev, runId]));
   }
   return (
-    <div className="app-shell">
+    <div className={`app-shell${activeToolsPanel ? ' tools-open' : ''}`}>
       <aside className={`sidebar ${leftSidebarOpen ? "" : "collapsed"}`}>
         <div className="brand">
           <span className="brand-mark">
@@ -459,6 +488,32 @@ export function App() {
             </strong>
           </div>
           <div className="topbar-right">
+            <div className="workspace-tools-toggle">
+              <button 
+                className={activeToolsPanel === 'browser' ? 'active' : ''}
+                onClick={() => toggleToolsPanel('browser')}
+                title="In-app browser"
+              >
+                <Globe size={14} />
+                Browser
+              </button>
+              <button 
+                className={activeToolsPanel === 'terminal' ? 'active' : ''}
+                onClick={() => toggleToolsPanel('terminal')}
+                title="Terminal"
+              >
+                <Terminal size={14} />
+                Terminal
+              </button>
+              <button 
+                className={activeToolsPanel === 'files' ? 'active' : ''}
+                onClick={() => toggleToolsPanel('files')}
+                title="File explorer"
+              >
+                <FolderTree size={14} />
+                Files
+              </button>
+            </div>
             <span className="local-label">
               <Monitor size={14} />
               On this computer
@@ -803,7 +858,16 @@ export function App() {
                           </span>
                         )}
                       </div>
-                      <div className="message-body">{m.body}</div>
+                      <div className="message-body">
+                        <MessageContent 
+                          body={m.body} 
+                          onOpenPreview={openHtmlPreview}
+                          onOpenBrowser={(url) => {
+                            setBrowserUrl(url);
+                            setActiveToolsPanel('browser');
+                          }}
+                        />
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -1496,6 +1560,22 @@ export function App() {
             />
           )}
         </Modal>
+      )}
+      <WorkspaceTools
+        activePanel={activeToolsPanel}
+        onClose={setActiveToolsPanel}
+        browserUrl={browserUrl}
+        browserHtml={browserHtml}
+        explorerPath={explorerPath}
+        onBrowserNavigate={(url) => setBrowserUrl(url)}
+        onExplorerSelect={(path) => setExplorerPath(path)}
+      />
+      {htmlPreview && (
+        <HtmlPreviewModal
+          html={htmlPreview.html}
+          onClose={() => setHtmlPreview(null)}
+          onOpenInBrowser={openInBrowser}
+        />
       )}
     </div>
   );
