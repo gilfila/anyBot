@@ -4,6 +4,17 @@ anyBot is a local-first workspace for named AI employees. It combines a Grok-sty
 
 The current product is intentionally local-owner first. The Electron desktop app is the primary runtime; the mobile companion and headless server reuse the same coordinator and scoped HTTP gateway.
 
+## Release history
+
+### 0.2.13
+
+- UI polish: dismissible banners, simplified sidebar, unread indicators (PR #1)
+- Update notification near Settings when new releases are available (PR #2)
+
+### 0.2.12
+
+- Bump version and installer references for initial Windows packaging.
+
 ## Start locally
 
 ```powershell
@@ -25,7 +36,7 @@ If the renderer or coordinator fails before the workspace appears, anyBot record
 
 ### Windows launch recovery
 
-If an older installation shows a Windows breakpoint dialog or does nothing, use the current NSIS installer [`release/anyBot Setup 0.2.12.exe`](release/anyBot%20Setup%200.2.12.exe), the verified launcher in [`release/Launch anyBot.cmd`](release/Launch%20anyBot.cmd), or [`release/win-unpacked/anyBot.exe`](release/win-unpacked/anyBot.exe). A portable self-extractor is available at [`release/anyBot 0.2.12.exe`](release/anyBot%200.2.12.exe) when the NSIS installer is inconvenient. Remove the stale **anyBot** entry from Windows Settings â†’ Apps before reinstalling; an ACL-corrupted `%LOCALAPPDATA%\\Programs\\anyBot` directory can prevent Windows from replacing the old executable.
+If an older installation shows a Windows breakpoint dialog or does nothing, use the current NSIS installer [`release/anyBot Setup 0.2.13.exe`](release/anyBot%20Setup%200.2.13.exe), the verified launcher in [`release/Launch anyBot.cmd`](release/Launch%20anyBot.cmd), or [`release/win-unpacked/anyBot.exe`](release/win-unpacked/anyBot.exe). A portable self-extractor is available at [`release/anyBot 0.2.13.exe`](release/anyBot%200.2.13.exe) when the NSIS installer is inconvenient. Remove the stale **anyBot** entry from Windows Settings â†’ Apps before reinstalling; an ACL-corrupted `%LOCALAPPDATA%\\Programs\\anyBot` directory can prevent Windows from replacing the old executable.
 
 To verify downloaded binaries against the tested build, run `npm run release:manifest` and compare the generated [`release/SHA256SUMS.txt`](release/SHA256SUMS.txt). The manifest is an integrity check, not a code-signing replacement.
 
