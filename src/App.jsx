@@ -16,6 +16,10 @@ import {
   Mic,
   MessageSquare,
   Monitor,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Pause,
   Play,
   Plus,
@@ -32,6 +36,8 @@ import {
 import { presets, names } from "./constants.js";
 import { empty, time } from "./lib/ui.js";
 import { Avatar } from "./components/Avatar.jsx";
+import { SlimeAvatar } from "./components/SlimeAvatar.jsx";
+import { WorkingIndicator } from "./components/WorkingIndicator.jsx";
 import { Status } from "./components/Status.jsx";
 import { Empty } from "./components/Empty.jsx";
 import { Modal } from "./components/Modal.jsx";
@@ -61,7 +67,35 @@ export function App() {
   const [showArchived, setShowArchived] = useState(false);
   const [dismissedRuns, setDismissedRuns] = useState(new Set());
   const [lastSeenMessages, setLastSeenMessages] = useState({});
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(() => {
+    try {
+      const saved = localStorage.getItem("anybot-left-sidebar");
+      return saved !== null ? JSON.parse(saved) : true;
+    } catch { return true; }
+  });
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(() => {
+    try {
+      const saved = localStorage.getItem("anybot-right-sidebar");
+      return saved !== null ? JSON.parse(saved) : true;
+    } catch { return true; }
+  });
   const end = useRef(null);
+  
+  function toggleLeftSidebar() {
+    setLeftSidebarOpen((prev) => {
+      const next = !prev;
+      try { localStorage.setItem("anybot-left-sidebar", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }
+  
+  function toggleRightSidebar() {
+    setRightSidebarOpen((prev) => {
+      const next = !prev;
+      try { localStorage.setItem("anybot-right-sidebar", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }
   async function openArtifact(artifact) {
     setError("");
     try {
@@ -263,7 +297,7 @@ export function App() {
   }
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <aside className={`sidebar ${leftSidebarOpen ? "" : "collapsed"}`}>
         <div className="brand">
           <span className="brand-mark">
             <Bot size={22} />
@@ -324,7 +358,7 @@ export function App() {
                 }
                 onClick={() => directChat(employee)}
               >
-                <Avatar small employee={employee} />
+                <SlimeAvatar small employee={employee} />
                 <span>{employee.name}</span>
                 {unread && <i className="unread-dot" />}
               </button>
@@ -400,7 +434,15 @@ export function App() {
       </aside>
       <main>
         <header className="topbar">
-          <div>
+          <div className="topbar-left">
+            <button
+              className="sidebar-toggle"
+              onClick={toggleLeftSidebar}
+              title={leftSidebarOpen ? "Hide sidebar" : "Show sidebar"}
+              aria-label={leftSidebarOpen ? "Hide sidebar" : "Show sidebar"}
+            >
+              {leftSidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
+            </button>
             <span>Workspace</span>
             <ChevronRight size={14} />
             <strong>
@@ -424,6 +466,16 @@ export function App() {
             <span className="version">
               {data.runtime.version ? `v${data.runtime.version}` : "Preview"}
             </span>
+            {view === "chat" && conversation && (
+              <button
+                className="sidebar-toggle"
+                onClick={toggleRightSidebar}
+                title={rightSidebarOpen ? "Hide context panel" : "Show context panel"}
+                aria-label={rightSidebarOpen ? "Hide context panel" : "Show context panel"}
+              >
+                {rightSidebarOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
+              </button>
+            )}
           </div>
         </header>
         {!window.anybot && (
@@ -534,7 +586,9 @@ export function App() {
                 .map((e) => (
                   <article className="employee-card" key={e.id}>
                     <div className="card-top">
-                      <Avatar employee={e} />
+                      <SlimeAvatar employee={e} working={data.runs.some(
+                        (r) => r.employee === e.id && r.status === "running"
+                      )} />
                       <Status
                         status={
                           e.archived
@@ -614,7 +668,7 @@ export function App() {
               {(data.employees.length ? [] : presets).map((p) => (
                 <article className="employee-card template" key={p.harness}>
                   <div className="card-top">
-                    <Avatar employee={p} />
+                    <SlimeAvatar employee={p} />
                     <span className="template-label">ROLE TEMPLATE</span>
                   </div>
                   <h3>{p.role}</h3>
@@ -670,13 +724,18 @@ export function App() {
                   </p>
                 </div>
                 <div className="avatar-stack">
-                  {conversation.members.map((id) => (
-                    <Avatar
-                      small
-                      key={id}
-                      employee={data.employees.find((e) => e.id === id)}
-                    />
-                  ))}
+                  {conversation.members.map((id) => {
+                    const emp = data.employees.find((e) => e.id === id);
+                    const isWorking = activeRuns.some((r) => r.employee === id);
+                    return (
+                      <SlimeAvatar
+                        small
+                        key={id}
+                        employee={emp}
+                        working={isWorking}
+                      />
+                    );
+                  })}
                   <button
                     type="button"
                     className="secondary"
@@ -720,14 +779,14 @@ export function App() {
                 )}
                 {messages.map((m) => (
                   <div className={`message ${m.kind}`} key={m.id}>
-                    <Avatar
-                      small
-                      employee={
-                        m.author === "human"
-                          ? { name: "Y" }
-                          : data.employees.find((e) => e.id === m.author)
-                      }
-                    />
+                    {m.author === "human" ? (
+                      <Avatar small employee={{ name: "Y" }} />
+                    ) : (
+                      <SlimeAvatar
+                        small
+                        employee={data.employees.find((e) => e.id === m.author)}
+                      />
+                    )}
                     <div className="message-content">
                       <div className="message-meta">
                         <strong>
@@ -750,9 +809,10 @@ export function App() {
                 ))}
                 {activeRuns.map((r) => (
                   <div className="message" key={r.id}>
-                    <Avatar
+                    <SlimeAvatar
                       small
                       employee={data.employees.find((e) => e.id === r.employee)}
+                      working
                     />
                     <div className="message-content">
                       <div className="message-meta">
@@ -802,6 +862,11 @@ export function App() {
                   ))}
                 <div ref={end} />
               </div>
+              <WorkingIndicator
+                runs={activeRuns}
+                employees={data.employees}
+                onStopAll={activeRuns.length > 0 ? () => act("runtime.stopAll") : null}
+              />
               <form className="composer" onSubmit={send}>
                 <div className="recipient-row">
                   <span>To</span>
@@ -870,13 +935,14 @@ export function App() {
                 Local harnesses use your configured accounts and permissions.
               </div>
             </section>
-            <aside className="context-panel">
+            <aside className={`context-panel ${rightSidebarOpen ? "" : "collapsed"}`}>
               <div className="eyebrow">IN THIS CONVERSATION</div>
               {conversation.members.map((id) => {
                 const e = data.employees.find((e) => e.id === id);
+                const isWorking = activeRuns.some((r) => r.employee === id);
                 return (
                   <div className="participant" key={id}>
-                    <Avatar small employee={e} />
+                    <SlimeAvatar small employee={e} working={isWorking} />
                     <div>
                       <strong>{e?.name}</strong>
                       <small>{e?.role}</small>
@@ -967,9 +1033,10 @@ export function App() {
               <div className="run-list">
                 {[...data.runs].reverse().map((r) => (
                   <article className="run-row" key={r.id}>
-                    <Avatar
+                    <SlimeAvatar
                       small
                       employee={data.employees.find((e) => e.id === r.employee)}
+                      working={r.status === "running"}
                     />
                     <div className="run-description">
                       <strong>
