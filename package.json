@@ -1,0 +1,90 @@
+{
+  "name": "anybot-desktop",
+  "version": "0.2.11",
+  "private": true,
+  "description": "A local workspace for your team of AI employees",
+  "author": "anyBot contributors",
+  "type": "module",
+  "main": "desktop/main.cjs",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "overrides": {
+    "xcode": {
+      "uuid": "11.1.1"
+    }
+  },
+  "scripts": {
+    "dev": "vite",
+    "prestart": "npm run build",
+    "start": "electron .",
+    "build": "vite build",
+    "test": "node --test tests/*.test.mjs",
+    "test:runtime": "electron tests/electron-runtime.cjs",
+    "verify:local": "node scripts/verify-local.mjs",
+    "mobile:web": "vite build --config mobile/vite.config.mjs",
+    "mobile:sync": "npm run mobile:web && npx cap sync",
+    "mobile:build": "node scripts/mobile-build.mjs",
+    "mobile:dev": "npm run mobile:sync && npx cap open android",
+    "package": "npm run build && node scripts/package-electron.mjs --win nsis --config.electronDist=./node_modules/electron/dist --config.win.signAndEditExecutable=false",
+    "package:portable": "npm run build && node scripts/package-electron.mjs --win portable --config.electronDist=./node_modules/electron/dist --config.win.signAndEditExecutable=false",
+    "release:manifest": "node scripts/release-manifest.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "package:dir": "npm run build && node scripts/package-electron.mjs --dir --config.electronDist=./node_modules/electron/dist --config.win.signAndEditExecutable=false"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/ios": "^8.5.2",
+    "lucide-react": "^1.47.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2",
+    "@playwright/test": "^1.63.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "electron": "^44.4.3",
+    "electron-builder": "^26.15.3",
+    "prettier": "^3.9.8",
+    "vite": "^8.3.0"
+  },
+  "build": {
+    "appId": "dev.anybot.desktop",
+    "productName": "anyBot",
+    "asar": true,
+    "files": [
+      "dist/**/*",
+      "desktop/**/*",
+      "runtime/**/*",
+      "server/**/*",
+      "games/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "runAfterFinish": false
+    }
+  }
+}

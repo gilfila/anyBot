@@ -1,0 +1,14 @@
+{
+  "conversation": "snake-artifact-design",
+  "participants": [
+    { "name": "Mira", "role": "Snake Architect", "harness": "codex" },
+    { "name": "Sol", "role": "Snake Artist", "harness": "claude" }
+  ],
+  "messages": [
+    { "from": "human", "body": "Build a playable Snake game with persistent high scores and custom graphics. Keep it portable so we can verify it as an anyBot artifact." },
+    { "from": "Mira", "body": "I propose a deterministic 24x24 fixed-tick board, no instant reversal, speed increases every five orbs, and localStorage for the top five scores. I will own collision and input acceptance." },
+    { "from": "Sol", "body": "I will give it an Orbit Snake identity: a deep-space grid, glowing energy orb, expressive snake face, particle trail, and high-contrast overlays that remain readable on a phone. I will keep every visual procedural so the artifact has no missing assets." },
+    { "from": "Mira", "body": "Agreed. The acceptance check will start a run, steer, verify score and length growth, force a collision, reload, and confirm the high-score row persists." },
+    { "from": "Sol", "body": "The final handoff is games/snake/index.html plus the gameplan and browser test. It is playable locally and ready to attach to a conversation artifact." }
+  ]
+}

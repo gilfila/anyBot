@@ -1,0 +1,23 @@
+{
+  "host": "127.0.0.1",
+  "port": 4319,
+  "publicUrl": "https://agents.example.com",
+  "dataDir": "/var/lib/anybot",
+  "concurrency": 2,
+  "origins": ["https://agents.example.com"],
+  "members": [
+    { "id": "owner-subject-from-idp", "name": "Workspace owner", "role": "owner" },
+    { "id": "alice-subject-from-idp", "name": "Alice", "role": "member" }
+  ],
+  "identity": {
+    "issuer": "https://login.example.com/",
+    "audience": "anybot",
+    "jwksPath": "/etc/anybot/oidc-jwks.json",
+    "memberClaim": "sub",
+    "deviceRole": "contributor"
+  },
+  "tls": {
+    "certPath": "/etc/anybot/tls/fullchain.pem",
+    "keyPath": "/etc/anybot/tls/privkey.pem"
+  }
+}

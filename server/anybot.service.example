@@ -1,0 +1,30 @@
+[Unit]
+Description=anyBot AI employee coordinator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=anybot
+Group=anybot
+WorkingDirectory=/opt/anybot
+Environment=NODE_ENV=production
+Environment=ANYBOT_SERVER_CONFIG=/etc/anybot/server.json
+ExecStart=/usr/bin/node /opt/anybot/server/index.mjs --config /etc/anybot/server.json
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/anybot
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+LimitNOFILE=8192
+
+[Install]
+WantedBy=multi-user.target

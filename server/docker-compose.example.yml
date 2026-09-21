@@ -1,0 +1,30 @@
+services:
+  anybot:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:4319:4319"
+    volumes:
+      - ./data:/data
+      - ./config:/etc/anybot:ro
+    environment:
+      ANYBOT_SERVER_CONFIG: /etc/anybot/server.json
+    restart: unless-stopped
+    mem_limit: 2g
+    cpus: "2.0"
+    pids_limit: 256
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4319/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

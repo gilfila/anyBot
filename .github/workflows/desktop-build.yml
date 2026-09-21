@@ -1,0 +1,53 @@
+name: Desktop build
+
+on:
+  push:
+    paths:
+      - "desktop/**"
+      - "runtime/**"
+      - "server/**"
+      - "src/**"
+      - "games/**"
+      - "scripts/**"
+      - "tests/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/desktop-build.yml"
+  pull_request:
+    paths:
+      - "desktop/**"
+      - "runtime/**"
+      - "server/**"
+      - "src/**"
+      - "games/**"
+      - "scripts/**"
+      - "tests/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/desktop-build.yml"
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run doctor
+      - run: npm run build
+      - run: npm run test:runtime
+      - run: npm run package
+      - run: npm run package:portable
+      - run: npm run release:manifest
+      - uses: actions/upload-artifact@v4
+        with:
+          name: anyBot-windows
+          path: |
+            release/anyBot 0.2.6.exe
+            release/anyBot Setup 0.2.6.exe
+            release/SHA256SUMS.txt
+          if-no-files-found: error

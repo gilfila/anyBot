@@ -1,0 +1,14 @@
+{
+  "name": "anyBot mobile",
+  "short_name": "anyBot",
+  "description": "A private mobile workspace for your anyBot team.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f7f8fc",
+  "theme_color": "#f7f8fc",
+  "icons": [
+    { "src": "./anybot-mark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

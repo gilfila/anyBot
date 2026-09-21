@@ -1,0 +1,34 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { backupDataDirectory } from "../server/backup.mjs";
+import { restoreBackup } from "../server/restore.mjs";
+
+test("server backup captures durable workspace state with hashes and rejects links", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "anybot-backup-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const source = join(root, "data"), destination = join(root, "backups");
+  await mkdir(join(source, "artifacts"), { recursive: true });
+  await mkdir(join(source, "workspaces", "employee"), { recursive: true });
+  await writeFile(join(source, "anybot.sqlite"), "sqlite");
+  await writeFile(join(source, "mobile-membership.json"), "{}");
+  await writeFile(join(source, "members.json"), "[{\"id\":\"owner\",\"role\":\"owner\"}]");
+  await writeFile(join(source, "artifacts", "answer.txt"), "42");
+  await writeFile(join(source, "workspaces", "employee", "notes.md"), "notes");
+  const result = await backupDataDirectory({ source, destination, now: new Date("2026-09-20T13:00:00.000Z") });
+  assert.equal(result.files.length, 5);
+  const manifest = JSON.parse(await readFile(join(result.directory, "manifest.json"), "utf8"));
+  assert.equal(manifest.files.find((f) => f.path === "artifacts/answer.txt").bytes, 2);
+  const restored = join(root, "restored-data");
+  assert.deepEqual(await restoreBackup({ backup: result.directory, destination: restored }), { directory: restored, files: 5 });
+  assert.match(await readFile(join(restored, "members.json"), "utf8"), /owner/);
+  assert.equal(await readFile(join(restored, "workspaces", "employee", "notes.md"), "utf8"), "notes");
+  await assert.rejects(restoreBackup({ backup: result.directory, destination: restored }), /already exists/);
+  const tampered = join(root, "tampered");
+  await mkdir(tampered);
+  await writeFile(join(tampered, "manifest.json"), JSON.stringify({ ...manifest, files: [{ ...manifest.files[0], sha256: "0".repeat(64) }] }));
+  await writeFile(join(tampered, manifest.files[0].path), "sqlite");
+  await assert.rejects(restoreBackup({ backup: tampered, destination: join(root, "tampered-restore") }), /manifest mismatch/);
+});

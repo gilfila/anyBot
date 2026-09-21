@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#080b18" />
+<title>Orbit Snake</title>
+<link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+<main class="shell">
+<header class="topbar"><div><p class="kicker">ANYBOT ARTIFACT / TWO-AGENT BUILD</p><h1>Orbit <span>Snake</span></h1></div><div class="live-pill"><i></i><span id="statusText">READY TO LAUNCH</span></div></header>
+<section class="game-layout" aria-label="Orbit Snake game">
+<div class="stage-wrap"><div class="scorebar"><div><span>SCORE</span><strong id="score">0</strong></div><div><span>BEST</span><strong id="best">0</strong></div><div><span>LENGTH</span><strong id="length">4</strong></div></div>
+<div class="canvas-frame"><canvas id="game" width="720" height="720" aria-label="Snake game board" tabindex="0"></canvas><div class="scanline"></div><div class="start-card" id="startCard"><div class="orb-mark">✦</div><p class="kicker">DEEP SPACE ARCADE</p><h2>Eat the light.<br /><em>Own the orbit.</em></h2><p>Use arrow keys, WASD, or swipe. Every five orbs makes the sector faster.</p><button id="startButton" class="primary">Launch run <span>↗</span></button></div></div>
+<div class="controls" aria-label="Game controls"><button data-dir="up" aria-label="Move up">↑</button><div><button data-dir="left" aria-label="Move left">←</button><button data-dir="down" aria-label="Move down">↓</button><button data-dir="right" aria-label="Move right">→</button></div></div><div class="action-row"><button id="pauseButton" class="secondary" disabled>Pause</button><button id="restartButton" class="ghost">Reset run</button></div></div>
+<aside class="sidebar"><section class="panel briefing"><div class="panel-label"><span class="dot"></span> FIELD NOTES</div><h2>Stay inside<br /><em>the signal.</em></h2><p>Your trail is your territory. The sector accelerates as your signal grows.</p><div class="tip"><span>↯</span><p><b>Pro tip</b><br />Turn early. The head has momentum, but your next move is always yours.</p></div></section><section class="panel highscores"><div class="panel-label"><span class="dot gold"></span> HIGH SCORES</div><ol id="scores" aria-label="High scores"></ol><p class="empty-score" id="emptyScores">Your first orbit is waiting.</p></section><section class="panel agents"><div class="panel-label"><span class="dot mint"></span> BUILT IN CONVERSATION</div><div class="agent"><b>Mira</b><span>Snake Architect</span><i>◆</i></div><div class="agent"><b>Sol</b><span>Snake Artist</span><i>✦</i></div></section></aside>
+</section><footer><span>SPACE / pause</span><span>ESC / reset</span><span>LOCAL SCOREBOARD</span></footer>
+</main><script type="module" src="./game.js"></script>
+</body></html>

@@ -1,0 +1,13 @@
+{
+  "host": "127.0.0.1",
+  "port": 4319,
+  "publicUrl": "http://127.0.0.1:4319",
+  "dataDir": "C:\\anyBot\\server-data",
+  "allowInsecureLoopback": true,
+  "concurrency": 2,
+  "origins": [],
+  "members": [
+    { "id": "owner", "name": "Workspace owner", "role": "owner" },
+    { "id": "alice", "name": "Alice", "role": "member" }
+  ]
+}
