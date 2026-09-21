@@ -16,6 +16,10 @@ import {
   Mic,
   MessageSquare,
   Monitor,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Pause,
   Play,
   Plus,
@@ -63,7 +67,35 @@ export function App() {
   const [showArchived, setShowArchived] = useState(false);
   const [dismissedRuns, setDismissedRuns] = useState(new Set());
   const [lastSeenMessages, setLastSeenMessages] = useState({});
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(() => {
+    try {
+      const saved = localStorage.getItem("anybot-left-sidebar");
+      return saved !== null ? JSON.parse(saved) : true;
+    } catch { return true; }
+  });
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(() => {
+    try {
+      const saved = localStorage.getItem("anybot-right-sidebar");
+      return saved !== null ? JSON.parse(saved) : true;
+    } catch { return true; }
+  });
   const end = useRef(null);
+  
+  function toggleLeftSidebar() {
+    setLeftSidebarOpen((prev) => {
+      const next = !prev;
+      try { localStorage.setItem("anybot-left-sidebar", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }
+  
+  function toggleRightSidebar() {
+    setRightSidebarOpen((prev) => {
+      const next = !prev;
+      try { localStorage.setItem("anybot-right-sidebar", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }
   async function openArtifact(artifact) {
     setError("");
     try {
@@ -265,7 +297,7 @@ export function App() {
   }
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <aside className={`sidebar ${leftSidebarOpen ? "" : "collapsed"}`}>
         <div className="brand">
           <span className="brand-mark">
             <Bot size={22} />
@@ -402,7 +434,15 @@ export function App() {
       </aside>
       <main>
         <header className="topbar">
-          <div>
+          <div className="topbar-left">
+            <button
+              className="sidebar-toggle"
+              onClick={toggleLeftSidebar}
+              title={leftSidebarOpen ? "Hide sidebar" : "Show sidebar"}
+              aria-label={leftSidebarOpen ? "Hide sidebar" : "Show sidebar"}
+            >
+              {leftSidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
+            </button>
             <span>Workspace</span>
             <ChevronRight size={14} />
             <strong>
@@ -426,6 +466,16 @@ export function App() {
             <span className="version">
               {data.runtime.version ? `v${data.runtime.version}` : "Preview"}
             </span>
+            {view === "chat" && conversation && (
+              <button
+                className="sidebar-toggle"
+                onClick={toggleRightSidebar}
+                title={rightSidebarOpen ? "Hide context panel" : "Show context panel"}
+                aria-label={rightSidebarOpen ? "Hide context panel" : "Show context panel"}
+              >
+                {rightSidebarOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
+              </button>
+            )}
           </div>
         </header>
         {!window.anybot && (
@@ -885,7 +935,7 @@ export function App() {
                 Local harnesses use your configured accounts and permissions.
               </div>
             </section>
-            <aside className="context-panel">
+            <aside className={`context-panel ${rightSidebarOpen ? "" : "collapsed"}`}>
               <div className="eyebrow">IN THIS CONVERSATION</div>
               {conversation.members.map((id) => {
                 const e = data.employees.find((e) => e.id === id);

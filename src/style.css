@@ -145,6 +145,17 @@ svg {
   display: flex;
   flex-direction: column;
   padding: 0 15px;
+  transition: width 0.2s ease, min-width 0.2s ease, padding 0.2s ease, opacity 0.2s ease;
+  overflow: hidden;
+}
+
+.sidebar.collapsed {
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  border-right: none;
+  opacity: 0;
+  pointer-events: none;
 }
 .brand {
   display: flex;
@@ -464,6 +475,32 @@ main {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sidebar-toggle {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  color: #7c8593;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.sidebar-toggle:hover {
+  background: #eef2f8;
+  color: #4773c5;
+}
+
+.sidebar-toggle:active {
+  background: #e3eaf5;
 }
 .topbar span,
 .topbar svg {
@@ -1115,6 +1152,16 @@ main {
   padding: 29px 22px;
   border-left: 1px solid var(--border);
   background: #fcfcfd;
+  transition: width 0.2s ease, padding 0.2s ease, opacity 0.2s ease, border 0.2s ease;
+  overflow: hidden;
+}
+
+.context-panel.collapsed {
+  width: 0;
+  padding: 0;
+  border-left: none;
+  opacity: 0;
+  pointer-events: none;
 }
 .participant {
   display: flex;
@@ -1477,7 +1524,7 @@ dialog::backdrop {
   font-size: 10px;
 }
 @media (max-width: 1200px) {
-  .sidebar {
+  .sidebar:not(.collapsed) {
     width: 215px;
     min-width: 215px;
   }
