@@ -1,4 +1,14 @@
 const { contextBridge, ipcRenderer } = require("electron");
+
+// Allowed update methods - restrict to safe operations only
+const ALLOWED_UPDATE_METHODS = new Set([
+  "update.check",
+  "update.download",
+  "update.install",
+  "update.dismiss",
+  "update.retry",
+]);
+
 contextBridge.exposeInMainWorld("anybot", {
   request: (method, payload) =>
     ipcRenderer.invoke("anybot:request", method, payload),
@@ -23,4 +33,13 @@ contextBridge.exposeInMainWorld("anybot", {
     });
   },
   openUrl: (url) => ipcRenderer.invoke("anybot:openUrl", url),
+  
+  // Update-specific API with restricted methods for security
+  update: {
+    check: () => ipcRenderer.invoke("anybot:request", "update.check"),
+    download: () => ipcRenderer.invoke("anybot:request", "update.download"),
+    install: () => ipcRenderer.invoke("anybot:request", "update.install"),
+    dismiss: (version) => ipcRenderer.invoke("anybot:request", "update.dismiss", { version }),
+    retry: () => ipcRenderer.invoke("anybot:request", "update.retry"),
+  },
 });

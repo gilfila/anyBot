@@ -8,7 +8,6 @@ const {
   Menu,
   nativeImage,
   shell,
-  net,
 } = require("electron");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
@@ -24,13 +23,32 @@ let window,
   keepRunningInTray = true,
   userDataFallback = false;
 
-const GITHUB_OWNER = "gilfila";
-const GITHUB_REPO = "anyBot";
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
+// Default update feed URL - points to public binary-only GitHub repo with releases.
+// The source repo (gilfila/anyBot) remains private; gilfila/anyBot-updates contains
+// only compiled binaries and electron-updater metadata (latest.yml, blockmaps).
+// Override with ANYBOT_UPDATE_FEED_URL environment variable if needed.
+const DEFAULT_UPDATE_FEED_URL = "https://github.com/gilfila/anyBot-updates/releases/latest/download";
+const UPDATE_FEED_URL = process.env.ANYBOT_UPDATE_FEED_URL || DEFAULT_UPDATE_FEED_URL;
+
+// Update state machine: idle → checking → available → downloading → downloaded → error
+const UpdateState = {
+  IDLE: "idle",
+  CHECKING: "checking",
+  AVAILABLE: "available",
+  DOWNLOADING: "downloading",
+  DOWNLOADED: "downloaded",
+  ERROR: "error",
+};
+
+let updateState = UpdateState.IDLE;
 let updateInfo = null;
+let updateProgress = null;
+let updateError = null;
 let dismissedVersion = null;
 let updateCheckTimer = null;
+let autoUpdater = null;
 const pending = new Map();
 const readyWaiters = new Set();
 let mobileGateway, mobileUrl, mobileError;
@@ -151,8 +169,8 @@ function saveDismissedVersion(version) {
 }
 
 function compareVersions(a, b) {
-  const pa = a.replace(/^v/, "").split(".").map(Number);
-  const pb = b.replace(/^v/, "").split(".").map(Number);
+  const pa = String(a).replace(/^v/, "").split(".").map(Number);
+  const pb = String(b).replace(/^v/, "").split(".").map(Number);
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
     const na = pa[i] || 0;
     const nb = pb[i] || 0;
@@ -162,98 +180,269 @@ function compareVersions(a, b) {
   return 0;
 }
 
-async function fetchLatestRelease() {
-  const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
-  return new Promise((resolve, reject) => {
-    const request = net.request({
-      url,
-      method: "GET",
-    });
-    request.setHeader("Accept", "application/vnd.github+json");
-    request.setHeader("User-Agent", `anyBot/${app.getVersion()}`);
-    request.setHeader("X-GitHub-Api-Version", "2022-11-28");
-
-    let data = "";
-    request.on("response", (response) => {
-      if (response.statusCode === 404) {
-        resolve(null);
-        return;
-      }
-      if (response.statusCode !== 200) {
-        reject(new Error(`GitHub API returned ${response.statusCode}`));
-        return;
-      }
-      response.on("data", (chunk) => {
-        data += chunk.toString();
-      });
-      response.on("end", () => {
-        try {
-          resolve(JSON.parse(data));
-        } catch (e) {
-          reject(e);
-        }
-      });
-      response.on("error", reject);
-    });
-    request.on("error", reject);
-    request.end();
-  });
-}
-
-async function checkForUpdates() {
+// Validate that the update feed URL is safe (HTTPS, no credentials embedded)
+function isValidUpdateFeedUrl(url) {
+  if (!url) return false;
   try {
-    const release = await fetchLatestRelease();
-    if (!release || !release.tag_name) {
-      updateInfo = null;
-      return null;
-    }
-
-    const currentVersion = app.getVersion();
-    const latestVersion = release.tag_name.replace(/^v/, "");
-
-    if (compareVersions(latestVersion, currentVersion) > 0) {
-      updateInfo = {
-        version: latestVersion,
-        tagName: release.tag_name,
-        name: release.name || `Version ${latestVersion}`,
-        body: release.body || "",
-        url: release.html_url,
-        publishedAt: release.published_at,
-      };
-    } else {
-      updateInfo = null;
-    }
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:") return false;
+    if (parsed.username || parsed.password) return false;
+    return true;
   } catch {
-    // Network errors or API failures should not disrupt the app.
-    // Keep the previous updateInfo state.
+    return false;
   }
-  return updateInfo;
 }
 
-function getUpdateState() {
-  if (!updateInfo) return null;
-  if (dismissedVersion && compareVersions(updateInfo.version, dismissedVersion) <= 0) {
+// Initialize electron-updater with the configured feed URL
+// Parse GitHub releases URL to extract owner/repo for GitHub provider
+function parseGitHubReleasesUrl(url) {
+  const match = url.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/releases/);
+  if (match) {
+    return { owner: match[1], repo: match[2] };
+  }
+  return null;
+}
+
+function initializeAutoUpdater() {
+  if (!UPDATE_FEED_URL) {
+    console.log("Update feed URL not configured. Set ANYBOT_UPDATE_FEED_URL to enable auto-updates.");
     return null;
   }
-  return updateInfo;
+
+  if (!isValidUpdateFeedUrl(UPDATE_FEED_URL)) {
+    console.error("Invalid update feed URL. Must be HTTPS without embedded credentials.");
+    return null;
+  }
+
+  try {
+    const { autoUpdater: electronAutoUpdater } = require("electron-updater");
+    
+    // Configure electron-updater
+    electronAutoUpdater.autoDownload = false;
+    electronAutoUpdater.autoInstallOnAppQuit = false;
+    electronAutoUpdater.allowDowngrade = false;
+    
+    // Detect GitHub releases URL pattern and use appropriate provider
+    const githubInfo = parseGitHubReleasesUrl(UPDATE_FEED_URL);
+    if (githubInfo) {
+      // Use GitHub provider for GitHub releases URLs - supports latest.yml lookup
+      electronAutoUpdater.setFeedURL({
+        provider: "github",
+        owner: githubInfo.owner,
+        repo: githubInfo.repo,
+      });
+    } else {
+      // Use generic provider for other HTTPS URLs
+      electronAutoUpdater.setFeedURL({
+        provider: "generic",
+        url: UPDATE_FEED_URL,
+      });
+    }
+
+    // Event handlers
+    electronAutoUpdater.on("checking-for-update", () => {
+      updateState = UpdateState.CHECKING;
+      updateError = null;
+      notifyRenderer();
+    });
+
+    electronAutoUpdater.on("update-available", (info) => {
+      updateState = UpdateState.AVAILABLE;
+      updateInfo = {
+        version: info.version,
+        releaseDate: info.releaseDate,
+        releaseNotes: typeof info.releaseNotes === "string" 
+          ? info.releaseNotes 
+          : Array.isArray(info.releaseNotes) 
+            ? info.releaseNotes.map(n => n.note || n).join("\n")
+            : "",
+        files: info.files?.map(f => ({ name: f.url, size: f.size })) || [],
+      };
+      updateProgress = null;
+      updateError = null;
+      notifyRenderer();
+    });
+
+    electronAutoUpdater.on("update-not-available", () => {
+      updateState = UpdateState.IDLE;
+      updateInfo = null;
+      updateProgress = null;
+      updateError = null;
+      notifyRenderer();
+    });
+
+    electronAutoUpdater.on("download-progress", (progress) => {
+      updateState = UpdateState.DOWNLOADING;
+      updateProgress = {
+        percent: Math.round(progress.percent),
+        transferred: progress.transferred,
+        total: progress.total,
+        bytesPerSecond: progress.bytesPerSecond,
+      };
+      notifyRenderer();
+    });
+
+    electronAutoUpdater.on("update-downloaded", () => {
+      updateState = UpdateState.DOWNLOADED;
+      updateProgress = { percent: 100 };
+      updateError = null;
+      notifyRenderer();
+    });
+
+    electronAutoUpdater.on("error", (error) => {
+      updateState = UpdateState.ERROR;
+      updateError = {
+        message: error.message || "Update failed",
+        code: error.code,
+        retryable: true,
+      };
+      updateProgress = null;
+      notifyRenderer();
+    });
+
+    return electronAutoUpdater;
+  } catch (error) {
+    console.error("Failed to initialize auto-updater:", error.message);
+    return null;
+  }
 }
 
+function notifyRenderer() {
+  window?.webContents.send("anybot:changed");
+}
+
+// Get the current update state for the renderer
+function getUpdateState() {
+  // If update is dismissed, hide it unless we're already downloading/downloaded
+  if (
+    updateInfo &&
+    dismissedVersion &&
+    compareVersions(updateInfo.version, dismissedVersion) <= 0 &&
+    updateState === UpdateState.AVAILABLE
+  ) {
+    return null;
+  }
+
+  if (!updateInfo && updateState === UpdateState.IDLE) {
+    return null;
+  }
+
+  return {
+    state: updateState,
+    version: updateInfo?.version || null,
+    releaseNotes: updateInfo?.releaseNotes || "",
+    releaseDate: updateInfo?.releaseDate || null,
+    progress: updateProgress,
+    error: updateError,
+    feedConfigured: !!UPDATE_FEED_URL,
+  };
+}
+
+// Check for updates
+async function checkForUpdates() {
+  if (!autoUpdater) {
+    // If auto-updater isn't configured, return current state
+    return getUpdateState();
+  }
+
+  try {
+    await autoUpdater.checkForUpdates();
+  } catch (error) {
+    updateState = UpdateState.ERROR;
+    updateError = {
+      message: error.message || "Failed to check for updates",
+      code: error.code,
+      retryable: true,
+    };
+    notifyRenderer();
+  }
+  
+  return getUpdateState();
+}
+
+// Start downloading the update
+async function downloadUpdate() {
+  if (!autoUpdater) {
+    throw new Error("Auto-updater not configured. Set ANYBOT_UPDATE_FEED_URL.");
+  }
+
+  if (updateState !== UpdateState.AVAILABLE) {
+    throw new Error("No update available to download");
+  }
+
+  try {
+    updateState = UpdateState.DOWNLOADING;
+    updateProgress = { percent: 0 };
+    notifyRenderer();
+    await autoUpdater.downloadUpdate();
+  } catch (error) {
+    updateState = UpdateState.ERROR;
+    updateError = {
+      message: error.message || "Download failed",
+      code: error.code,
+      retryable: true,
+    };
+    notifyRenderer();
+    throw error;
+  }
+}
+
+// Install the downloaded update and restart
+function installUpdate() {
+  if (!autoUpdater) {
+    throw new Error("Auto-updater not configured");
+  }
+
+  if (updateState !== UpdateState.DOWNLOADED) {
+    throw new Error("No downloaded update to install");
+  }
+
+  // Note: On Windows with unsigned builds, electron-updater will attempt
+  // to run the NSIS installer. The NSIS installer should be properly
+  // configured to handle the update. If code signing is not available,
+  // Windows SmartScreen may show a warning.
+  quitting = true;
+  autoUpdater.quitAndInstall(false, true);
+}
+
+// Dismiss an update version
 function dismissUpdate(version) {
   if (version) {
     dismissedVersion = version;
     saveDismissedVersion(version);
+    if (updateState === UpdateState.AVAILABLE) {
+      notifyRenderer();
+    }
   }
+}
+
+// Retry after an error
+async function retryUpdate() {
+  if (updateState !== UpdateState.ERROR) {
+    return;
+  }
+  
+  updateState = UpdateState.IDLE;
+  updateError = null;
+  notifyRenderer();
+  
+  return checkForUpdates();
 }
 
 function startUpdateChecker() {
   dismissedVersion = loadDismissedVersion();
-  checkForUpdates().then(() => {
-    window?.webContents.send("anybot:changed");
-  });
+  autoUpdater = initializeAutoUpdater();
+  
+  // Initial check after a short delay to let the app settle
+  setTimeout(() => {
+    checkForUpdates();
+  }, 3000);
+
+  // Periodic checks
   updateCheckTimer = setInterval(() => {
-    checkForUpdates().then(() => {
-      window?.webContents.send("anybot:changed");
-    });
+    if (updateState === UpdateState.IDLE || updateState === UpdateState.ERROR) {
+      checkForUpdates();
+    }
   }, UPDATE_CHECK_INTERVAL_MS);
 }
 
@@ -323,14 +512,27 @@ else {
       }
       if (method === "update.dismiss") {
         dismissUpdate(payload?.version);
-        return { dismissed: true };
+        return { dismissed: true, update: getUpdateState() };
       }
-      if (method === "update.open") {
-        const update = getUpdateState();
-        if (update?.url) {
-          shell.openExternal(update.url);
+      if (method === "update.download") {
+        try {
+          await downloadUpdate();
+          return { downloading: true, update: getUpdateState() };
+        } catch (error) {
+          return { error: error.message, update: getUpdateState() };
         }
-        return { opened: !!update?.url };
+      }
+      if (method === "update.install") {
+        try {
+          installUpdate();
+          return { installing: true };
+        } catch (error) {
+          return { error: error.message, update: getUpdateState() };
+        }
+      }
+      if (method === "update.retry") {
+        await retryUpdate();
+        return { update: getUpdateState() };
       }
       if (method === "mobile.status")
         return {

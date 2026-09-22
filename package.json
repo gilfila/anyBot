@@ -1,6 +1,6 @@
 {
   "name": "anybot-desktop",
-  "version": "0.2.15",
+  "version": "0.2.16",
   "private": true,
   "description": "A local workspace for your team of AI employees",
   "author": "anyBot contributors",
@@ -39,6 +39,7 @@
     "@capacitor/android": "^8.5.2",
     "@capacitor/core": "^8.5.2",
     "@capacitor/ios": "^8.5.2",
+    "electron-updater": "^6.8.9",
     "lucide-react": "^1.47.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
