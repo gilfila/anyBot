@@ -9,6 +9,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 - **Android CI**: Install SDK packages explicitly (platform-tools, platforms;android-36, build-tools;36.0.0) instead of relying on deprecated `tools` package
 
+## [0.2.24] - 2026-09-22
+
+### Changed
+- **Robot avatars**: Replaced amorphous slime blob avatars with cute cartoony 2.5D robot characters featuring rounded heads, antennas, glowing eyes, and simple torsos
+- **Robot head styles**: Six head shape variants (Dome, Square, Hexagon, Visor, Bubble, Angular) replace the old blob shapes
+- **Robot eye styles**: Six eye style variants (Round, Oval, Visor, LED, Dots, Slits) replace the old face expressions
+- **Desynchronized animations retained**: Each robot's idle (bob, blink, antenna glow) and working (bounce, eye pulse, arm wiggle) animations run with deterministic per-employee phase offsets
+- **2.5D visual depth**: Linear gradients for head/body shading, rim lighting, drop shadows, and glowing antenna/eye effects create a faux-3D cartoony appearance
+
+### Technical
+- Renamed `SlimeAvatar.jsx` to `RobotAvatar.jsx` with complete SVG redesign
+- New constants: `avatarHeadStyles` and `avatarEyeStyles` replace `avatarShapes` and `avatarFaces` (backward-compatible aliases retained)
+- CSS custom properties renamed from `--slime-*` to `--robot-*` for animation timing control
+- New keyframe animations: `robot-bob`, `robot-blink`, `robot-antenna-glow`, `robot-bounce`, `robot-eye-active`, `robot-arm-wiggle`
+- Animations respect `prefers-reduced-motion` (disabled when reduced motion preferred)
+- Robot renders cleanly at sidebar small size (~25px) and larger card sizes (~40-80px)
+
 ## [0.2.23] - 2026-09-22
 
 ### Changed

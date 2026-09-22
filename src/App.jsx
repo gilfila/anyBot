@@ -137,7 +137,7 @@ function UpdateButton({ update, onAction, onDismiss }) {
   );
 }
 import { Avatar } from "./components/Avatar.jsx";
-import { SlimeAvatar } from "./components/SlimeAvatar.jsx";
+import { RobotAvatar } from "./components/RobotAvatar.jsx";
 import { WorkingIndicator } from "./components/WorkingIndicator.jsx";
 import { Status } from "./components/Status.jsx";
 import { Empty } from "./components/Empty.jsx";
@@ -501,7 +501,7 @@ export function App() {
                   className="bot-row-main"
                   onClick={() => directChat(employee)}
                 >
-                  <SlimeAvatar small employee={employee} />
+                  <RobotAvatar small employee={employee} />
                   <span>{employee.name}</span>
                   {unread && <i className="unread-dot" />}
                 </button>
@@ -796,7 +796,7 @@ export function App() {
                 .map((e) => (
                   <article className="employee-card" key={e.id}>
                     <div className="card-top">
-                      <SlimeAvatar employee={e} working={data.runs.some(
+                      <RobotAvatar employee={e} working={data.runs.some(
                         (r) => r.employee === e.id && r.status === "running"
                       )} />
                       <Status
@@ -878,7 +878,7 @@ export function App() {
               {(data.employees.length ? [] : presets).map((p) => (
                 <article className="employee-card template" key={p.harness}>
                   <div className="card-top">
-                    <SlimeAvatar employee={p} />
+                    <RobotAvatar employee={p} />
                     <span className="template-label">ROLE TEMPLATE</span>
                   </div>
                   <h3>{p.role}</h3>
@@ -938,7 +938,7 @@ export function App() {
                     const emp = data.employees.find((e) => e.id === id);
                     const isWorking = activeRuns.some((r) => r.employee === id);
                     return (
-                      <SlimeAvatar
+                      <RobotAvatar
                         small
                         key={id}
                         employee={emp}
@@ -1004,7 +1004,7 @@ export function App() {
                     {m.author === "human" ? (
                       <Avatar small employee={{ name: "Y" }} />
                     ) : (
-                      <SlimeAvatar
+                      <RobotAvatar
                         small
                         employee={data.employees.find((e) => e.id === m.author)}
                       />
@@ -1041,7 +1041,7 @@ export function App() {
                 ))}
                 {activeRuns.map((r) => (
                   <div className="message" key={r.id}>
-                    <SlimeAvatar
+                    <RobotAvatar
                       small
                       employee={data.employees.find((e) => e.id === r.employee)}
                       working
@@ -1222,7 +1222,7 @@ export function App() {
               <div className="run-list">
                 {[...data.runs].reverse().map((r) => (
                   <article className="run-row" key={r.id}>
-                    <SlimeAvatar
+                    <RobotAvatar
                       small
                       employee={data.employees.find((e) => e.id === r.employee)}
                       working={r.status === "running"}
@@ -1833,7 +1833,7 @@ export function App() {
         >
           <div className="delete-confirm-content">
             <div className="delete-confirm-avatar">
-              <SlimeAvatar employee={deleteConfirm} />
+              <RobotAvatar employee={deleteConfirm} />
             </div>
             <p>
               Are you sure you want to delete <strong>{deleteConfirm.name}</strong>?

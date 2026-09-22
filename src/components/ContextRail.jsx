@@ -19,7 +19,7 @@ import {
   ShieldCheck,
   Users,
 } from "lucide-react";
-import { SlimeAvatar } from "./SlimeAvatar.jsx";
+import { RobotAvatar } from "./RobotAvatar.jsx";
 
 export function ContextRail({
   open,
@@ -122,7 +122,7 @@ function ContextTab({ conversation, employees, activeRuns, harnessName }) {
         const isWorking = activeRuns?.some((r) => r.employee === id);
         return (
           <div className="participant" key={id}>
-            <SlimeAvatar small employee={e} working={isWorking} />
+            <RobotAvatar small employee={e} working={isWorking} />
             <div>
               <strong>{e?.name}</strong>
               <small>{e?.role}</small>
