@@ -38,6 +38,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Desktop build failed on every push to main**: electron-builder auto-published on CI without a token. Packaging now runs with `--publish never` (releases to `anyBot-updates` stay manual; `latest.yml` is still generated), and the artifact upload uses the real file names instead of the stale 0.2.6 paths.
 - **Android build**: `setup-android` splits `packages` on spaces, not newlines, so the multi-line list was read as one invalid package.
 - `release:manifest` now hashes the `anyBot-Setup-X.Y.Z.exe` installer name electron-builder actually produces.
+- `android/gradlew` is committed as executable (the Android job failed with "Permission denied" once SDK setup worked).
+
+### Removed
+- Dead code: the repo-root `main.cjs` (a stale 0.2.11 copy of `desktop/main.cjs`) and the unused `src/components/WorkspaceTools.jsx` (duplicated the context rail tools).
 
 ## [0.2.25] - 2026-09-22
 

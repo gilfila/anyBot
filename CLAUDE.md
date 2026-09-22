@@ -27,7 +27,6 @@ Electron 44 main process (`desktop/main.cjs`) + sandboxed React 19 renderer (`sr
 **Full review + Studio paper redesign (0.2.26)** on branch `claude/review-bugfix-ui-refresh`. Fixed: `runs.dismiss` missing from IPC allowlist; update chrome flicker after actions; "Check now" wiping a downloaded update; unread-dot logic; blocked external links; broken HTML hand-off to the rail browser; `.user` CSS collision with `.message.user`; both CI workflows failing on every push (electron-builder auto-publish, setup-android package list). Security: same-origin sandboxed preview iframe could reach `window.anybot.runCommand`; markdown rendered raw employee HTML. UI: token sweep to OKLCH, live team roster, first-run hire flow, chat bubbles, sidebar status lines. Verified with `npm test` (127), `test:runtime`, doctor, a mocked-bridge Playwright pass, and a real-Electron e2e with an isolated profile. See CHANGELOG 0.2.26.
 
 **Open:**
-- Delete dead code `main.cjs` (repo root, stale 0.2.11 copy of desktop/main.cjs) and `src/components/WorkspaceTools.jsx` (unused duplicate of the rail tools). Removal was blocked by the session's permission guard; needs Tony's OK.
 - HTML previews render but inline scripts stay blocked by the app CSP (inherited by srcdoc/blob frames). Running bot-built games/apps in-app needs a dedicated custom protocol with its own CSP.
 - Sidebar bot rows are left-aligned (as shipped since the 0.2.22 CSS fix), not the right alignment requested in 0.2.23.
 - Tag + upload 0.2.26 to `anyBot-updates` after merge (manual step).
