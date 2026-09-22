@@ -1754,11 +1754,28 @@ dialog::backdrop {
 }
 /* Slime Avatar Styles */
 .slime-avatar {
+  --slime-breathe-delay: 0s;
+  --slime-wobble-delay: 0s;
+  --slime-blink-delay: 0s;
+  --slime-breathe-duration: 3s;
+  --slime-wobble-duration: 4s;
+  --slime-blink-duration: 4s;
+  --slime-bounce-delay: 0s;
+  --slime-jiggle-delay: 0s;
+  --slime-look-delay: 0s;
+  --slime-bounce-duration: 0.6s;
+  --slime-jiggle-duration: 0.4s;
+  --slime-look-duration: 1s;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   border-radius: 50%;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.08)) drop-shadow(0 4px 8px rgba(0, 0, 0, 0.06));
+}
+
+.slime-avatar.small {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.05));
 }
 
 .slime-avatar svg {
@@ -1771,15 +1788,18 @@ dialog::backdrop {
 
 /* Idle breathing/wobble animation */
 .slime-idle .slime-body {
-  animation: slime-breathe 3s ease-in-out infinite;
+  animation: slime-breathe var(--slime-breathe-duration) ease-in-out infinite;
+  animation-delay: var(--slime-breathe-delay);
 }
 
 .slime-idle .slime-outer {
-  animation: slime-wobble 4s ease-in-out infinite;
+  animation: slime-wobble var(--slime-wobble-duration) ease-in-out infinite;
+  animation-delay: var(--slime-wobble-delay);
 }
 
 .slime-idle .slime-eye {
-  animation: slime-blink 4s ease-in-out infinite;
+  animation: slime-blink var(--slime-blink-duration) ease-in-out infinite;
+  animation-delay: var(--slime-blink-delay);
 }
 
 @keyframes slime-breathe {
@@ -1814,15 +1834,18 @@ dialog::backdrop {
 
 /* Working/active animation - more energetic */
 .slime-working .slime-body {
-  animation: slime-bounce 0.6s ease-in-out infinite;
+  animation: slime-bounce var(--slime-bounce-duration) ease-in-out infinite;
+  animation-delay: var(--slime-bounce-delay);
 }
 
 .slime-working .slime-outer {
-  animation: slime-jiggle 0.4s ease-in-out infinite;
+  animation: slime-jiggle var(--slime-jiggle-duration) ease-in-out infinite;
+  animation-delay: var(--slime-jiggle-delay);
 }
 
 .slime-working .slime-eye {
-  animation: slime-look 1s ease-in-out infinite;
+  animation: slime-look var(--slime-look-duration) ease-in-out infinite;
+  animation-delay: var(--slime-look-delay);
 }
 
 .slime-working .slime-mouth {
@@ -3272,6 +3295,7 @@ dialog::backdrop {
   position: relative;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   border-radius: 7px;
 }
 
@@ -3290,13 +3314,12 @@ dialog::backdrop {
 }
 
 .bot-row-main {
-  flex: 1;
   display: flex;
   align-items: center;
   gap: 11px;
   padding: 8px 10px;
-  justify-content: flex-start;
-  text-align: left;
+  justify-content: flex-end;
+  text-align: right;
   color: #626b79;
   font-size: 12px;
   min-width: 0;
@@ -3306,7 +3329,6 @@ dialog::backdrop {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
 }
 
 .bot-row-main .unread-dot {

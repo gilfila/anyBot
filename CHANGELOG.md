@@ -9,6 +9,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 - **Android CI**: Install SDK packages explicitly (platform-tools, platforms;android-36, build-tools;36.0.0) instead of relying on deprecated `tools` package
 
+## [0.2.23] - 2026-09-22
+
+### Changed
+- **Sidebar bots right-aligned**: Bot rows in the left sidebar BOTS list now align content (avatar + name) toward the right/main-pane edge for improved visual hierarchy
+- **Enhanced slime avatar depth**: Richer volumetric appearance with radial gradients, softer outer drop-shadows, clearer specular highlights, inner shading, and rim lighting effects
+- **Desynchronized avatar animations**: Each bot's idle (breathe, wobble, blink) and working (bounce, jiggle, look) animations now run with deterministic per-employee phase offsets derived from their seed hash, so multiple bots on screen animate visibly out of sync
+
+### Technical
+- Replaced linear gradient with multi-stop radial gradient for 3D body shading
+- Added CSS custom properties (`--slime-breathe-delay`, `--slime-wobble-delay`, `--slime-blink-delay`, etc.) for animation timing control
+- Added `drop-shadow` filter to `.slime-avatar` for softer outer glow
+- SVG filter enhanced with colored shadow offset for depth
+- Animation delays respect `prefers-reduced-motion` (animations disabled entirely when reduced motion preferred)
+
 ## [0.2.22] - 2026-09-22
 
 ### Fixed
