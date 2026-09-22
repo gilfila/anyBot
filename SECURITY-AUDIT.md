@@ -32,21 +32,22 @@ Current tree findings are **LOW severity** and fixable with normal commits (addr
 
 | Finding | Location | Details |
 |---------|----------|---------|
-| Personal email in commits | Git author/committer metadata | `tony.gilfillan@gmail.com` appears in 10+ commits |
-| Real name in commits | Git author metadata | "Tony Gilfillan" appears as author name |
+| Personal email in commits | Git author/committer metadata | [REDACTED PERSONAL EMAIL] appears in 10+ commits |
+| Real name in commits | Git author metadata | Personal name appears as author name |
 
 **Affected commits:**
 - `ccd27e60` (Initial commit)
 - `abc94dd2` 
 - `9d8d6405`
-- All merge commits from `gilfila` account
+- All merge commits from the repository owner account
 
-**Remediation required:** Use `git filter-repo` or BFG Repo-Cleaner to rewrite author/committer metadata across all commits. Example:
+**Remediation required:** Use `git filter-repo` or BFG Repo-Cleaner to rewrite author/committer metadata across all commits. Generate a local mailmap file mapping the personal email to a noreply address:
 
 ```bash
+# Generate mailmap.txt locally (do not commit):
+# New Name <noreply@users.noreply.github.com> <personal-email@example.com>
+
 git filter-repo --mailmap mailmap.txt
-# mailmap.txt:
-# Proper Name <noreply@users.noreply.github.com> <tony.gilfillan@gmail.com>
 ```
 
 ⚠️ **This rewrites history and invalidates existing clones.** Coordinate with any collaborators before proceeding.
@@ -55,12 +56,12 @@ git filter-repo --mailmap mailmap.txt
 
 | Finding | File | Line | Status |
 |---------|------|------|--------|
-| Windows user path | `docs/verification.md` | 159 | ✅ Fixed in PR |
-| Screenshot with name | `docs/assets/installed-anybot-ui.jpg` | N/A | See note below |
+| Windows user path | `docs/verification.md` | 159 | ✅ Fixed - anonymized to `<user>` |
+| Screenshot with PII | `docs/assets/installed-anybot-ui.jpg` | N/A | ✅ Removed |
 
-**Windows path detail:** `C:\\Users\\Tony\\.claude\\session-env` exposes the Windows username. Changed to `C:\\Users\\<user>\\.claude\\session-env`.
+**Windows path detail:** A Windows user profile path was anonymized to `C:\\Users\\<user>\\...`.
 
-**Screenshot note:** `docs/assets/installed-anybot-ui.jpg` shows an employee "Alex" with description mentioning "Tony". This is visual PII embedded in the image. Consider regenerating the screenshot with anonymized demo data if full PII removal is required.
+**Screenshot:** Removed screenshot that contained visual PII references.
 
 ### LOW: Intentional Public Metadata
 
@@ -87,7 +88,7 @@ The following were flagged by pattern searches but are not actual issues:
 
 ### Commits Scanned
 - Total commits: 19
-- Commits with `tony.gilfillan@gmail.com`: 10
+- Commits with [REDACTED PERSONAL EMAIL]: 10
 - Commits with `cursoragent@cursor.com`: 9
 
 ### Sensitive Files in History
@@ -112,9 +113,8 @@ Files containing PII patterns across all commits:
 
 ### Required Before Public Release
 
-1. **Rewrite git history** to remove personal email from commit metadata
-2. **Regenerate screenshots** with anonymized demo data (optional but recommended)
-3. **Review credential rotation** - while no secrets were found, if any API keys were ever tested locally with the same account, consider rotation as a precaution
+1. **Rewrite git history** to remove personal email from commit metadata (see instructions above)
+2. **Review credential rotation** - while no secrets were found, if any API keys were ever tested locally with the same account, consider rotation as a precaution
 
 ### Post-Release Recommendations
 
@@ -141,9 +141,8 @@ This audit certifies that:
 - ✅ No API keys, tokens, passwords, or cryptographic secrets were found
 - ✅ No credential files (.env, .key, .pem) exist in current tree or history
 - ✅ No database dumps, logs, or sensitive runtime artifacts are tracked
-- ⚠️ Personal email addresses exist in git commit metadata (requires history rewrite)
-- ⚠️ One Windows user path reference exists (fixed in PR)
-- ⚠️ One screenshot contains visual PII reference (documented)
+- ✅ Current tree contains ZERO personal PII after this PR
+- ⚠️ Personal email addresses exist in git commit metadata (requires history rewrite before public release)
 
 **Auditor:** Cursor Cloud Agent  
 **Date:** 2026-09-22

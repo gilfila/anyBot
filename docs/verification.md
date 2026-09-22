@@ -199,7 +199,7 @@ The entries below preserve earlier test and packaging evidence. Their version nu
 
 ## Installed desktop acceptance evidence
 
-- The freshly installed Windows package launched successfully as `anyBot — Your team, working together` (version `0.2.0`). The captured window shows the local runtime online, the team workspace, the employee card, and the shared-conversation entry point: [installed-anybot-ui.jpg](assets/installed-anybot-ui.jpg).
+- The freshly installed Windows package launched successfully as `anyBot — Your team, working together` (version `0.2.0`). The captured window shows the local runtime online, the team workspace, the employee card, and the shared-conversation entry point.
 - The Computer surface returned a screenshot for the installed window, but no accessibility tree, so this pass confirms launch and visible rendering only. Control-level clicks for employee creation, conversation execution, cancellation, and tray behavior remain pending a Computer session with accessibility access.
 
 ## Snake proof app
