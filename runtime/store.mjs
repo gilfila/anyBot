@@ -19,7 +19,7 @@ export class Store {
     );
     if (
       !Number.isInteger(storedVersion) ||
-      storedVersion > 6 ||
+      storedVersion > 7 ||
       storedVersion < 1
     ) {
       this.db.close();
@@ -167,6 +167,26 @@ export class Store {
         );
         this.db
           .prepare("UPDATE metadata SET value='6' WHERE key='schema'")
+          .run();
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        this.db.close();
+        throw error;
+      }
+    }
+    const dismissedVersion = Number(
+      this.db.prepare("SELECT value FROM metadata WHERE key='schema'").get()
+        .value,
+    );
+    if (dismissedVersion < 7) {
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
+        this.db.exec(
+          "ALTER TABLE runs ADD COLUMN dismissed INTEGER NOT NULL DEFAULT 0;",
+        );
+        this.db
+          .prepare("UPDATE metadata SET value='7' WHERE key='schema'")
           .run();
         this.db.exec("COMMIT");
       } catch (error) {
