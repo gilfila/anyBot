@@ -194,11 +194,12 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [] }) 
           value={form.permissionMode}
           onChange={(e) => set("permissionMode", e.target.value)}
         >
-          <option value="ask">Ask before tools</option>
-          <option value="dontAsk">Autonomously</option>
+          <option value="ask">Ask before acting</option>
+          <option value="dontAsk">Allow edits automatically</option>
         </select>
         <span className="field-hint">
-          Claude and Cursor honor this setting. Other harnesses are unchanged.
+          Claude allows file edits without prompting in automatic mode.
+          Cursor uses --force. Other harnesses are unchanged.
         </span>
       </label>
       <label className="checkbox trust">

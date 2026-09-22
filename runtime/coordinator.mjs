@@ -335,7 +335,7 @@ export class Coordinator extends EventEmitter {
         timeoutMinutes(payload.timeoutMinutes),
         permissionMode(
           payload.permissionMode === undefined
-            ? employee.permissionMode || "dontAsk"
+            ? employee.permissionMode || "ask"
             : payload.permissionMode,
         ),
         employee.id,
@@ -600,7 +600,7 @@ export class Coordinator extends EventEmitter {
         workspace: employee.workspace,
         prompt,
         signal: controller.signal,
-        permissionMode: employee.permissionMode || "dontAsk",
+        permissionMode: employee.permissionMode || "ask",
         onText: (output) => {
           if (
             this.closed ||

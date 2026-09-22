@@ -88,24 +88,27 @@ test("built-in structured parsers expose text, final, and error semantics", () =
   assert.deepEqual(invocation("hermes"), [
     "chat", "--query-file", "-", "--quiet", "--max-turns", "30", "--run-budget", "600",
   ]);
+  // Cursor: ask mode omits --force, dontAsk mode uses --force
   assert.deepEqual(invocation("cursor"), [
-    "--print", "--force", "--output-format", "stream-json", "--stream-partial-output",
-  ]);
+    "--print", "--output-format", "stream-json", "--stream-partial-output",
+  ], "cursor default (ask) should omit --force");
   assert.deepEqual(invocation("cursor", "", "dontAsk"), [
     "--print", "--force", "--output-format", "stream-json", "--stream-partial-output",
-  ]);
+  ], "cursor dontAsk should use --force");
   assert.deepEqual(invocation("cursor", "", "ask"), [
     "--print", "--output-format", "stream-json", "--stream-partial-output",
-  ]);
+  ], "cursor ask should omit --force");
+  // Claude: ask maps to "default" (prompt), dontAsk maps to "acceptEdits" (allow file edits)
+  // Note: Claude's "--permission-mode dontAsk" is auto-DENY, not autonomous!
   assert.deepEqual(invocation("claude"), [
-    "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk",
-  ]);
+    "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "default",
+  ], "claude default (ask) should use --permission-mode default");
   assert.deepEqual(invocation("claude", "", "dontAsk"), [
-    "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk",
-  ]);
+    "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits",
+  ], "claude dontAsk should map to acceptEdits, NOT Claude's dontAsk");
   assert.deepEqual(invocation("claude", "", "ask"), [
     "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "default",
-  ]);
+  ], "claude ask should use --permission-mode default");
   assert.deepEqual(invocation("claude", "sonnet", "ask").slice(-4), [
     "--permission-mode", "default", "--model", "sonnet",
   ]);
