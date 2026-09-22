@@ -261,12 +261,12 @@ export function RobotAvatar({ employee, small = false, working = false, avatarCo
   const animationClass = working ? "robot-working" : "robot-idle";
   const animationDelays = useMemo(() => getAnimationDelays(seed), [seed]);
   
-  const highlightColor = useMemo(() => lightenColor(colorDef.fill, 0.7), [colorDef.fill]);
-  const bodyColor = useMemo(() => darkenColor(colorDef.fill, 0.08), [colorDef.fill]);
-  const shadowColor = useMemo(() => darkenColor(colorDef.stroke, 0.2), [colorDef.stroke]);
-  const rimColor = useMemo(() => lightenColor(colorDef.fill, 0.5), [colorDef.fill]);
-  const eyeGlow = useMemo(() => colorDef.accent || lightenColor(colorDef.fill, 0.2), [colorDef.fill, colorDef.accent]);
-  const eyeBright = useMemo(() => lightenColor(eyeGlow, 0.6), [eyeGlow]);
+  const highlightColor = useMemo(() => lightenColor(colorDef.fill, 0.45), [colorDef.fill]);
+  const bodyColor = useMemo(() => darkenColor(colorDef.fill, 0.18), [colorDef.fill]);
+  const shadowColor = useMemo(() => darkenColor(colorDef.stroke, 0.35), [colorDef.stroke]);
+  const rimColor = useMemo(() => lightenColor(colorDef.fill, 0.35), [colorDef.fill]);
+  const eyeGlow = useMemo(() => colorDef.accent || lightenColor(colorDef.fill, 0.15), [colorDef.fill, colorDef.accent]);
+  const eyeBright = useMemo(() => lightenColor(eyeGlow, 0.45), [eyeGlow]);
 
   return (
     <span
@@ -290,16 +290,17 @@ export function RobotAvatar({ employee, small = false, working = false, avatarCo
             <stop offset="100%" stopColor={darkenColor(eyeGlow, 0.3)} />
           </radialGradient>
           <radialGradient id={`rim-light-${seed}`} cx="80%" cy="20%" r="60%">
-            <stop offset="0%" stopColor={rimColor} stopOpacity="0.6" />
+            <stop offset="0%" stopColor={rimColor} stopOpacity="0.75" />
             <stop offset="100%" stopColor={rimColor} stopOpacity="0" />
           </radialGradient>
           <filter id={`shadow-${seed}`} x="-20%" y="-10%" width="140%" height="150%">
-            <feDropShadow dx="0" dy="3" stdDeviation="2" floodColor="#000" floodOpacity="0.15" />
+            <feDropShadow dx="0" dy="3" stdDeviation="2.5" floodColor="#000" floodOpacity="0.25" />
           </filter>
           <filter id={`glow-filter-${seed}`} x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />
+            <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="blur" />
+            <feColorMatrix in="blur" type="saturate" values="1.3" result="saturatedBlur" />
             <feMerge>
-              <feMergeNode in="blur" />
+              <feMergeNode in="saturatedBlur" />
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
@@ -313,7 +314,7 @@ export function RobotAvatar({ employee, small = false, working = false, avatarCo
             rx="18" 
             ry="4" 
             fill="#000" 
-            opacity="0.12"
+            opacity="0.2"
             className="robot-shadow"
           />
           
@@ -322,7 +323,7 @@ export function RobotAvatar({ employee, small = false, working = false, avatarCo
             d="M 38 72 L 38 82 Q 38 86 42 86 L 58 86 Q 62 86 62 82 L 62 72"
             fill={`url(#body-grad-${seed})`}
             stroke={colorDef.stroke}
-            strokeWidth="1.5"
+            strokeWidth="2"
             className="robot-torso"
           />
           
@@ -335,7 +336,7 @@ export function RobotAvatar({ employee, small = false, working = false, avatarCo
             d={headPath}
             fill={`url(#head-grad-${seed})`}
             stroke={colorDef.stroke}
-            strokeWidth="1.5"
+            strokeWidth="2"
             className="robot-head"
           />
           
@@ -452,12 +453,12 @@ export function RobotAvatarPreview({ color, shape, face, size = 80 }) {
   const eyeElements = getEyeElements(face, seed);
   const antennaStyle = "single";
   
-  const highlightColor = lightenColor(colorDef.fill, 0.7);
-  const bodyColor = darkenColor(colorDef.fill, 0.08);
-  const shadowColor = darkenColor(colorDef.stroke, 0.2);
-  const rimColor = lightenColor(colorDef.fill, 0.5);
-  const eyeGlow = colorDef.accent || lightenColor(colorDef.fill, 0.2);
-  const eyeBright = lightenColor(eyeGlow, 0.6);
+  const highlightColor = lightenColor(colorDef.fill, 0.45);
+  const bodyColor = darkenColor(colorDef.fill, 0.18);
+  const shadowColor = darkenColor(colorDef.stroke, 0.35);
+  const rimColor = lightenColor(colorDef.fill, 0.35);
+  const eyeGlow = colorDef.accent || lightenColor(colorDef.fill, 0.15);
+  const eyeBright = lightenColor(eyeGlow, 0.45);
 
   return (
     <span
@@ -486,39 +487,40 @@ export function RobotAvatarPreview({ color, shape, face, size = 80 }) {
             <stop offset="100%" stopColor={darkenColor(eyeGlow, 0.3)} />
           </radialGradient>
           <radialGradient id="preview-rim-light" cx="80%" cy="20%" r="60%">
-            <stop offset="0%" stopColor={rimColor} stopOpacity="0.6" />
+            <stop offset="0%" stopColor={rimColor} stopOpacity="0.75" />
             <stop offset="100%" stopColor={rimColor} stopOpacity="0" />
           </radialGradient>
           <filter id="preview-shadow" x="-20%" y="-10%" width="140%" height="150%">
-            <feDropShadow dx="0" dy="3" stdDeviation="2" floodColor="#000" floodOpacity="0.15" />
+            <feDropShadow dx="0" dy="3" stdDeviation="2.5" floodColor="#000" floodOpacity="0.25" />
           </filter>
           <filter id="preview-glow-filter" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />
+            <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="blur" />
+            <feColorMatrix in="blur" type="saturate" values="1.3" result="saturatedBlur" />
             <feMerge>
-              <feMergeNode in="blur" />
+              <feMergeNode in="saturatedBlur" />
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
         </defs>
         
         <g className="robot-body" filter="url(#preview-shadow)">
-          <ellipse cx="50" cy="88" rx="18" ry="4" fill="#000" opacity="0.12" />
+          <ellipse cx="50" cy="88" rx="18" ry="4" fill="#000" opacity="0.2" />
           
           <path
             d="M 38 72 L 38 82 Q 38 86 42 86 L 58 86 Q 62 86 62 82 L 62 72"
             fill="url(#preview-body-grad)"
             stroke={colorDef.stroke}
-            strokeWidth="1.5"
+            strokeWidth="2"
           />
           
-          <ellipse cx="32" cy="78" rx="4" ry="3" fill={bodyColor} stroke={colorDef.stroke} strokeWidth="1" />
-          <ellipse cx="68" cy="78" rx="4" ry="3" fill={bodyColor} stroke={colorDef.stroke} strokeWidth="1" />
+          <ellipse cx="32" cy="78" rx="4" ry="3" fill={bodyColor} stroke={colorDef.stroke} strokeWidth="1.2" />
+          <ellipse cx="68" cy="78" rx="4" ry="3" fill={bodyColor} stroke={colorDef.stroke} strokeWidth="1.2" />
           
           <path
             d={headPath}
             fill="url(#preview-head-grad)"
             stroke={colorDef.stroke}
-            strokeWidth="1.5"
+            strokeWidth="2"
           />
           
           <path

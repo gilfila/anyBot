@@ -9,6 +9,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 - **Android CI**: Install SDK packages explicitly (platform-tools, platforms;android-36, build-tools;36.0.0) instead of relying on deprecated `tools` package
 
+## [0.2.25] - 2026-09-22
+
+### Changed
+- **Bolder robot avatars**: Increased color saturation and contrast for robot avatars after user feedback that 0.2.24's colors were too muted
+- **Richer color palette**: Avatar fills are more saturated, strokes are darker and richer, accent colors (eye glow, antenna, chest light) are hotter/more vivid
+- **Stronger contrast**: Darker body shadows, brighter highlight stops, increased rim light opacity for better 3D depth
+- **Improved small-size visibility**: Thicker outline strokes (1.5→2px), stronger drop shadows, and enhanced glow filters ensure robots read clearly at sidebar size (~25px)
+
+### Technical
+- `avatarColors` in constants.js updated with higher saturation hex values (same color keys/ids for config compatibility)
+- Computed color adjustments in RobotAvatar: reduced highlight lightening (0.7→0.45), increased body darkening (0.08→0.18), stronger shadow darkening (0.2→0.35)
+- SVG filters: drop shadow opacity 0.15→0.25, glow filter with added saturation matrix for hotter eye/antenna glow
+- CSS drop-shadow filters strengthened for both normal and small avatar sizes
+
 ## [0.2.24] - 2026-09-22
 
 ### Changed
