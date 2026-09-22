@@ -35,8 +35,18 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
+
       - uses: android-actions/setup-android@v3
-      - run: cd android && ./gradlew assembleDebug
+        with:
+          accept-android-sdk-licenses: true
+          packages: |
+            platform-tools
+            platforms;android-36
+            build-tools;36.0.0
+
+      - name: Build Android debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
         with:
           name: anyBot-android-debug
