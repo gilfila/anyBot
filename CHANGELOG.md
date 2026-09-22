@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **Bot action menu**: Hover "…" (ellipsis) menu on each bot row in the left sidebar for quick Edit and Delete actions
+- Keyboard-accessible menu trigger that's always reachable via focus
+- Confirmation dialog for Delete action that clearly names the bot and explains the archive behavior
+
 ## [0.2.20]
 
 ### Added
