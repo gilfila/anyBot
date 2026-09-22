@@ -76,13 +76,13 @@ function UpdateButton({ update, onAction, onDismiss }) {
       <button className="update-btn downloading" disabled title={`Downloading update: ${percent}%`}>
         <div className="update-progress-ring">
           <svg viewBox="0 0 20 20" width="18" height="18">
-            <circle cx="10" cy="10" r="8" fill="none" stroke="#dce4f7" strokeWidth="2" />
+            <circle cx="10" cy="10" r="8" fill="none" style={{ stroke: "var(--rule-strong)" }} strokeWidth="2" />
             <circle
               cx="10"
               cy="10"
               r="8"
               fill="none"
-              stroke="#4773c5"
+              style={{ stroke: "var(--accent)" }}
               strokeWidth="2"
               strokeDasharray={`${percent * 0.5} 50`}
               strokeLinecap="round"
@@ -170,7 +170,11 @@ export function App() {
     [voiceAgent, setVoiceAgent] = useState(null);
   const recognition = useRef(null);
   const [showArchived, setShowArchived] = useState(false);
-  const [lastSeenMessages, setLastSeenMessages] = useState({});
+  const [lastSeenMessages, setLastSeenMessages] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("anybot-last-seen") || "{}") || {};
+    } catch { return {}; }
+  });
   const [openBotMenu, setOpenBotMenu] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(() => {
@@ -191,6 +195,9 @@ export function App() {
   const [browserHtml, setBrowserHtml] = useState('');
   const [explorerPath, setExplorerPath] = useState('');
   const end = useRef(null);
+  // Voice replies are awaited inside long-lived callbacks; read live data.
+  const dataRef = useRef(data);
+  dataRef.current = data;
   
   function toggleLeftSidebar() {
     setLeftSidebarOpen((prev) => {
@@ -214,6 +221,7 @@ export function App() {
   
   const openInBrowser = useCallback((html) => {
     setBrowserHtml(html);
+    setBrowserUrl("about:preview");
     setActiveToolsPanel('browser');
     setRightSidebarOpen(true);
     setHtmlPreview(null);
@@ -312,6 +320,17 @@ export function App() {
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length, conversationId]);
+  // Messages that arrive while a conversation is on screen are already read.
+  const latestMessageId = view === "chat" ? messages.at(-1)?.id : null;
+  useEffect(() => {
+    if (!conversationId || !latestMessageId) return;
+    setLastSeenMessages((prev) =>
+      prev[conversationId] === latestMessageId ? prev : { ...prev, [conversationId]: latestMessageId },
+    );
+  }, [conversationId, latestMessageId]);
+  useEffect(() => {
+    try { localStorage.setItem("anybot-last-seen", JSON.stringify(lastSeenMessages)); } catch {}
+  }, [lastSeenMessages]);
   useEffect(() => {
     if (!openBotMenu) return;
     const handleClickOutside = () => setOpenBotMenu(null);
@@ -378,7 +397,7 @@ export function App() {
     if (!employee) return;
     setVoiceAgent(employee);
     startDictation(async (text) => {
-      const before = new Set(data.messages.filter((message) => message.conversation === conversationId).map((message) => message.id));
+      const before = new Set(dataRef.current.messages.filter((message) => message.conversation === conversationId).map((message) => message.id));
       await act("messages.send", {
         conversation: conversationId,
         body: text,
@@ -428,16 +447,38 @@ export function App() {
   }
   function hasUnreadMessages(convId) {
     if (!convId) return false;
-    const convMessages = data.messages.filter((m) => m.conversation === convId && m.author !== "human");
-    if (convMessages.length === 0) return false;
-    const lastSeenId = lastSeenMessages[convId];
-    if (!lastSeenId) return convMessages.length > 0;
-    const lastSeenIndex = convMessages.findIndex((m) => m.id === lastSeenId);
-    return lastSeenIndex < convMessages.length - 1;
+    // lastSeen can point at the owner's own message, so locate it among all
+    // messages and only count replies that arrived after it.
+    const convMessages = data.messages.filter((m) => m.conversation === convId);
+    const lastSeenIndex = convMessages.findIndex((m) => m.id === lastSeenMessages[convId]);
+    return convMessages.slice(lastSeenIndex + 1).some((m) => m.author !== "human");
   }
   async function dismissRun(runId) {
     await act("runs.dismiss", { id: runId });
   }
+  const activeEmployees = data.employees.filter((e) => !e.archived);
+  const archivedCount = data.employees.length - activeEmployees.length;
+  const workingCount = data.runs.filter((r) => r.status === "running").length;
+  const queuedCount = data.runs.filter((r) => r.status === "queued").length;
+  function currentRun(employeeId) {
+    return data.runs.findLast(
+      (r) => r.employee === employeeId && ["running", "queued", "cancelling"].includes(r.status),
+    );
+  }
+  function lastReply(employeeId) {
+    return data.messages.findLast((m) => m.author === employeeId);
+  }
+  const every = (minutes) => {
+    const units = [[10080, "week"], [1440, "day"], [60, "hour"]];
+    for (const [size, name] of units)
+      if (minutes % size === 0) {
+        const n = minutes / size;
+        return n === 1 ? `Every ${name}` : `Every ${n} ${name}s`;
+      }
+    return minutes === 1 ? "Every minute" : `Every ${minutes} minutes`;
+  };
+  const lastLine = (text) =>
+    (text || "").split("\n").map((line) => line.trim()).filter(Boolean).at(-1) || "";
   return (
     <div className="app-shell">
       <aside className={`sidebar ${leftSidebarOpen ? "" : "collapsed"}`}>
@@ -456,13 +497,6 @@ export function App() {
             onChange={(event) => setSidebarSearch(event.target.value)}
           />
         </label>
-        <div className="workspace">
-          <span className="workspace-icon">W</span>
-          <div>
-            My workspace<small>Personal workspace</small>
-          </div>
-          <ShieldCheck size={15} />
-        </div>
         <div className="nav-label">WORKSPACE</div>
         <nav>
           <button
@@ -492,6 +526,7 @@ export function App() {
             const botConv = getConversationForEmployee(employee.id);
             const unread = botConv && hasUnreadMessages(botConv.id);
             const isMenuOpen = openBotMenu === employee.id;
+            const run = currentRun(employee.id);
             return (
               <div
                 key={employee.id}
@@ -501,9 +536,14 @@ export function App() {
                   className="bot-row-main"
                   onClick={() => directChat(employee)}
                 >
-                  <RobotAvatar small employee={employee} />
-                  <span>{employee.name}</span>
-                  {unread && <i className="unread-dot" />}
+                  <RobotAvatar small employee={employee} working={run?.status === "running"} />
+                  <span className="bot-row-text">
+                    <span className="bot-row-name">{employee.name}</span>
+                    <small className={run?.status === "running" ? "live" : ""}>
+                      {run ? (run.status === "running" ? "Working…" : "Queued") : employee.role}
+                    </small>
+                  </span>
+                  {unread && <i className="unread-dot" aria-label="Unread messages" />}
                 </button>
                 <button
                   className="bot-row-menu-trigger"
@@ -552,7 +592,11 @@ export function App() {
               </div>
             );
           })}
-          {!sidebarEmployees.length && <p className="side-empty">No bots match your search.</p>}
+          {!sidebarEmployees.length && (
+            <p className="side-empty">
+              {sidebarTerm ? "No bots match your search." : "No bots yet. Create one from Your team."}
+            </p>
+          )}
         </div>
         <div className="nav-label conversation-label">
           PROJECTS
@@ -597,14 +641,18 @@ export function App() {
                   : "Local runtime online"}
             </span>
           </div>
-          <p>Closing the window shuts down the local runtime cleanly.</p>
+          <p>
+            {data.runtime.keepRunningInTray === false
+              ? "Closing the window stops the local runtime cleanly."
+              : "Closing the window keeps your team working from the tray."}
+          </p>
           <button className="plain" onClick={() => setView("settings")}>
             <Monitor size={16} />
             Runtime & privacy
             <ChevronRight size={14} />
           </button>
         </div>
-        <div className="user">
+        <div className="owner">
           <span className="user-avatar">Y</span>
           <div>
             You<small>Workspace owner</small>
@@ -704,219 +752,220 @@ export function App() {
         )}
         {view === "team" && (
           <div className="page team-page">
-            <div className="page-heading">
-              <div className="eyebrow">
-                A LITTLE TEAM. A LOT OF POSSIBILITY.
-              </div>
-              <div className="heading-row">
-                <div>
-                  <h1>Your next great team starts here.</h1>
+            {activeEmployees.length || archivedCount ? (
+              <>
+                <header className="roster-heading">
+                  <div>
+                    <h1>Your team</h1>
+                    <p className="roster-tally">
+                      <span><b>{activeEmployees.length}</b> {activeEmployees.length === 1 ? "bot" : "bots"}</span>
+                      <span className={workingCount ? "live" : ""}><b>{workingCount}</b> working</span>
+                      <span><b>{queuedCount}</b> queued</span>
+                    </p>
+                  </div>
+                  <div className="roster-actions">
+                    <button
+                      className="secondary"
+                      disabled={!activeEmployees.length}
+                      onClick={() => setModal({ type: "conversation" })}
+                    >
+                      <MessageSquare size={15} />
+                      New project
+                    </button>
+                    <button
+                      className="primary"
+                      onClick={() => setModal({ type: "employee" })}
+                    >
+                      <Plus size={16} />
+                      Create employee
+                    </button>
+                  </div>
+                </header>
+                <div className="roster-toolbar">
+                  <div className="segmented" role="tablist" aria-label="Employee filter">
+                    <button
+                      role="tab"
+                      aria-selected={!showArchived}
+                      className={showArchived ? "" : "active"}
+                      onClick={() => setShowArchived(false)}
+                    >
+                      Active
+                    </button>
+                    <button
+                      role="tab"
+                      aria-selected={showArchived}
+                      className={showArchived ? "active" : ""}
+                      onClick={() => setShowArchived(true)}
+                    >
+                      Archived
+                      {archivedCount > 0 && <span className="segmented-count">{archivedCount}</span>}
+                    </button>
+                  </div>
+                </div>
+                <div className="roster">
+                  {data.employees
+                    .filter((e) => Boolean(e.archived) === showArchived)
+                    .map((e) => {
+                      const run = currentRun(e.id);
+                      const working = run?.status === "running";
+                      const last = !run && lastReply(e.id);
+                      return (
+                        <article
+                          className={`roster-row${working ? " is-working" : ""}${e.archived ? " is-archived" : ""}`}
+                          key={e.id}
+                        >
+                          <RobotAvatar employee={e} working={working} />
+                          <div className="roster-who">
+                            <h3>{e.name}</h3>
+                            <span className="role">{e.role}</span>
+                          </div>
+                          <div className="roster-now">
+                            <Status
+                              status={
+                                e.archived
+                                  ? "archived"
+                                  : run
+                                    ? run.status === "running"
+                                      ? "working"
+                                      : run.status
+                                    : "available"
+                              }
+                            />
+                            <p>
+                              {run
+                                ? lastLine(run.output) ||
+                                  data.messages.find((m) => m.id === run.message)?.body ||
+                                  "Starting up…"
+                                : last
+                                  ? last.body
+                                  : e.instructions}
+                            </p>
+                          </div>
+                          <span className="harness-tag">
+                            <Cpu size={13} />
+                            {harnessName(e.harness)}
+                          </span>
+                          <div className="roster-row-actions">
+                            {e.archived ? (
+                              <button
+                                className="icon-button"
+                                aria-label={`Restore ${e.name}`}
+                                title="Restore employee"
+                                onClick={() =>
+                                  act("employees.setArchived", {
+                                    id: e.id,
+                                    revision: e.revision,
+                                    archived: false,
+                                  })
+                                }
+                              >
+                                <RefreshCw size={16} />
+                              </button>
+                            ) : (
+                              <>
+                                <button
+                                  className="icon-button"
+                                  title={`Edit ${e.name}`}
+                                  aria-label={`Edit ${e.name}`}
+                                  onClick={() =>
+                                    setModal({
+                                      type: "employee",
+                                      preset: e,
+                                      editing: true,
+                                    })
+                                  }
+                                >
+                                  <Settings2 size={16} />
+                                </button>
+                                <button
+                                  className="icon-button"
+                                  title={`Archive ${e.name}`}
+                                  aria-label={`Archive ${e.name}`}
+                                  onClick={() =>
+                                    act("employees.setArchived", {
+                                      id: e.id,
+                                      revision: e.revision,
+                                      archived: true,
+                                    })
+                                  }
+                                >
+                                  <Archive size={16} />
+                                </button>
+                                <button
+                                  className="message-button"
+                                  title={`Message ${e.name}`}
+                                  aria-label={`Message ${e.name}`}
+                                  onClick={() => directChat(e)}
+                                >
+                                  Message
+                                  <ArrowUpRight size={15} />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  {showArchived && !archivedCount && (
+                    <p className="roster-empty">No archived employees.</p>
+                  )}
+                  {!showArchived && !activeEmployees.length && (
+                    <p className="roster-empty">Every employee is archived. Restore one or create a new one.</p>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="hire">
+                <header className="hire-heading">
+                  <h1>Hire your first bot.</h1>
                   <p>
-                    Give each bot a role. Bring your own harness. Get to work
-                    together.
+                    Each bot is a named employee with a role, running on a
+                    harness you already use: Claude Code, Codex, Gemini,
+                    Hermes, or Cursor. Put several in one project and they hand
+                    work to each other.
                   </p>
+                  <button
+                    className="primary"
+                    onClick={() => setModal({ type: "employee" })}
+                  >
+                    <Plus size={16} />
+                    Create employee
+                  </button>
+                </header>
+                <ol className="hire-steps">
+                  <li><b>Pick a role</b> from a template or write your own.</li>
+                  <li><b>Choose a harness</b> installed on this computer.</li>
+                  <li><b>Message it</b> directly, or add it to a project.</li>
+                </ol>
+                <div className="section-heading">
+                  <h2>Start from a role</h2>
+                  <span>Every field stays editable.</span>
                 </div>
-                <button
-                  className="primary"
-                  onClick={() => setModal({ type: "employee" })}
-                >
-                  <Plus size={16} />
-                  Create employee
-                </button>
-              </div>
-            </div>
-            <section className="intro-panel">
-              <div>
-                <span className="pill">
-                  <span className="dot" /> BUILT AROUND YOUR WORK
-                </span>
-                <h2>
-                  Different strengths.
-                  <br />
-                  One shared conversation.
-                </h2>
-                <p>
-                  Bring Claude, Codex, Gemini, and Hermes into the same
-                  workspace. Your employees keep their conversations and can
-                  hand work to each other.
-                </p>
-                <button
-                  className="text-button"
-                  onClick={() =>
-                    data.employees.length
-                      ? setModal({ type: "conversation" })
-                      : setModal({ type: "employee" })
-                  }
-                >
-                  {data.employees.length
-                    ? "Start a team conversation"
-                    : "Meet your first employee"}
-                  <ArrowUpRight size={16} />
-                </button>
-              </div>
-              <div className="team-illustration" aria-hidden="true">
-                <div className="orbit-node peach">
-                  A<span>Claude</span>
-                </div>
-                <div className="orbit-node blue">
-                  M<span>Codex</span>
-                </div>
-                <div className="orbit-node purple">
-                  S<span>Gemini</span>
-                </div>
-                <div className="orbit-node green">
-                  R<span>Hermes</span>
-                </div>
-                <div className="orbit-core">
-                  <Bot size={32} />
-                  <span>anyBot</span>
-                </div>
-              </div>
-            </section>
-            <div className="section-heading">
-              <h2>
-                {data.employees.length ? "Your employees" : "Start with a role"}
-              </h2>
-              {data.employees.length ? (
-                <button
-                  className="text-button"
-                  onClick={() => setShowArchived(!showArchived)}
-                >
-                  {showArchived
-                    ? "Show active employees"
-                    : "Show archived employees"}
-                </button>
-              ) : (
-                <span>Make it yours. You can customize every employee.</span>
-              )}
-            </div>
-            <div className="employee-grid">
-              {data.employees
-                .filter((e) => Boolean(e.archived) === showArchived)
-                .map((e) => (
-                  <article className="employee-card" key={e.id}>
-                    <div className="card-top">
-                      <RobotAvatar employee={e} working={data.runs.some(
-                        (r) => r.employee === e.id && r.status === "running"
-                      )} />
-                      <Status
-                        status={
-                          e.archived
-                            ? "archived"
-                            : data.runs.some(
-                                  (r) =>
-                                    r.employee === e.id &&
-                                    r.status === "running",
-                                )
-                              ? "working"
-                              : "available"
-                        }
-                      />
-                    </div>
-                    <h3>{e.name}</h3>
-                    <div className="role">{e.role}</div>
-                    <p>{e.instructions}</p>
-                    <div className="card-footer">
+                <div className="template-list">
+                  {presets.map((p) => (
+                    <button
+                      className="template-row"
+                      key={p.harness}
+                      onClick={() => setModal({ type: "employee", preset: p })}
+                    >
+                      <RobotAvatar employee={p} />
+                      <span className="template-text">
+                        <strong>{p.role}</strong>
+                        <small>{p.summary}</small>
+                      </span>
                       <span className="harness-tag">
                         <Cpu size={13} />
-                        {harnessName(e.harness)}
+                        {harnessName(p.harness)}
                       </span>
-                      {e.archived ? (
-                        <button
-                          aria-label={`Restore ${e.name}`}
-                          title="Restore employee"
-                          onClick={() =>
-                            act("employees.setArchived", {
-                              id: e.id,
-                              revision: e.revision,
-                              archived: false,
-                            })
-                          }
-                        >
-                          <RefreshCw size={17} />
-                        </button>
-                      ) : (
-                        <>
-                          <button
-                            title={`Edit ${e.name}`}
-                            aria-label={`Edit ${e.name}`}
-                            onClick={() =>
-                              setModal({
-                                type: "employee",
-                                preset: e,
-                                editing: true,
-                              })
-                            }
-                          >
-                            <Settings2 size={16} />
-                          </button>
-                          <button
-                            title={`Archive ${e.name}`}
-                            aria-label={`Archive ${e.name}`}
-                            onClick={() =>
-                              act("employees.setArchived", {
-                                id: e.id,
-                                revision: e.revision,
-                                archived: true,
-                              })
-                            }
-                          >
-                            <Archive size={16} />
-                          </button>
-                          <button
-                            title={`Message ${e.name}`}
-                            aria-label={`Message ${e.name}`}
-                            onClick={() => directChat(e)}
-                          >
-                            <ArrowUpRight size={19} />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </article>
-                ))}
-              {(data.employees.length ? [] : presets).map((p) => (
-                <article className="employee-card template" key={p.harness}>
-                  <div className="card-top">
-                    <RobotAvatar employee={p} />
-                    <span className="template-label">ROLE TEMPLATE</span>
-                  </div>
-                  <h3>{p.role}</h3>
-                  <div className="role">{harnessName(p.harness)}</div>
-                  <p>{p.summary}</p>
-                  <button
-                    className="template-button"
-                    onClick={() => setModal({ type: "employee", preset: p })}
-                  >
-                    <Plus size={15} />
-                    Create {p.role.toLowerCase()}
-                  </button>
-                </article>
-              ))}
-            </div>
-            <div className="section-heading lower">
-              <h2>A workspace that stays with you</h2>
-            </div>
-            <div className="principles">
-              <div>
-                <MessageSquare size={21} />
-                <h3>Conversations, not terminals</h3>
-                <p>Talk to one employee or bring a whole team into the room.</p>
+                      <span className="template-cta">
+                        <Plus size={14} />
+                        Hire
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div>
-                <Workflow size={21} />
-                <h3>Let the team collaborate</h3>
-                <p>Enable bounded handoffs and see who is doing what.</p>
-              </div>
-              <div>
-                <ShieldCheck size={21} />
-                <h3>Your computer. Your control.</h3>
-                <p>
-                  Local history, visible work, and a stop button when you need
-                  it.
-                </p>
-              </div>
-            </div>
+            )}
           </div>
         )}
         {view === "chat" && conversation && (
@@ -973,6 +1022,8 @@ export function App() {
                   <button
                     type="button"
                     className={voiceAgent ? "secondary voice-active" : "secondary"}
+                    aria-label={voiceAgent ? "Stop voice chat" : "Voice chat"}
+                    title={voiceAgent ? "Stop voice chat" : "Voice chat"}
                     onClick={() => {
                       if (voiceAgent) {
                         recognition.current?.stop();
@@ -1000,10 +1051,13 @@ export function App() {
                   </div>
                 )}
                 {messages.map((m) => (
-                  <div className={`message ${m.kind}`} key={m.id}>
+                  <div
+                    className={`message ${m.kind}${m.author === "human" ? " from-you" : m.author === "system" ? " from-system" : ""}`}
+                    key={m.id}
+                  >
                     {m.author === "human" ? (
                       <Avatar small employee={{ name: "Y" }} />
-                    ) : (
+                    ) : m.author === "system" ? null : (
                       <RobotAvatar
                         small
                         employee={data.employees.find((e) => e.id === m.author)}
@@ -1040,7 +1094,7 @@ export function App() {
                   </div>
                 ))}
                 {activeRuns.map((r) => (
-                  <div className="message" key={r.id}>
+                  <div className="message live-run" key={r.id}>
                     <RobotAvatar
                       small
                       employee={data.employees.find((e) => e.id === r.employee)}
@@ -1135,7 +1189,7 @@ export function App() {
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
+                    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                       e.preventDefault();
                       send(e);
                     }
@@ -1191,7 +1245,7 @@ export function App() {
             <PageTitle
               eyebrow="FOLLOW THE WORK"
               title="Activity"
-              description="Every assignment, handoff, and result — in one place."
+              description="Every assignment, handoff, and result in one place."
             />
             <div className="activity-summary">
               <div>
@@ -1649,13 +1703,13 @@ export function App() {
                       <strong>{r.name}</strong>
                       <p>{r.prompt}</p>
                       <small>
-                        Every {r.minutes} minutes ·{" "}
+                        {every(r.minutes)} ·{" "}
                         {r.enabled
                           ? `Next: ${new Date(r.nextRun).toLocaleString()}`
                           : "Paused"}
                       </small>
                       {r.lastOccurrence && (
-                        <small>Last occurrence: {r.lastOccurrence}</small>
+                        <small>Last run: {r.lastOccurrence}</small>
                       )}
                     </div>
                     <button

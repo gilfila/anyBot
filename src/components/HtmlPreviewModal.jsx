@@ -4,16 +4,14 @@ import { X, ExternalLink, Download, Maximize2, Minimize2, Globe } from "lucide-r
 export function HtmlPreviewModal({ html, title, onClose, onOpenInBrowser }) {
   const iframeRef = useRef(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [blobUrl, setBlobUrl] = useState(null);
 
   useEffect(() => {
-    if (html) {
-      const blob = new Blob([html], { type: 'text/html' });
-      const url = URL.createObjectURL(blob);
-      setBlobUrl(url);
-      return () => URL.revokeObjectURL(url);
-    }
-  }, [html]);
+    const onKey = (event) => {
+      if (event.key === 'Escape') onClose?.();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   const handleDownload = () => {
     const blob = new Blob([html], { type: 'text/html' });
@@ -85,11 +83,14 @@ export function HtmlPreviewModal({ html, title, onClose, onOpenInBrowser }) {
           </div>
         </div>
         <div className="html-preview-modal-content">
-          {blobUrl && (
+          {/* Employee-generated HTML is untrusted. srcdoc + a sandbox WITHOUT
+              allow-same-origin gives it an opaque origin, so it can never
+              reach window.parent.anybot (which can run shell commands). */}
+          {html && (
             <iframe
               ref={iframeRef}
-              src={blobUrl}
-              sandbox="allow-scripts allow-same-origin"
+              srcDoc={html}
+              sandbox="allow-scripts"
               title="HTML Preview"
               className="html-preview-iframe"
             />

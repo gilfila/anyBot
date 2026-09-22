@@ -258,21 +258,22 @@ function ToolsTab({
   );
 }
 
+const PREVIEW_URL = "about:preview";
+const isWebUrl = (value) => /^https?:\/\//i.test(value || "");
+
 function BrowserPanel({ initialUrl, htmlContent, onNavigate }) {
-  const [url, setUrl] = useState(initialUrl || "");
-  const [currentUrl, setCurrentUrl] = useState(initialUrl || "");
-  const [history, setHistory] = useState([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
+  const [url, setUrl] = useState(htmlContent ? PREVIEW_URL : initialUrl || "");
+  const [currentUrl, setCurrentUrl] = useState(htmlContent ? PREVIEW_URL : initialUrl || "");
+  const [history, setHistory] = useState(htmlContent ? [PREVIEW_URL] : []);
+  const [historyIndex, setHistoryIndex] = useState(htmlContent ? 0 : -1);
   const [loading, setLoading] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const iframeRef = useRef(null);
 
+  // Employee HTML handed over from a preview. Rendered through srcdoc in an
+  // opaque-origin sandbox (see the iframe below), never a same-origin blob.
   useEffect(() => {
-    if (htmlContent && iframeRef.current) {
-      const blob = new Blob([htmlContent], { type: "text/html" });
-      const blobUrl = URL.createObjectURL(blob);
-      setCurrentUrl(blobUrl);
-      setUrl("about:preview");
-    }
+    if (htmlContent && currentUrl !== PREVIEW_URL) navigateTo(PREVIEW_URL);
   }, [htmlContent]);
 
   useEffect(() => {
@@ -285,19 +286,16 @@ function BrowserPanel({ initialUrl, htmlContent, onNavigate }) {
     (targetUrl) => {
       if (!targetUrl) return;
 
-      let normalizedUrl = targetUrl;
-      if (
-        !targetUrl.startsWith("http://") &&
-        !targetUrl.startsWith("https://") &&
-        !targetUrl.startsWith("blob:") &&
-        !targetUrl.startsWith("about:")
-      ) {
-        normalizedUrl = "https://" + targetUrl;
+      let normalizedUrl = targetUrl.trim();
+      if (normalizedUrl !== PREVIEW_URL && !isWebUrl(normalizedUrl)) {
+        normalizedUrl =
+          "https://" +
+          normalizedUrl.replace(/^(?:[a-z][a-z0-9+.-]*:\/\/|(?:javascript|data|file|blob|vbscript):)/i, "");
       }
 
       setCurrentUrl(normalizedUrl);
       setUrl(targetUrl);
-      setLoading(true);
+      setLoading(normalizedUrl !== PREVIEW_URL);
 
       const newHistory = history.slice(0, historyIndex + 1);
       newHistory.push(normalizedUrl);
@@ -331,10 +329,9 @@ function BrowserPanel({ initialUrl, htmlContent, onNavigate }) {
   };
 
   const refresh = () => {
-    if (iframeRef.current) {
-      setLoading(true);
-      iframeRef.current.src = currentUrl;
-    }
+    if (!currentUrl) return;
+    if (currentUrl !== PREVIEW_URL) setLoading(true);
+    setReloadKey((key) => key + 1);
   };
 
   return (
@@ -370,8 +367,19 @@ function BrowserPanel({ initialUrl, htmlContent, onNavigate }) {
         />
       </form>
       <div className="rail-browser-viewport">
-        {currentUrl ? (
+        {currentUrl === PREVIEW_URL && htmlContent ? (
           <iframe
+            key={`preview-${reloadKey}`}
+            ref={iframeRef}
+            srcDoc={htmlContent}
+            sandbox="allow-scripts"
+            title="HTML preview"
+          />
+        ) : isWebUrl(currentUrl) ? (
+          // Remote sites keep their own (cross) origin, so allow-same-origin
+          // does not give them access to this window.
+          <iframe
+            key={`web-${reloadKey}`}
             ref={iframeRef}
             src={currentUrl}
             sandbox="allow-scripts allow-same-origin allow-forms"
@@ -385,10 +393,10 @@ function BrowserPanel({ initialUrl, htmlContent, onNavigate }) {
           </div>
         )}
       </div>
-      {currentUrl && (
+      {isWebUrl(currentUrl) && (
         <button
           className="rail-external-btn"
-          onClick={() => window.open(currentUrl, "_blank")}
+          onClick={() => window.anybot?.openUrl?.(currentUrl)}
           title="Open in external browser"
         >
           <ExternalLink size={12} />

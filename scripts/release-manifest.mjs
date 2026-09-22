@@ -11,6 +11,7 @@ if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
   throw new Error(`Invalid package version: ${version}`);
 }
 const files = [
+  `anyBot-Setup-${version}.exe`,
   `anyBot Setup ${version}.exe`,
   `anyBot ${version}.exe`,
   "anyBot-mobile-debug.apk",
