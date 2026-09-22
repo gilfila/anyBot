@@ -41,9 +41,9 @@ export function MobileAccess() {
             <label>
               New device role
               <select value={role} onChange={(e) => setRole(e.target.value)}>
-                <option value="viewer">Viewer — read only</option>
-                <option value="contributor">Contributor — send work</option>
-                <option value="operator">Operator — send and cancel</option>
+                <option value="viewer">Viewer: read only</option>
+                <option value="contributor">Contributor: send work</option>
+                <option value="operator">Operator: send and cancel</option>
               </select>
             </label>
             <label>

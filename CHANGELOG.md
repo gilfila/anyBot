@@ -6,8 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.2.26] - 2026-09-22
+
+### Changed
+- **Studio paper redesign**: warm paper surfaces, near-black ink type, and a single vermilion signal color (unread, live work, send, updates). Every color in `style.css` now resolves to OKLCH design tokens on `:root`; body text moves from 11–13px low-contrast grey to 13.5–14.5px ink.
+- **Team page is a live roster**: each bot shows its status and what it is doing right now (last line of streaming output, the queued assignment, or its latest reply). The marketing hero and principle cards are gone from populated workspaces; first run gets a focused "Hire your first bot" flow with role templates.
+- **Conversations**: your messages are right-aligned ink bubbles, handoffs are quoted briefs with a label, coordinator notices are quiet centred lines, and streaming run output is shown in a bounded mono panel.
+- **Sidebar**: bot rows show role or live status ("Working…", "Queued"); the non-functional "My workspace" card is removed; a pending update gets a full-width button instead of squeezing the owner row.
+- **Markdown**: ordered lists, blockquotes, horizontal rules, and bare URL auto-linking.
+- Routine intervals read as "Every week" / "Every 2 hours" instead of raw minutes.
+
 ### Fixed
-- **Android CI**: Install SDK packages explicitly (platform-tools, platforms;android-36, build-tools;36.0.0) instead of relying on deprecated `tools` package
+- **Dismissing failed-run notices did nothing**: `runs.dismiss` was missing from the desktop IPC allowlist, so every dismiss failed with "Operation not allowed" (since 0.2.21). Added a static test that every method the renderer calls is allowlisted.
+- **Update chrome flickered after any action**: only `snapshot` responses carried updater and tray state, so the Update button and settings toggles vanished for up to 4s after each command. All command responses now include it.
+- **"Check now" could discard a downloaded update**: re-checking while downloading or ready-to-restart reset the state to "available". Checks are now skipped in those states. Periodic checks also run while a dismissed update is pending, so a newer release still surfaces.
+- **Unread dots**: the open conversation no longer shows as unread while you watch replies arrive, your own last message no longer marks a conversation unread, and read state survives restarts.
+- **Links in employee messages** now open in the system browser (they were silently blocked); "Open external" in the rail browser works for the same reason.
+- **HTML "Open in Browser"** from a preview did nothing when the rail browser had no page loaded.
+- **The in-app browser could never load a web page**: the renderer CSP (`default-src 'self'`) blocked all framing. Added `frame-src https: http:`; remote pages stay cross-origin and sandboxed.
+- **Owner block CSS leaked onto your messages** (`.user` matched `.message.user`), adding a stray rule and padding above each of your messages.
+- Sidebar said "Closing the window shuts down the local runtime" while tray mode (the default) keeps it running.
+- Enter no longer sends mid-IME composition; voice chat no longer compares against stale messages.
+- File explorer no longer fails a whole folder when one entry is locked; the terminal's 60s timeout is cleared when a command exits.
+
+### Security
+- **Employee HTML previews could reach `window.anybot`**: previews used a same-origin `blob:` iframe with `sandbox="allow-scripts allow-same-origin"`, which is equivalent to no sandbox and exposes the `runCommand` shell bridge. Previews now use `srcdoc` in an opaque-origin sandbox (`allow-scripts` only).
+- **Markdown rendered raw HTML from employee output**: text is now HTML-escaped before markdown is applied, and links are limited to http, https, and mailto. Inline-HTML replies use a stricter sanitizer (no forms, frames, styles, or non-web URLs). Covered by `tests/markdown.test.mjs`.
+- `openUrl` and new-window requests only hand http(s) URLs to the OS.
+
+### CI
+- **Desktop build failed on every push to main**: electron-builder auto-published on CI without a token. Packaging now runs with `--publish never` (releases to `anyBot-updates` stay manual; `latest.yml` is still generated), and the artifact upload uses the real file names instead of the stale 0.2.6 paths.
+- **Android build**: `setup-android` splits `packages` on spaces, not newlines, so the multi-line list was read as one invalid package.
+- `release:manifest` now hashes the `anyBot-Setup-X.Y.Z.exe` installer name electron-builder actually produces.
 
 ## [0.2.25] - 2026-09-22
 

@@ -349,6 +349,16 @@ async function checkForUpdates() {
     return getUpdateState();
   }
 
+  // A re-check while a download is in flight or finished would emit
+  // update-available again and throw away the "ready to restart" state.
+  if (
+    updateState === UpdateState.CHECKING ||
+    updateState === UpdateState.DOWNLOADING ||
+    updateState === UpdateState.DOWNLOADED
+  ) {
+    return getUpdateState();
+  }
+
   try {
     await autoUpdater.checkForUpdates();
   } catch (error) {
@@ -444,9 +454,14 @@ function startUpdateChecker() {
     checkForUpdates();
   }, 3000);
 
-  // Periodic checks
+  // Periodic checks. AVAILABLE is included so a newer release still surfaces
+  // after the owner dismissed an older one.
   updateCheckTimer = setInterval(() => {
-    if (updateState === UpdateState.IDLE || updateState === UpdateState.ERROR) {
+    if (
+      updateState === UpdateState.IDLE ||
+      updateState === UpdateState.ERROR ||
+      updateState === UpdateState.AVAILABLE
+    ) {
       checkForUpdates();
     }
   }, UPDATE_CHECK_INTERVAL_MS);
@@ -479,6 +494,7 @@ const methods = new Set([
   "conversations.updateSettings",
   "messages.send",
   "runs.cancel",
+  "runs.dismiss",
   "routines.create",
   "routines.setEnabled",
   "routines.runNow",
@@ -494,24 +510,27 @@ else {
     const startupPreference = loadStartupPreference();
     applyStartupPreference(startupPreference.launchAtLogin);
     applyTrayPreference(startupPreference.keepRunningInTray);
+    // Every coordinator command answers with a snapshot. The renderer replaces
+    // its state with that snapshot, so shell-owned fields (startup prefs and
+    // updater state) must ride along or the UI flickers until the next poll.
+    const withShellState = (result) =>
+      result && typeof result === "object" && result.runtime
+        ? {
+            ...result,
+            runtime: { ...result.runtime, launchAtLogin, keepRunningInTray, userDataFallback },
+            update: getUpdateState(),
+          }
+        : result;
     ipcMain.handle("anybot:request", async (event, method, payload) => {
       validateSender(event);
       if (method === "runtime.startup") {
         applyStartupPreference(payload?.enabled === true);
         await waitForReady();
-        const result = await request("snapshot");
-        return {
-          ...result,
-          runtime: { ...result.runtime, launchAtLogin, keepRunningInTray, userDataFallback },
-          update: getUpdateState(),
-        };
+        return withShellState(await request("snapshot"));
       }
       if (method === "snapshot") {
         await waitForReady();
-        const result = await request(method, payload);
-        result.runtime = { ...result.runtime, launchAtLogin, keepRunningInTray, userDataFallback };
-        result.update = getUpdateState();
-        return result;
+        return withShellState(await request(method, payload));
       }
       if (method === "update.check") {
         await checkForUpdates();
@@ -552,10 +571,7 @@ else {
       if (method === "runtime.tray") {
         applyTrayPreference(payload?.enabled === true);
         await waitForReady();
-        const result = await request("snapshot");
-        result.runtime = { ...result.runtime, launchAtLogin, keepRunningInTray, userDataFallback };
-        result.update = getUpdateState();
-        return result;
+        return withShellState(await request("snapshot"));
       }
       if (method === "mobile.pair") {
         if (!mobileGateway)
@@ -592,7 +608,7 @@ else {
         shell.showItemInFolder(file);
         return { revealed: true };
       }
-      return request(method, payload);
+      return withShellState(await request(method, payload));
     });
     ipcMain.handle("anybot:directory", async (event) => {
       validateSender(event);
@@ -606,12 +622,15 @@ else {
       try {
         const entries = fs.readdirSync(dirPath, { withFileTypes: true });
         return {
-          entries: entries.map((entry) => ({
-            name: entry.name,
-            path: path.join(dirPath, entry.name),
-            isDirectory: entry.isDirectory(),
-            size: entry.isFile() ? fs.statSync(path.join(dirPath, entry.name)).size : undefined,
-          })),
+          entries: entries.map((entry) => {
+            const entryPath = path.join(dirPath, entry.name);
+            let size;
+            // A locked or dangling entry must not hide the rest of the folder.
+            try {
+              if (entry.isFile()) size = fs.statSync(entryPath).size;
+            } catch {}
+            return { name: entry.name, path: entryPath, isDirectory: entry.isDirectory(), size };
+          }),
         };
       } catch (error) {
         throw new Error(`Cannot read directory: ${error.message}`);
@@ -649,25 +668,28 @@ else {
           window?.webContents.send("anybot:commandOutput", { id, chunk });
         });
         
-        child.on("close", (exitCode) => {
-          resolve({ output, exitCode: exitCode ?? 0 });
-        });
-        
-        child.on("error", (error) => {
-          resolve({ output: error.message, exitCode: 1 });
-        });
-        
-        setTimeout(() => {
-          if (!child.killed) {
+        const timeout = setTimeout(() => {
+          if (child.exitCode === null && !child.killed) {
             child.kill();
             resolve({ output: output + "\n[Command timed out after 60s]", exitCode: 124 });
           }
         }, 60000);
+
+        child.on("close", (exitCode) => {
+          clearTimeout(timeout);
+          resolve({ output, exitCode: exitCode ?? 0 });
+        });
+
+        child.on("error", (error) => {
+          clearTimeout(timeout);
+          resolve({ output: error.message, exitCode: 1 });
+        });
       });
     });
     ipcMain.handle("anybot:openUrl", async (event, url) => {
       validateSender(event);
-      shell.openExternal(url);
+      if (!isExternalWebUrl(url)) throw new Error("Only http and https links can be opened");
+      await shell.openExternal(url);
       return { opened: true };
     });
     startWorker();
@@ -707,6 +729,14 @@ else {
     );
     tray.on("double-click", showWindow);
   });
+}
+function isExternalWebUrl(url) {
+  try {
+    const parsed = new URL(String(url));
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
 }
 function validateSender(event) {
   if (event.sender !== window?.webContents || event.senderFrame?.url !== page)
@@ -812,7 +842,13 @@ function showWindow(rendererSandbox = app.isPackaged) {
       sandbox: rendererSandbox,
     },
   });
-  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  // Links in employee output use target=_blank. Hand web links to the
+  // system browser instead of silently dropping the click; never open
+  // additional Electron windows.
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (isExternalWebUrl(url)) void shell.openExternal(url);
+    return { action: "deny" };
+  });
   window.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
     if (!isMainFrame) return;
     reportStartupFailure(

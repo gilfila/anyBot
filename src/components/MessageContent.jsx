@@ -1,13 +1,10 @@
 import React, { useState, useMemo } from "react";
 import { Code, FileText, ExternalLink, ChevronDown, ChevronUp, Eye } from "lucide-react";
+import { renderMarkdownInline } from "../lib/markdown.js";
 
 const HTML_PATTERN = /^\s*<!doctype\s+html|^\s*<html[\s>]/i;
 const CODE_BLOCK_PATTERN = /```(\w*)\n([\s\S]*?)```/g;
-const INLINE_CODE_PATTERN = /`([^`]+)`/g;
 const HTML_TAG_PATTERN = /<[a-z][\s\S]*?>/i;
-const LINK_PATTERN = /\[([^\]]+)\]\(([^)]+)\)/g;
-const BOLD_PATTERN = /\*\*([^*]+)\*\*/g;
-const ITALIC_PATTERN = /\*([^*]+)\*/g;
 const HEADING_PATTERN = /^(#{1,6})\s+(.+)$/gm;
 const LIST_ITEM_PATTERN = /^(\s*)[-*]\s+(.+)$/gm;
 
@@ -36,15 +33,6 @@ function extractCodeBlocks(text) {
     });
   }
   return blocks;
-}
-
-function renderMarkdownInline(text) {
-  let result = text;
-  result = result.replace(LINK_PATTERN, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-  result = result.replace(BOLD_PATTERN, '<strong>$1</strong>');
-  result = result.replace(ITALIC_PATTERN, '<em>$1</em>');
-  result = result.replace(INLINE_CODE_PATTERN, '<code>$1</code>');
-  return result;
 }
 
 function CodeBlock({ language, code, onPreview }) {
@@ -112,63 +100,77 @@ function HtmlPreviewCard({ html, onPreview }) {
 function MarkdownText({ text }) {
   const lines = text.split('\n');
   const elements = [];
-  let listItems = [];
-  let inList = false;
+  let list = null;
+  let quote = [];
 
+  const inline = (value) => ({ __html: renderMarkdownInline(value) });
   const flushList = () => {
-    if (listItems.length > 0) {
-      elements.push(
-        <ul key={`list-${elements.length}`}>
-          {listItems.map((item, i) => (
-            <li key={i} dangerouslySetInnerHTML={{ __html: renderMarkdownInline(item) }} />
-          ))}
-        </ul>
-      );
-      listItems = [];
-    }
-    inList = false;
+    if (!list) return;
+    const Tag = list.ordered ? "ol" : "ul";
+    elements.push(
+      <Tag key={`list-${elements.length}`} start={list.ordered ? list.start : undefined}>
+        {list.items.map((item, i) => (
+          <li key={i} dangerouslySetInnerHTML={inline(item)} />
+        ))}
+      </Tag>
+    );
+    list = null;
+  };
+  const flushQuote = () => {
+    if (!quote.length) return;
+    elements.push(
+      <blockquote key={`quote-${elements.length}`}>
+        {quote.map((line, i) => (
+          <p key={i} dangerouslySetInnerHTML={inline(line)} />
+        ))}
+      </blockquote>
+    );
+    quote = [];
+  };
+  const flush = () => {
+    flushList();
+    flushQuote();
   };
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    
+
     const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
     if (headingMatch) {
-      flushList();
+      flush();
       const level = headingMatch[1].length;
       const Tag = `h${Math.min(level + 2, 6)}`;
-      elements.push(
-        <Tag key={i} dangerouslySetInnerHTML={{ __html: renderMarkdownInline(headingMatch[2]) }} />
-      );
+      elements.push(<Tag key={i} dangerouslySetInnerHTML={inline(headingMatch[2])} />);
       continue;
     }
 
-    const listMatch = line.match(/^\s*[-*]\s+(.+)$/);
-    if (listMatch) {
-      inList = true;
-      listItems.push(listMatch[1]);
+    const bulletMatch = line.match(/^\s*[-*+]\s+(.+)$/);
+    const orderedMatch = line.match(/^\s*(\d+)[.)]\s+(.+)$/);
+    if (bulletMatch || orderedMatch) {
+      flushQuote();
+      const ordered = Boolean(orderedMatch);
+      if (list && list.ordered !== ordered) flushList();
+      if (!list) list = { ordered, start: ordered ? Number(orderedMatch[1]) : 1, items: [] };
+      list.items.push(ordered ? orderedMatch[2] : bulletMatch[1]);
       continue;
     }
 
-    if (inList && line.trim() === '') {
+    const quoteMatch = line.match(/^\s*>\s?(.*)$/);
+    if (quoteMatch) {
       flushList();
+      quote.push(quoteMatch[1]);
       continue;
     }
 
-    if (inList) {
-      flushList();
-    }
-
-    if (line.trim() === '') {
-      elements.push(<br key={i} />);
-    } else {
-      elements.push(
-        <p key={i} dangerouslySetInnerHTML={{ __html: renderMarkdownInline(line) }} />
-      );
+    flush();
+    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+      elements.push(<hr key={i} />);
+    } else if (line.trim() !== '') {
+      elements.push(<p key={i} dangerouslySetInnerHTML={inline(line)} />);
     }
   }
 
-  flushList();
+  flush();
   return <div className="markdown-content">{elements}</div>;
 }
 
@@ -199,13 +201,10 @@ export function MessageContent({ body, onOpenPreview, onOpenBrowser }) {
     return { type: 'markdown', content: trimmed };
   }, [body]);
 
+  // Previews always go through the sandboxed srcdoc modal. A same-origin blob:
+  // URL would give employee HTML access to window.anybot.
   const handlePreview = (html, type) => {
-    if (onOpenPreview) {
-      onOpenPreview(html, type);
-    } else if (onOpenBrowser) {
-      const blob = new Blob([html], { type: 'text/html' });
-      onOpenBrowser(URL.createObjectURL(blob));
-    }
+    onOpenPreview?.(html, type);
   };
 
   if (content.type === 'html-preview') {
@@ -274,23 +273,37 @@ export function MessageContent({ body, onOpenPreview, onOpenBrowser }) {
   return <span>{content.content}</span>;
 }
 
+// Elements that can run code, load remote documents, restyle the whole app,
+// or submit data. Rendered inline inside the app's own document, so this is
+// an allowlist-by-exclusion backed by the page CSP (no inline script).
+const BLOCKED_ELEMENTS =
+  'script, style, link, meta, base, iframe, frame, frameset, object, embed, applet, form, input, button, textarea, select, template, portal';
+const URL_ATTRIBUTES = new Set(['href', 'src', 'xlink:href', 'action', 'formaction', 'poster', 'background', 'cite', 'srcset']);
+const SAFE_URL_PATTERN = /^(https?:|mailto:|#|data:image\/(png|gif|jpe?g|webp);)/i;
+
 function sanitizeHtml(html) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
-  
-  const scripts = doc.querySelectorAll('script');
-  scripts.forEach(s => s.remove());
-  
-  const elements = doc.querySelectorAll('*');
-  elements.forEach(el => {
-    const attrs = [...el.attributes];
-    attrs.forEach(attr => {
-      if (attr.name.startsWith('on') || 
-          (attr.name === 'href' && attr.value.startsWith('javascript:')) ||
-          (attr.name === 'src' && attr.value.startsWith('javascript:'))) {
+
+  doc.querySelectorAll(BLOCKED_ELEMENTS).forEach((el) => el.remove());
+
+  doc.querySelectorAll('*').forEach((el) => {
+    for (const attr of [...el.attributes]) {
+      const name = attr.name.toLowerCase();
+      // Browsers ignore whitespace and control characters inside URL schemes.
+      const value = attr.value.replace(/[\u0000- ]/g, '');
+      if (
+        name.startsWith('on') ||
+        name === 'srcdoc' ||
+        (URL_ATTRIBUTES.has(name) && value && !SAFE_URL_PATTERN.test(value))
+      ) {
         el.removeAttribute(attr.name);
       }
-    });
+    }
+    if (el.tagName === 'A') {
+      el.setAttribute('target', '_blank');
+      el.setAttribute('rel', 'noopener noreferrer');
+    }
   });
 
   return doc.body.innerHTML;
