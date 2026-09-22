@@ -6,10 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.2.21] - 2026-09-22
+
 ### Added
-- **Bot action menu**: Hover "…" (ellipsis) menu on each bot row in the left sidebar for quick Edit and Delete actions
+- **Bot action menu**: Hover "…" (ellipsis) menu on each bot row in the left sidebar for quick Edit and Delete actions (PR #15)
 - Keyboard-accessible menu trigger that's always reachable via focus
 - Confirmation dialog for Delete action that clearly names the bot and explains the archive behavior
+- `shouldShowUpdateChrome(update)` helper for consistent update UI gating across components
+- Tests for update chrome visibility logic
+
+### Fixed
+- **Update button visibility**: Sidebar Update button and Settings update banner now only appear when an update is actually available or in progress (available, checking, downloading, downloaded, error states), not merely when the update feed is configured
+- Removed dangerous default that caused `UpdateButton` to show as "available" when no update state was present
 
 ## [0.2.20]
 
