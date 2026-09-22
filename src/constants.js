@@ -40,16 +40,16 @@ export const names = {
 export const customModelValue = "__anybot_custom_model__";
 
 export const avatarColors = [
-  { id: "peach", name: "Peach", fill: "#f8e5d9", stroke: "#e8c4aa", accent: "#d4a484" },
-  { id: "blue", name: "Blue", fill: "#dfeafa", stroke: "#b5cff0", accent: "#89afd8" },
-  { id: "purple", name: "Purple", fill: "#ede5f7", stroke: "#d4c4eb", accent: "#b8a1d8" },
-  { id: "green", name: "Green", fill: "#e4efe4", stroke: "#bfd9bf", accent: "#9bc49b" },
-  { id: "coral", name: "Coral", fill: "#fce4e4", stroke: "#f0b8b8", accent: "#e89999" },
-  { id: "mint", name: "Mint", fill: "#e0f5ef", stroke: "#b3e0d2", accent: "#7fc9b5" },
-  { id: "lavender", name: "Lavender", fill: "#f0e8f8", stroke: "#d9c8f0", accent: "#c4a8e8" },
-  { id: "gold", name: "Gold", fill: "#faf3e0", stroke: "#e8d5a8", accent: "#d4b870" },
-  { id: "sky", name: "Sky", fill: "#e8f4fc", stroke: "#bde0f5", accent: "#8cc8eb" },
-  { id: "rose", name: "Rose", fill: "#fce8f0", stroke: "#f0c0d8", accent: "#e898b8" },
+  { id: "peach", name: "Peach", fill: "#f5d4c0", stroke: "#c9956d", accent: "#e87b3a" },
+  { id: "blue", name: "Blue", fill: "#c5ddf7", stroke: "#5b9bd5", accent: "#2e7dd1" },
+  { id: "purple", name: "Purple", fill: "#ddd0f0", stroke: "#9b7bc4", accent: "#7c4dbd" },
+  { id: "green", name: "Green", fill: "#c8e6c8", stroke: "#6aad6a", accent: "#3d9140" },
+  { id: "coral", name: "Coral", fill: "#f9caca", stroke: "#e06b6b", accent: "#d93636" },
+  { id: "mint", name: "Mint", fill: "#b8ece0", stroke: "#4dbf9a", accent: "#1fa578" },
+  { id: "lavender", name: "Lavender", fill: "#e0d0f5", stroke: "#a882d9", accent: "#8b52cf" },
+  { id: "gold", name: "Gold", fill: "#f7e8b8", stroke: "#d4a628", accent: "#c99000" },
+  { id: "sky", name: "Sky", fill: "#c0e4f7", stroke: "#5db0e0", accent: "#1a94d1" },
+  { id: "rose", name: "Rose", fill: "#f9c8dc", stroke: "#e06b9a", accent: "#d93670" },
 ];
 
 export const avatarHeadStyles = [
