@@ -170,7 +170,6 @@ export function App() {
     [voiceAgent, setVoiceAgent] = useState(null);
   const recognition = useRef(null);
   const [showArchived, setShowArchived] = useState(false);
-  const [dismissedRuns, setDismissedRuns] = useState(new Set());
   const [lastSeenMessages, setLastSeenMessages] = useState({});
   const [openBotMenu, setOpenBotMenu] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
@@ -436,8 +435,8 @@ export function App() {
     const lastSeenIndex = convMessages.findIndex((m) => m.id === lastSeenId);
     return lastSeenIndex < convMessages.length - 1;
   }
-  function dismissRun(runId) {
-    setDismissedRuns((prev) => new Set([...prev, runId]));
+  async function dismissRun(runId) {
+    await act("runs.dismiss", { id: runId });
   }
   return (
     <div className="app-shell">
@@ -1073,7 +1072,7 @@ export function App() {
                 {runs
                   .filter((r) =>
                     ["failed", "interrupted", "cancelled"].includes(r.status) &&
-                    !dismissedRuns.has(r.id),
+                    !r.dismissed,
                   )
                   .map((r) => (
                     <div className="run-notice" key={r.id}>

@@ -136,7 +136,10 @@ export class Coordinator extends EventEmitter {
           artifactsFolder: c.artifactsFolder || "",
         })),
       messages: this.store.all("SELECT * FROM messages ORDER BY rowid"),
-      runs: this.store.all("SELECT * FROM runs ORDER BY rowid"),
+      runs: this.store.all("SELECT * FROM runs ORDER BY rowid").map((r) => ({
+        ...r,
+        dismissed: Boolean(r.dismissed),
+      })),
       routines: this.routines.list(),
       artifacts: this.artifacts.list(),
       harnesses: this.installations,
@@ -186,6 +189,9 @@ export class Coordinator extends EventEmitter {
         break;
       case "runs.cancel":
         await this.cancel(payload.id);
+        break;
+      case "runs.dismiss":
+        this.dismissRun(payload.id);
         break;
       case "routines.create":
         this.routines.create(payload);
@@ -816,6 +822,18 @@ export class Coordinator extends EventEmitter {
       run.root,
       parent.depth,
     );
+  }
+  dismissRun(runId) {
+    const run = requireRow(
+      this.store.one(
+        "SELECT id, status FROM runs WHERE id=?",
+        text(runId, "Run ID", 100),
+      ),
+      "Run",
+    );
+    if (!["failed", "interrupted", "cancelled"].includes(run.status))
+      throw new Error("Only failed, interrupted, or cancelled runs can be dismissed");
+    this.store.run("UPDATE runs SET dismissed=1 WHERE id=?", run.id);
   }
   async cancel(runId) {
     requireRow(

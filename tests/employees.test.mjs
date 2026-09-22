@@ -200,7 +200,7 @@ test("schema one employee records migrate without losing fields", async (t) => {
   assert.equal(employee.avatar, "");
   assert.equal(
     store.one("SELECT value FROM metadata WHERE key='schema'").value,
-    "6",
+    "7",
   );
   store.close();
 });

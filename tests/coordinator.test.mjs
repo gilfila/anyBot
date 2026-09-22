@@ -271,6 +271,43 @@ test("unknown operations and implicit trust are denied", async (t) => {
   );
 });
 
+test("dismissed run state persists across coordinator restart", async (t) => {
+  const { c, directory, send } = await fixture(t, async () => {
+    throw new Error("Intentional failure for dismiss test");
+  });
+  await send("Fail this task");
+  await settled(c);
+  const failedRun = c.snapshot().runs[0];
+  assert.equal(failedRun.status, "failed");
+  assert.equal(failedRun.dismissed, false);
+  await c.command("runs.dismiss", { id: failedRun.id });
+  assert.equal(c.snapshot().runs[0].dismissed, true);
+  await c.close();
+  const reopened = new Coordinator({
+    directory,
+    probe: async () => [],
+    runner: async () => "Done",
+  });
+  await reopened.initialize();
+  const restoredRun = reopened.snapshot().runs[0];
+  assert.equal(restoredRun.id, failedRun.id);
+  assert.equal(restoredRun.status, "failed");
+  assert.equal(restoredRun.dismissed, true);
+  await reopened.close();
+});
+
+test("only failed, interrupted, or cancelled runs can be dismissed", async (t) => {
+  const { c, send } = await fixture(t);
+  await send("Complete this task");
+  await settled(c);
+  const successRun = c.snapshot().runs[0];
+  assert.equal(successRun.status, "succeeded");
+  await assert.rejects(
+    c.command("runs.dismiss", { id: successRun.id }),
+    /Only failed, interrupted, or cancelled/,
+  );
+});
+
 test("adapter boundaries preserve structured failures and exclude supervisor secrets", () => {
   assert.deepEqual(
     extractEvent("codex", {
