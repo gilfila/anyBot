@@ -19,7 +19,7 @@ export class Store {
     );
     if (
       !Number.isInteger(storedVersion) ||
-      storedVersion > 4 ||
+      storedVersion > 5 ||
       storedVersion < 1
     ) {
       this.db.close();
@@ -124,6 +124,26 @@ export class Store {
         );
         this.db
           .prepare("UPDATE metadata SET value='4' WHERE key='schema'")
+          .run();
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        this.db.close();
+        throw error;
+      }
+    }
+    const avatarVersion = Number(
+      this.db.prepare("SELECT value FROM metadata WHERE key='schema'").get()
+        .value,
+    );
+    if (avatarVersion < 5) {
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
+        this.db.exec(
+          "ALTER TABLE employees ADD COLUMN avatar TEXT NOT NULL DEFAULT '';",
+        );
+        this.db
+          .prepare("UPDATE metadata SET value='5' WHERE key='schema'")
           .run();
         this.db.exec("COMMIT");
       } catch (error) {

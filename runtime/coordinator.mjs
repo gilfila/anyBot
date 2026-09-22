@@ -242,9 +242,10 @@ export class Coordinator extends EventEmitter {
       "Instructions",
       12000,
     );
+    const avatar = typeof payload.avatar === "string" ? payload.avatar.slice(0, 1000) : "";
     this.store.transaction(() => {
       this.store.run(
-        "INSERT INTO employees(id,name,role,harness,instructions,workspace,trusted,created,model,timeoutMinutes,permissionMode) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO employees(id,name,role,harness,instructions,workspace,trusted,created,model,timeoutMinutes,permissionMode,avatar) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         employeeId,
         name,
         role,
@@ -256,6 +257,7 @@ export class Coordinator extends EventEmitter {
         modelName(payload.model),
         timeoutMinutes(payload.timeoutMinutes),
         permissionMode(payload.permissionMode),
+        avatar,
       );
       this.store.event("employee.created", {
         employeeId,
@@ -323,9 +325,10 @@ export class Coordinator extends EventEmitter {
       "Instructions",
       12000,
     );
+    const avatar = typeof payload.avatar === "string" ? payload.avatar.slice(0, 1000) : (employee.avatar || "");
     this.store.transaction(() => {
       this.store.run(
-        "UPDATE employees SET name=?,role=?,harness=?,instructions=?,workspace=?,model=?,timeoutMinutes=?,permissionMode=?,revision=revision+1 WHERE id=?",
+        "UPDATE employees SET name=?,role=?,harness=?,instructions=?,workspace=?,model=?,timeoutMinutes=?,permissionMode=?,avatar=?,revision=revision+1 WHERE id=?",
         name,
         role,
         harness,
@@ -338,6 +341,7 @@ export class Coordinator extends EventEmitter {
             ? employee.permissionMode || "ask"
             : payload.permissionMode,
         ),
+        avatar,
         employee.id,
       );
       this.store.event("employee.updated", {

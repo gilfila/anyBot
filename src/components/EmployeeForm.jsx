@@ -1,13 +1,11 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { Check, Folder, Plus } from "lucide-react";
-import { names, customModelValue } from "../constants.js";
+import { names, customModelValue, avatarColors, avatarShapes, avatarFaces } from "../constants.js";
+import { SlimeAvatarPreview, parseAvatarConfig, stringifyAvatarConfig } from "./SlimeAvatar.jsx";
 
 export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [] }) {
   const optionsFor = (harness) => {
     const options = harnesses.find((item) => item.id === harness)?.modelOptions || [];
-    // Claude aliases are filtered to the current CLI's safe aliases. Other
-    // providers are populated only from the owner-maintained models.json
-    // catalog, so account-specific IDs never become stale release defaults.
     const safe = harness === "claude"
       ? options.filter(({ value }) => ["fable", "sonnet", "opus"].includes(value))
       : options;
@@ -16,6 +14,10 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [] }) 
   const initialChoices = optionsFor(preset?.harness || "claude");
   const initialKnown = initialChoices.some(
     ([value]) => value === preset?.model,
+  );
+  const initialAvatar = useMemo(() => 
+    parseAvatarConfig(preset?.avatar, preset?.name || "", preset?.harness || "claude"),
+    [preset?.avatar, preset?.name, preset?.harness]
   );
   const [form, setForm] = useState({
     id: preset?.id,
@@ -36,17 +38,27 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [] }) 
       ? preset?.permissionMode || "dontAsk"
       : "ask",
     trusted: editing ? Boolean(preset?.trusted) : false,
+    avatarColor: initialAvatar.color,
+    avatarShape: initialAvatar.shape,
+    avatarFace: initialAvatar.face,
   });
   const set = (key, value) =>
     setForm((current) => ({ ...current, [key]: value }));
   const modelChoices = optionsFor(form.harness);
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const avatarConfig = stringifyAvatarConfig({
+      color: form.avatarColor,
+      shape: form.avatarShape,
+      face: form.avatarFace,
+    });
+    onSave({ ...form, avatar: avatarConfig });
+  };
+
   return (
     <form
       className="modal-form"
-      onSubmit={(e) => {
-        e.preventDefault();
-        onSave(form);
-      }}
+      onSubmit={handleSubmit}
     >
       <p>
         {editing
@@ -75,6 +87,63 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [] }) 
             placeholder="e.g. Chief of staff"
           />
         </label>
+      </div>
+      <div className="avatar-customization">
+        <div className="avatar-preview-section">
+          <SlimeAvatarPreview
+            color={form.avatarColor}
+            shape={form.avatarShape}
+            face={form.avatarFace}
+            size={80}
+          />
+          <div className="avatar-preview-label">Avatar Preview</div>
+        </div>
+        <div className="avatar-options">
+          <label>
+            Color
+            <div className="avatar-color-picker">
+              {avatarColors.map((color) => (
+                <button
+                  key={color.id}
+                  type="button"
+                  className={`avatar-color-swatch ${form.avatarColor === color.id ? "selected" : ""}`}
+                  style={{ background: color.fill, borderColor: color.stroke }}
+                  onClick={() => set("avatarColor", color.id)}
+                  title={color.name}
+                  aria-label={color.name}
+                />
+              ))}
+            </div>
+          </label>
+          <div className="avatar-selects">
+            <label>
+              Shape
+              <select
+                value={form.avatarShape}
+                onChange={(e) => set("avatarShape", e.target.value)}
+              >
+                {avatarShapes.map((shape) => (
+                  <option key={shape.id} value={shape.id}>
+                    {shape.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Expression
+              <select
+                value={form.avatarFace}
+                onChange={(e) => set("avatarFace", e.target.value)}
+              >
+                {avatarFaces.map((face) => (
+                  <option key={face.id} value={face.id}>
+                    {face.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
       </div>
       <label>
         Harness
