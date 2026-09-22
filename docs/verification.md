@@ -156,7 +156,7 @@ The entries below preserve earlier test and packaging evidence. Their version nu
 - The employee form filters the Claude dropdown to current aliases (`fable`, `sonnet`, `opus`) and keeps Custom model available, preventing stale dated IDs from being shown even if a provider probe returns them.
 - Harness probing refreshes Claude aliases from `claude --help` at runtime and falls back to the checked-in aliases if the probe times out or fails. The parser is covered by the adapter tests.
 - The headless server now exposes `/healthz` for supervisors and reverse proxies. Added VPS/Caddy examples under `server/`; the server test verifies the liveness response.
-- A direct live Claude probe reached Claude Code 2.1.273 and selected model `claude-fable-5-1`, but its startup hooks could not create `C:\\Users\\Tony\\.claude\\session-env` (`EPERM`) and the API then retried without a response. The adapter is therefore verified through structured subprocess tests, while authenticated live completion remains environment-blocked.
+- A direct live Claude probe reached Claude Code 2.1.273 and selected model `claude-fable-5-1`, but its startup hooks could not create `C:\\Users\\<user>\\.claude\\session-env` (`EPERM`) and the API then retried without a response. The adapter is therefore verified through structured subprocess tests, while authenticated live completion remains environment-blocked.
 - Rebuilt `release/anyBot Setup 0.2.0.exe` after native Codex discovery, model selector, explicit desktop quit-control, and device-role corrections: 115,096,960 bytes, SHA-256 `2708D6CC752FB052730994344AFB32E05DE16401B1E1CF9B5394F0BBDD6755C8`. It is an unsigned development installer.
 
 ## Long-running employee policy

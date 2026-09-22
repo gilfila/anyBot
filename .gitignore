@@ -19,3 +19,75 @@ test-results/
 
 *.lnk
 
+# Security & privacy hardening
+# Credentials and secrets
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+!*.example.pem
+!*.example.key
+*.credentials
+*credentials.json
+*secrets.json
+*secret.json
+*.token
+service-account*.json
+oauth*.json
+
+# Local configuration that may contain secrets
+mobile-access.json
+mobile-members.json
+mobile-membership.json
+mobile-audit.jsonl
+harnesses.json
+models.json
+server.json
+config.json
+!config.example.json
+!config.*.example.json
+
+# SQLite databases and journals
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Backup and dump files
+*.bak
+*.backup
+*.dump
+*.sql
+
+# IDE and editor local config
+.idea/
+.vscode/settings.json
+.vscode/launch.json
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Crash dumps and diagnostics
+*.crash
+*.dmp
+crash-reports/
+startup.log
+
+# Build caches
+.cache/
+.parcel-cache/
+.turbo/
+*.tsbuildinfo
+
+# Live test evidence (may contain real data)
+live-tests/
+.live-tests/
+
