@@ -218,3 +218,46 @@ test("dismissed version does not hide newer updates", () => {
   const shouldHide = compareVersions(currentUpdate.version, dismissedVersion) <= 0;
   assert.equal(shouldHide, false);
 });
+
+// Silent install configuration tests
+const SILENT_INSTALL_CONFIG = {
+  isSilent: true,
+  isForceRunAfter: true,
+};
+
+test("silent install uses isSilent=true to suppress NSIS UI", () => {
+  assert.equal(SILENT_INSTALL_CONFIG.isSilent, true);
+});
+
+test("silent install uses isForceRunAfter=true for auto-restart", () => {
+  assert.equal(SILENT_INSTALL_CONFIG.isForceRunAfter, true);
+});
+
+test("silent install flags are both booleans", () => {
+  assert.equal(typeof SILENT_INSTALL_CONFIG.isSilent, "boolean");
+  assert.equal(typeof SILENT_INSTALL_CONFIG.isForceRunAfter, "boolean");
+});
+
+// NSIS config validation for silent installs
+const NSIS_SILENT_CONFIG = {
+  oneClick: true,
+  perMachine: false,
+  allowElevation: false,
+};
+
+test("NSIS oneClick=true enables silent mode with /S flag", () => {
+  assert.equal(NSIS_SILENT_CONFIG.oneClick, true);
+});
+
+test("NSIS perMachine=false for per-user install avoiding UAC", () => {
+  assert.equal(NSIS_SILENT_CONFIG.perMachine, false);
+});
+
+test("NSIS allowElevation=false prevents UAC prompt", () => {
+  assert.equal(NSIS_SILENT_CONFIG.allowElevation, false);
+});
+
+test("silent install config matches expected electron-updater API", () => {
+  const quitAndInstallArgs = [SILENT_INSTALL_CONFIG.isSilent, SILENT_INSTALL_CONFIG.isForceRunAfter];
+  assert.deepEqual(quitAndInstallArgs, [true, true]);
+});

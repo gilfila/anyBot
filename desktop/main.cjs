@@ -397,12 +397,14 @@ function installUpdate() {
     throw new Error("No downloaded update to install");
   }
 
-  // Note: On Windows with unsigned builds, electron-updater will attempt
-  // to run the NSIS installer. The NSIS installer should be properly
-  // configured to handle the update. If code signing is not available,
-  // Windows SmartScreen may show a warning.
+  // Silent install: isSilent=true runs the NSIS installer with /S flag,
+  // which suppresses the Setup wizard UI entirely. isForceRunAfter=true
+  // ensures the app restarts automatically after the silent install completes.
+  // This requires the NSIS config to use oneClick=true (one-click installers
+  // support silent mode natively). Per-user install (perMachine=false) avoids
+  // UAC prompts since installation goes to %LOCALAPPDATA%\Programs.
   quitting = true;
-  autoUpdater.quitAndInstall(false, true);
+  autoUpdater.quitAndInstall(true, true);
 }
 
 // Dismiss an update version
