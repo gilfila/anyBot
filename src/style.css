@@ -249,8 +249,12 @@ nav {
   display: grid;
   gap: 4px;
 }
+/* NOTE: Use direct-child (>) or specific class selectors for conversation-list
+   and bot-list buttons to avoid matching nested menu triggers inside .bot-row.
+   See PR #16 for the regression this pattern prevents. */
 nav button,
-.conversation-list button {
+.conversation-list > button,
+.bot-list .bot-row-main {
   justify-content: flex-start;
   text-align: left;
   padding: 11px 12px;
@@ -284,7 +288,8 @@ nav button.selected,
   display: flex;
   flex-direction: column;
 }
-.conversation-list button {
+.conversation-list > button,
+.bot-list .bot-row-main {
   width: 100%;
 }
 .conversation-list button span {
@@ -293,7 +298,7 @@ nav button.selected,
   white-space: nowrap;
 }
 .bot-list { flex: 0 1 auto; max-height: 190px; }
-.bot-list button { padding: 8px 10px; }
+.bot-list .bot-row-main { padding: 8px 10px; }
 .bot-list .avatar { width: 25px; height: 25px; font-size: 11px; }
 .bot-list .slime-avatar.small { width: 25px; height: 25px; }
 .conversation-label > span { color: #a0a7b2; font-size: 10px; }
@@ -305,8 +310,8 @@ nav button.selected,
   margin-left: auto;
   flex-shrink: 0;
 }
-.conversation-list button .unread-dot,
-.bot-list button .unread-dot {
+.conversation-list > button .unread-dot,
+.bot-list .bot-row-main .unread-dot {
   margin-left: auto;
 }
 .side-empty {
