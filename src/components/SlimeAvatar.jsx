@@ -158,6 +158,47 @@ export function stringifyAvatarConfig(config) {
   return JSON.stringify(config);
 }
 
+function getAnimationDelays(seed) {
+  const breatheDelay = ((seed % 100) / 100) * 3;
+  const wobbleDelay = (((seed >> 3) % 100) / 100) * 4;
+  const blinkDelay = (((seed >> 6) % 100) / 100) * 4;
+  const bounceDelay = ((seed % 60) / 100);
+  const jiggleDelay = (((seed >> 2) % 40) / 100);
+  const lookDelay = (((seed >> 4) % 100) / 100);
+  
+  return {
+    '--slime-breathe-delay': `${breatheDelay.toFixed(2)}s`,
+    '--slime-wobble-delay': `${wobbleDelay.toFixed(2)}s`,
+    '--slime-blink-delay': `${blinkDelay.toFixed(2)}s`,
+    '--slime-bounce-delay': `${bounceDelay.toFixed(2)}s`,
+    '--slime-jiggle-delay': `${jiggleDelay.toFixed(2)}s`,
+    '--slime-look-delay': `${lookDelay.toFixed(2)}s`,
+  };
+}
+
+function mixColor(color1, color2, ratio) {
+  const hex1 = color1.replace('#', '');
+  const hex2 = color2.replace('#', '');
+  const r1 = parseInt(hex1.substring(0, 2), 16);
+  const g1 = parseInt(hex1.substring(2, 4), 16);
+  const b1 = parseInt(hex1.substring(4, 6), 16);
+  const r2 = parseInt(hex2.substring(0, 2), 16);
+  const g2 = parseInt(hex2.substring(2, 4), 16);
+  const b2 = parseInt(hex2.substring(4, 6), 16);
+  const r = Math.round(r1 + (r2 - r1) * ratio);
+  const g = Math.round(g1 + (g2 - g1) * ratio);
+  const b = Math.round(b1 + (b2 - b1) * ratio);
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
+function lightenColor(color, amount) {
+  return mixColor(color, '#ffffff', amount);
+}
+
+function darkenColor(color, amount) {
+  return mixColor(color, '#000000', amount);
+}
+
 export function SlimeAvatar({ employee, small = false, working = false, avatarConfig = null }) {
   const config = useMemo(() => {
     if (avatarConfig) {
@@ -192,27 +233,46 @@ export function SlimeAvatar({ employee, small = false, working = false, avatarCo
   );
 
   const animationClass = working ? "slime-working" : "slime-idle";
+  const animationDelays = useMemo(() => getAnimationDelays(seed), [seed]);
+  
+  const highlightColor = useMemo(() => lightenColor(colorDef.fill, 0.6), [colorDef.fill]);
+  const midColor = useMemo(() => mixColor(colorDef.fill, colorDef.stroke, 0.5), [colorDef.fill, colorDef.stroke]);
+  const shadowColor = useMemo(() => darkenColor(colorDef.stroke, 0.15), [colorDef.stroke]);
+  const rimColor = useMemo(() => lightenColor(colorDef.fill, 0.35), [colorDef.fill]);
 
   return (
     <span
       className={`slime-avatar ${small ? "small" : ""} ${animationClass}`}
-      style={{ width: size, height: size }}
+      style={{ width: size, height: size, ...animationDelays }}
     >
       <svg viewBox="0 0 100 100" width={size} height={size}>
         <defs>
-          <linearGradient id={`grad-${seed}`} x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor={colorDef.fill} />
-            <stop offset="100%" stopColor={colorDef.stroke} />
-          </linearGradient>
-          <filter id={`glow-${seed}`} x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur stdDeviation="2" result="blur" />
+          <radialGradient id={`grad-${seed}`} cx="35%" cy="30%" r="70%" fx="30%" fy="25%">
+            <stop offset="0%" stopColor={highlightColor} />
+            <stop offset="30%" stopColor={colorDef.fill} />
+            <stop offset="70%" stopColor={midColor} />
+            <stop offset="100%" stopColor={shadowColor} />
+          </radialGradient>
+          <radialGradient id={`inner-shadow-${seed}`} cx="50%" cy="85%" r="60%">
+            <stop offset="0%" stopColor={shadowColor} stopOpacity="0.25" />
+            <stop offset="100%" stopColor={shadowColor} stopOpacity="0" />
+          </radialGradient>
+          <radialGradient id={`rim-${seed}`} cx="70%" cy="75%" r="45%">
+            <stop offset="60%" stopColor={rimColor} stopOpacity="0" />
+            <stop offset="100%" stopColor={rimColor} stopOpacity="0.4" />
+          </radialGradient>
+          <filter id={`glow-${seed}`} x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur in="SourceAlpha" stdDeviation="3" result="blur" />
+            <feOffset in="blur" dx="0" dy="2" result="offsetBlur" />
+            <feFlood floodColor={colorDef.stroke} floodOpacity="0.2" result="color" />
+            <feComposite in="color" in2="offsetBlur" operator="in" result="shadow" />
             <feMerge>
-              <feMergeNode in="blur" />
+              <feMergeNode in="shadow" />
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
         </defs>
-        <g className="slime-body">
+        <g className="slime-body" filter={`url(#glow-${seed})`}>
           <path
             d={blobPath}
             fill={`url(#grad-${seed})`}
@@ -220,14 +280,32 @@ export function SlimeAvatar({ employee, small = false, working = false, avatarCo
             strokeWidth="1.5"
             className="slime-outer"
           />
+          <path
+            d={blobPath}
+            fill={`url(#inner-shadow-${seed})`}
+            stroke="none"
+          />
+          <path
+            d={blobPath}
+            fill={`url(#rim-${seed})`}
+            stroke="none"
+          />
           <ellipse
-            cx="38"
-            cy="40"
-            rx="6"
-            ry="4"
-            fill={colorDef.accent}
-            opacity="0.3"
+            cx="36"
+            cy="38"
+            rx={small ? 7 : 8}
+            ry={small ? 4 : 5}
+            fill="#fff"
+            opacity="0.55"
             className="slime-highlight"
+          />
+          <ellipse
+            cx="40"
+            cy="42"
+            rx={small ? 3 : 4}
+            ry={small ? 2 : 2.5}
+            fill="#fff"
+            opacity="0.35"
           />
           <ellipse
             cx={faceElements.leftEye.cx}
@@ -235,7 +313,7 @@ export function SlimeAvatar({ employee, small = false, working = false, avatarCo
             rx={faceElements.leftEye.rx}
             ry={faceElements.leftEye.ry}
             fill="#333"
-            opacity="0.6"
+            opacity="0.65"
             className="slime-eye left"
           />
           <ellipse
@@ -244,25 +322,25 @@ export function SlimeAvatar({ employee, small = false, working = false, avatarCo
             rx={faceElements.rightEye.rx}
             ry={faceElements.rightEye.ry}
             fill="#333"
-            opacity="0.6"
+            opacity="0.65"
             className="slime-eye right"
           />
           <ellipse
-            cx={faceElements.leftEye.cx + 1}
-            cy={faceElements.leftEye.cy - 1}
-            rx="1.5"
-            ry="1"
+            cx={faceElements.leftEye.cx + 1.2}
+            cy={faceElements.leftEye.cy - 1.2}
+            rx="1.8"
+            ry="1.2"
             fill="#fff"
-            opacity="0.8"
+            opacity="0.9"
             className="slime-eye-shine left"
           />
           <ellipse
-            cx={faceElements.rightEye.cx + 1}
-            cy={faceElements.rightEye.cy - 1}
-            rx="1.5"
-            ry="1"
+            cx={faceElements.rightEye.cx + 1.2}
+            cy={faceElements.rightEye.cy - 1.2}
+            rx="1.8"
+            ry="1.2"
             fill="#fff"
-            opacity="0.8"
+            opacity="0.9"
             className="slime-eye-shine right"
           />
           <path
@@ -286,20 +364,50 @@ export function SlimeAvatarPreview({ color, shape, face, size = 80 }) {
   const seed = 42;
   const blobPath = generateBlobPath(seed, 100, shape);
   const faceElements = getFaceElements(face, seed);
+  
+  const highlightColor = lightenColor(colorDef.fill, 0.6);
+  const midColor = mixColor(colorDef.fill, colorDef.stroke, 0.5);
+  const shadowColor = darkenColor(colorDef.stroke, 0.15);
+  const rimColor = lightenColor(colorDef.fill, 0.35);
 
   return (
     <span
       className="slime-avatar-preview slime-idle"
-      style={{ width: size, height: size, display: 'inline-flex' }}
+      style={{ 
+        width: size, 
+        height: size, 
+        display: 'inline-flex',
+        filter: 'drop-shadow(0 3px 6px rgba(0, 0, 0, 0.1)) drop-shadow(0 6px 12px rgba(0, 0, 0, 0.08))'
+      }}
     >
       <svg viewBox="0 0 100 100" width={size} height={size}>
         <defs>
-          <linearGradient id="preview-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor={colorDef.fill} />
-            <stop offset="100%" stopColor={colorDef.stroke} />
-          </linearGradient>
+          <radialGradient id="preview-grad" cx="35%" cy="30%" r="70%" fx="30%" fy="25%">
+            <stop offset="0%" stopColor={highlightColor} />
+            <stop offset="30%" stopColor={colorDef.fill} />
+            <stop offset="70%" stopColor={midColor} />
+            <stop offset="100%" stopColor={shadowColor} />
+          </radialGradient>
+          <radialGradient id="preview-inner-shadow" cx="50%" cy="85%" r="60%">
+            <stop offset="0%" stopColor={shadowColor} stopOpacity="0.25" />
+            <stop offset="100%" stopColor={shadowColor} stopOpacity="0" />
+          </radialGradient>
+          <radialGradient id="preview-rim" cx="70%" cy="75%" r="45%">
+            <stop offset="60%" stopColor={rimColor} stopOpacity="0" />
+            <stop offset="100%" stopColor={rimColor} stopOpacity="0.4" />
+          </radialGradient>
+          <filter id="preview-glow" x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur in="SourceAlpha" stdDeviation="3" result="blur" />
+            <feOffset in="blur" dx="0" dy="2" result="offsetBlur" />
+            <feFlood floodColor={colorDef.stroke} floodOpacity="0.2" result="color" />
+            <feComposite in="color" in2="offsetBlur" operator="in" result="shadow" />
+            <feMerge>
+              <feMergeNode in="shadow" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
         </defs>
-        <g className="slime-body">
+        <g className="slime-body" filter="url(#preview-glow)">
           <path
             d={blobPath}
             fill="url(#preview-grad)"
@@ -307,14 +415,32 @@ export function SlimeAvatarPreview({ color, shape, face, size = 80 }) {
             strokeWidth="1.5"
             className="slime-outer"
           />
+          <path
+            d={blobPath}
+            fill="url(#preview-inner-shadow)"
+            stroke="none"
+          />
+          <path
+            d={blobPath}
+            fill="url(#preview-rim)"
+            stroke="none"
+          />
           <ellipse
-            cx="38"
-            cy="40"
-            rx="6"
-            ry="4"
-            fill={colorDef.accent}
-            opacity="0.3"
+            cx="36"
+            cy="38"
+            rx="8"
+            ry="5"
+            fill="#fff"
+            opacity="0.55"
             className="slime-highlight"
+          />
+          <ellipse
+            cx="40"
+            cy="42"
+            rx="4"
+            ry="2.5"
+            fill="#fff"
+            opacity="0.35"
           />
           <ellipse
             cx={faceElements.leftEye.cx}
@@ -322,7 +448,7 @@ export function SlimeAvatarPreview({ color, shape, face, size = 80 }) {
             rx={faceElements.leftEye.rx}
             ry={faceElements.leftEye.ry}
             fill="#333"
-            opacity="0.6"
+            opacity="0.65"
             className="slime-eye left"
           />
           <ellipse
@@ -331,24 +457,24 @@ export function SlimeAvatarPreview({ color, shape, face, size = 80 }) {
             rx={faceElements.rightEye.rx}
             ry={faceElements.rightEye.ry}
             fill="#333"
-            opacity="0.6"
+            opacity="0.65"
             className="slime-eye right"
           />
           <ellipse
-            cx={faceElements.leftEye.cx + 1}
-            cy={faceElements.leftEye.cy - 1}
-            rx="1.5"
-            ry="1"
+            cx={faceElements.leftEye.cx + 1.2}
+            cy={faceElements.leftEye.cy - 1.2}
+            rx="1.8"
+            ry="1.2"
             fill="#fff"
-            opacity="0.8"
+            opacity="0.9"
           />
           <ellipse
-            cx={faceElements.rightEye.cx + 1}
-            cy={faceElements.rightEye.cy - 1}
-            rx="1.5"
-            ry="1"
+            cx={faceElements.rightEye.cx + 1.2}
+            cy={faceElements.rightEye.cy - 1.2}
+            rx="1.8"
+            ry="1.2"
             fill="#fff"
-            opacity="0.8"
+            opacity="0.9"
           />
           <path
             d={faceElements.mouth}
