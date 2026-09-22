@@ -40,7 +40,7 @@ import {
   X,
 } from "lucide-react";
 import { presets, names } from "./constants.js";
-import { empty, time } from "./lib/ui.js";
+import { empty, time, shouldShowUpdateChrome } from "./lib/ui.js";
 
 function UpdateButton({ update, onAction, onDismiss }) {
   const [busy, setBusy] = useState(false);
@@ -55,7 +55,9 @@ function UpdateButton({ update, onAction, onDismiss }) {
   };
 
   // Update states: idle, checking, available, downloading, downloaded, error
-  const state = update?.state || "available";
+  // Only render for actionable states; return null for idle/unknown.
+  const state = update?.state;
+  if (!state || state === "idle") return null;
   const version = update?.version;
   const progress = update?.progress;
   const error = update?.error;
@@ -121,7 +123,7 @@ function UpdateButton({ update, onAction, onDismiss }) {
     );
   }
 
-  // State: available (default)
+  // State: available (or any unhandled actionable state)
   return (
     <button
       className="update-btn available"
@@ -608,7 +610,7 @@ export function App() {
           <div>
             You<small>Workspace owner</small>
           </div>
-          {data.update && (
+          {shouldShowUpdateChrome(data.update) && (
             <UpdateButton 
               update={data.update} 
               onAction={async (action) => {
@@ -1333,7 +1335,7 @@ export function App() {
               title="Settings"
               description="Manage your team, harnesses, and runtime preferences."
             />
-            {data.update && (
+            {shouldShowUpdateChrome(data.update) && (
               <div className="update-banner">
                 <div className="update-banner-icon">
                   {data.update.state === "error" ? (
@@ -1369,6 +1371,11 @@ export function App() {
                     <>
                       <strong>Update failed</strong>
                       <p className="error-text">{data.update.error?.message || "An error occurred"}</p>
+                    </>
+                  ) : data.update.state === "checking" ? (
+                    <>
+                      <strong>Checking for updates...</strong>
+                      <p>Looking for a newer version.</p>
                     </>
                   ) : (
                     <>

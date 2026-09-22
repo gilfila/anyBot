@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { shouldShowUpdateChrome } from "../src/lib/ui.js";
 
 // Default update feed URL - must match desktop/main.cjs
 const DEFAULT_UPDATE_FEED_URL = "https://github.com/gilfila/anyBot-updates/releases/latest/download";
@@ -260,4 +261,70 @@ test("NSIS allowElevation=false prevents UAC prompt", () => {
 test("silent install config matches expected electron-updater API", () => {
   const quitAndInstallArgs = [SILENT_INSTALL_CONFIG.isSilent, SILENT_INSTALL_CONFIG.isForceRunAfter];
   assert.deepEqual(quitAndInstallArgs, [true, true]);
+});
+
+// shouldShowUpdateChrome tests
+test("shouldShowUpdateChrome returns false for null/undefined", () => {
+  assert.equal(shouldShowUpdateChrome(null), false);
+  assert.equal(shouldShowUpdateChrome(undefined), false);
+});
+
+test("shouldShowUpdateChrome returns false when state is missing", () => {
+  assert.equal(shouldShowUpdateChrome({}), false);
+  assert.equal(shouldShowUpdateChrome({ feedConfigured: true }), false);
+  assert.equal(shouldShowUpdateChrome({ version: "1.0.0" }), false);
+});
+
+test("shouldShowUpdateChrome returns false for idle state", () => {
+  assert.equal(shouldShowUpdateChrome({ state: "idle" }), false);
+  assert.equal(shouldShowUpdateChrome({ state: "idle", feedConfigured: true }), false);
+});
+
+test("shouldShowUpdateChrome returns true for available state", () => {
+  assert.equal(shouldShowUpdateChrome({ state: "available", version: "1.0.0" }), true);
+  assert.equal(shouldShowUpdateChrome({ state: "available" }), true);
+});
+
+test("shouldShowUpdateChrome returns true for checking state", () => {
+  assert.equal(shouldShowUpdateChrome({ state: "checking" }), true);
+});
+
+test("shouldShowUpdateChrome returns true for downloading state", () => {
+  assert.equal(shouldShowUpdateChrome({ state: "downloading", progress: { percent: 50 } }), true);
+  assert.equal(shouldShowUpdateChrome({ state: "downloading" }), true);
+});
+
+test("shouldShowUpdateChrome returns true for downloaded state", () => {
+  assert.equal(shouldShowUpdateChrome({ state: "downloaded", version: "1.0.0" }), true);
+});
+
+test("shouldShowUpdateChrome returns true for error state", () => {
+  assert.equal(shouldShowUpdateChrome({ state: "error", error: { message: "Network error" } }), true);
+  assert.equal(shouldShowUpdateChrome({ state: "error" }), true);
+});
+
+test("shouldShowUpdateChrome returns false for unknown states", () => {
+  assert.equal(shouldShowUpdateChrome({ state: "unknown" }), false);
+  assert.equal(shouldShowUpdateChrome({ state: "pending" }), false);
+  assert.equal(shouldShowUpdateChrome({ state: "" }), false);
+});
+
+test("shouldShowUpdateChrome ignores feedConfigured-only payloads", () => {
+  assert.equal(shouldShowUpdateChrome({ feedConfigured: true }), false);
+  assert.equal(shouldShowUpdateChrome({ feedConfigured: false }), false);
+});
+
+test("shouldShowUpdateChrome handles real-world idle response from getUpdateState", () => {
+  const idleResponse = { feedConfigured: true };
+  assert.equal(shouldShowUpdateChrome(idleResponse), false);
+});
+
+test("shouldShowUpdateChrome handles real-world available response from getUpdateState", () => {
+  const availableResponse = {
+    state: "available",
+    version: "0.2.21",
+    releaseNotes: "Bug fixes",
+    feedConfigured: true,
+  };
+  assert.equal(shouldShowUpdateChrome(availableResponse), true);
 });
