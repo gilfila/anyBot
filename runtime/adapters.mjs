@@ -308,17 +308,22 @@ export function childEnvironment(env = process.env) {
   );
 }
 
-export function invocation(harness, model = "", permissionMode = "dontAsk") {
+export function invocation(harness, model = "", permissionMode = "ask") {
   if (model) return [...invocation(harness, "", permissionMode), "--model", model];
   switch (harness) {
     case "claude":
+      // Claude Code permission modes:
+      // - "default": prompts for dangerous operations (our "ask")
+      // - "acceptEdits": allows file edits without prompting, still prompts for bash (our "dontAsk"/autonomous)
+      // - "dontAsk": auto-DENIES non-allowlisted tools (dangerous, not autonomous!)
+      // - "bypassPermissions": allows all operations without prompting (not used here)
       return [
         "-p",
         "--output-format",
         "stream-json",
         "--verbose",
         "--permission-mode",
-        permissionMode === "ask" ? "default" : "dontAsk",
+        permissionMode === "ask" ? "default" : "acceptEdits",
       ];
     case "codex":
       return [
@@ -528,7 +533,7 @@ export async function probeAll(modelCatalog = {}) {
 }
 
 export async function runHarness(
-  { harness, model, workspace, prompt, signal, onText, timeoutMs = 600000, permissionMode = "dontAsk" },
+  { harness, model, workspace, prompt, signal, onText, timeoutMs = 600000, permissionMode = "ask" },
   { resolve = resolveExecutable, args, outputFormat } = {},
 ) {
   const executable = await resolve(harness);
