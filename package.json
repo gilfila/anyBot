@@ -1,6 +1,6 @@
 {
   "name": "anybot-desktop",
-  "version": "0.2.18",
+  "version": "0.2.20",
   "private": true,
   "description": "A local workspace for your team of AI employees",
   "author": "anyBot contributors",
@@ -87,7 +87,13 @@
     "nsis": {
       "oneClick": true,
       "perMachine": false,
-      "allowElevation": false
+      "allowElevation": false,
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "gilfila",
+      "repo": "anyBot-updates"
     }
   }
 }
