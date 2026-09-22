@@ -6,6 +6,15 @@ The current product is intentionally local-owner first. The Electron desktop app
 
 ## Release history
 
+### 0.2.18
+
+- **Silent in-app updates**: Updates install fully behind the scenes with no NSIS Setup wizard
+- `quitAndInstall(true, true)` enables silent install mode (`/S` flag) with auto-restart
+- NSIS config changed to `oneClick: true` for silent upgrade support
+- Per-user install (`perMachine: false`, `allowElevation: false`) avoids UAC prompts
+- In-app progress UI: Downloading → Installing → Restarting (no external windows)
+- Update button remains beside the logged-in user name
+
 ### 0.2.16
 
 - One-click in-app updater: Update button in sidebar footer downloads and installs updates without leaving the app
@@ -15,7 +24,7 @@ The current product is intentionally local-owner first. The Electron desktop app
 - Manual "Check for updates" in Settings for on-demand version checking
 - Error handling with retry capability for failed update operations
 
-### 0.2.16
+### 0.2.15
 
 - Formatted agent outputs: Markdown rendering, code blocks with language labels, XSS-safe HTML preview (PR #6)
 - In-app Browser panel for previewing HTML artifacts and navigating URLs
@@ -59,13 +68,15 @@ If the renderer or coordinator fails before the workspace appears, anyBot record
 
 ### Windows launch recovery
 
-If an older installation shows a Windows breakpoint dialog or does nothing, use the current NSIS installer [`release/anyBot Setup 0.2.16.exe`](release/anyBot%20Setup%200.2.16.exe), the verified launcher in [`release/Launch anyBot.cmd`](release/Launch%20anyBot.cmd), or [`release/win-unpacked/anyBot.exe`](release/win-unpacked/anyBot.exe). A portable self-extractor is available at [`release/anyBot 0.2.16.exe`](release/anyBot%200.2.16.exe) when the NSIS installer is inconvenient. Remove the stale **anyBot** entry from Windows Settings â†’ Apps before reinstalling; an ACL-corrupted `%LOCALAPPDATA%\\Programs\\anyBot` directory can prevent Windows from replacing the old executable.
+If an older installation shows a Windows breakpoint dialog or does nothing, use the current NSIS installer [`release/anyBot Setup 0.2.18.exe`](release/anyBot%20Setup%200.2.16.exe), the verified launcher in [`release/Launch anyBot.cmd`](release/Launch%20anyBot.cmd), or [`release/win-unpacked/anyBot.exe`](release/win-unpacked/anyBot.exe). A portable self-extractor is available at [`release/anyBot 0.2.18.exe`](release/anyBot%200.2.16.exe) when the NSIS installer is inconvenient. Remove the stale **anyBot** entry from Windows Settings â†’ Apps before reinstalling; an ACL-corrupted `%LOCALAPPDATA%\\Programs\\anyBot` directory can prevent Windows from replacing the old executable.
 
 To verify downloaded binaries against the tested build, run `npm run release:manifest` and compare the generated [`release/SHA256SUMS.txt`](release/SHA256SUMS.txt). The manifest is an integrity check, not a code-signing replacement.
 
 ### Automatic updates
 
-anyBot 0.2.16+ supports one-click in-app updates via `electron-updater`. Updates are fetched from a **separate public binary-only repository**:
+anyBot 0.2.18+ supports **silent** in-app updates via `electron-updater`. Updates download with in-app progress, install silently behind the scenes (no NSIS Setup wizard), and automatically restart the app into the new version. The Update button beside your username triggers a one-click silent upgrade.
+
+Updates are fetched from a **separate public binary-only repository**:
 
 - **Source repo** (`gilfila/anyBot`): Private, contains source code
 - **Update feed repo** (`gilfila/anyBot-updates`): Public, contains only compiled binaries and metadata
