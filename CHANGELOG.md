@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 - Settings page no longer shows "Update feed not configured" when the built-in default feed is active
+- **Sidebar footer layout stability**: Update button no longer warps/squeezes the user profile row; flex layout now keeps avatar and username stable across all update states (idle, downloading, installing)
 
 ### Changed
 - electron-builder publish config now targets `gilfila/anyBot-updates` so packaged installers embed the correct update feed URL
