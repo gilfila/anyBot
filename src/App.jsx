@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
+  AlertCircle,
   Archive,
   ArrowUp,
   ArrowUpRight,
@@ -15,6 +16,7 @@ import {
   FileText,
   FolderTree,
   Globe,
+  Loader,
   Mic,
   MessageSquare,
   Monitor,
@@ -26,6 +28,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  RotateCcw,
   Search,
   Settings2,
   ShieldCheck,
@@ -38,6 +41,99 @@ import {
 } from "lucide-react";
 import { presets, names } from "./constants.js";
 import { empty, time } from "./lib/ui.js";
+
+function UpdateButton({ update, onAction, onDismiss }) {
+  const [busy, setBusy] = useState(false);
+
+  const handleAction = async (action) => {
+    setBusy(true);
+    try {
+      await onAction(action);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Update states: idle, checking, available, downloading, downloaded, error
+  const state = update?.state || "available";
+  const version = update?.version;
+  const progress = update?.progress;
+  const error = update?.error;
+
+  if (state === "checking") {
+    return (
+      <button className="update-btn checking" disabled title="Checking for updates...">
+        <Loader size={14} className="spinning" />
+      </button>
+    );
+  }
+
+  if (state === "downloading") {
+    const percent = progress?.percent || 0;
+    return (
+      <button className="update-btn downloading" disabled title={`Downloading update: ${percent}%`}>
+        <div className="update-progress-ring">
+          <svg viewBox="0 0 20 20" width="18" height="18">
+            <circle cx="10" cy="10" r="8" fill="none" stroke="#dce4f7" strokeWidth="2" />
+            <circle
+              cx="10"
+              cy="10"
+              r="8"
+              fill="none"
+              stroke="#4773c5"
+              strokeWidth="2"
+              strokeDasharray={`${percent * 0.5} 50`}
+              strokeLinecap="round"
+              transform="rotate(-90 10 10)"
+            />
+          </svg>
+          <span className="update-progress-text">{percent}%</span>
+        </div>
+      </button>
+    );
+  }
+
+  if (state === "downloaded") {
+    return (
+      <button
+        className="update-btn ready"
+        onClick={() => handleAction("install")}
+        disabled={busy}
+        title={`Install update v${version} and restart`}
+      >
+        <RefreshCw size={14} />
+        <span>Restart</span>
+      </button>
+    );
+  }
+
+  if (state === "error") {
+    return (
+      <button
+        className="update-btn error"
+        onClick={() => handleAction("retry")}
+        disabled={busy}
+        title={error?.message || "Update failed. Click to retry."}
+      >
+        <AlertCircle size={14} />
+        <span>Retry</span>
+      </button>
+    );
+  }
+
+  // State: available (default)
+  return (
+    <button
+      className="update-btn available"
+      onClick={() => handleAction("download")}
+      disabled={busy}
+      title={`Update to v${version}`}
+    >
+      <Download size={14} />
+      <span>Update</span>
+    </button>
+  );
+}
 import { Avatar } from "./components/Avatar.jsx";
 import { SlimeAvatar } from "./components/SlimeAvatar.jsx";
 import { WorkingIndicator } from "./components/WorkingIndicator.jsx";
@@ -450,14 +546,36 @@ export function App() {
           <div>
             You<small>Workspace owner</small>
           </div>
+          {data.update && (
+            <UpdateButton 
+              update={data.update} 
+              onAction={async (action) => {
+                try {
+                  if (action === "download") {
+                    await window.anybot.update.download();
+                  } else if (action === "install") {
+                    await window.anybot.update.install();
+                  } else if (action === "retry") {
+                    await window.anybot.update.retry();
+                  } else if (action === "check") {
+                    await window.anybot.update.check();
+                  }
+                } catch (e) {
+                  setError(e.message);
+                }
+              }}
+              onDismiss={async (version) => {
+                await window.anybot.update.dismiss(version);
+              }}
+            />
+          )}
           <button
-            className={`settings-cog${data.update ? " has-update" : ""}`}
-            title={data.update ? `Update available: v${data.update.version}` : "Settings"}
-            aria-label={data.update ? `Settings — update available (v${data.update.version})` : "Settings"}
+            className="settings-cog"
+            title="Settings"
+            aria-label="Settings"
             onClick={() => setView("settings")}
           >
             <Settings2 size={17} />
-            {data.update && <i className="update-dot" />}
           </button>
         </div>
       </aside>
@@ -1212,36 +1330,153 @@ export function App() {
             {data.update && (
               <div className="update-banner">
                 <div className="update-banner-icon">
-                  <Download size={20} />
+                  {data.update.state === "error" ? (
+                    <AlertCircle size={20} />
+                  ) : data.update.state === "downloaded" ? (
+                    <Check size={20} />
+                  ) : (
+                    <Download size={20} />
+                  )}
                 </div>
                 <div className="update-banner-content">
-                  <strong>Update available: v{data.update.version}</strong>
-                  <p>{data.update.name}</p>
-                  {data.update.body && (
-                    <p className="update-body">
-                      {data.update.body.length > 200
-                        ? `${data.update.body.slice(0, 200)}…`
-                        : data.update.body}
-                    </p>
+                  {data.update.state === "downloading" ? (
+                    <>
+                      <strong>Downloading update v{data.update.version}...</strong>
+                      <p>
+                        {data.update.progress?.percent || 0}% complete
+                        {data.update.progress?.bytesPerSecond > 0 && 
+                          ` · ${Math.round(data.update.progress.bytesPerSecond / 1024)} KB/s`}
+                      </p>
+                      <div className="update-progress-bar">
+                        <div 
+                          className="update-progress-fill" 
+                          style={{ width: `${data.update.progress?.percent || 0}%` }} 
+                        />
+                      </div>
+                    </>
+                  ) : data.update.state === "downloaded" ? (
+                    <>
+                      <strong>Update ready: v{data.update.version}</strong>
+                      <p>The update has been downloaded. Restart anyBot to apply.</p>
+                    </>
+                  ) : data.update.state === "error" ? (
+                    <>
+                      <strong>Update failed</strong>
+                      <p className="error-text">{data.update.error?.message || "An error occurred"}</p>
+                    </>
+                  ) : (
+                    <>
+                      <strong>Update available: v{data.update.version}</strong>
+                      <p>A new version is ready to download.</p>
+                      {data.update.releaseNotes && (
+                        <p className="update-body">
+                          {data.update.releaseNotes.length > 200
+                            ? `${data.update.releaseNotes.slice(0, 200)}…`
+                            : data.update.releaseNotes}
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
                 <div className="update-banner-actions">
-                  <button
-                    className="primary"
-                    onClick={() => act("update.open")}
-                  >
-                    <ExternalLink size={14} />
-                    View release
-                  </button>
-                  <button
-                    className="secondary"
-                    onClick={() => act("update.dismiss", { version: data.update.version })}
-                  >
-                    Dismiss
-                  </button>
+                  {data.update.state === "available" && (
+                    <>
+                      <button
+                        className="primary"
+                        disabled={busy}
+                        onClick={async () => {
+                          setBusy(true);
+                          try {
+                            await window.anybot.update.download();
+                          } catch (e) {
+                            setError(e.message);
+                          } finally {
+                            setBusy(false);
+                          }
+                        }}
+                      >
+                        <Download size={14} />
+                        Download
+                      </button>
+                      <button
+                        className="secondary"
+                        onClick={() => window.anybot.update.dismiss(data.update.version)}
+                      >
+                        Dismiss
+                      </button>
+                    </>
+                  )}
+                  {data.update.state === "downloaded" && (
+                    <button
+                      className="primary"
+                      disabled={busy}
+                      onClick={async () => {
+                        setBusy(true);
+                        try {
+                          await window.anybot.update.install();
+                        } catch (e) {
+                          setError(e.message);
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                    >
+                      <RefreshCw size={14} />
+                      Restart & Install
+                    </button>
+                  )}
+                  {data.update.state === "error" && (
+                    <button
+                      className="primary"
+                      disabled={busy}
+                      onClick={async () => {
+                        setBusy(true);
+                        try {
+                          await window.anybot.update.retry();
+                        } catch (e) {
+                          setError(e.message);
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                    >
+                      <RotateCcw size={14} />
+                      Retry
+                    </button>
+                  )}
                 </div>
               </div>
             )}
+            <div className="settings-card">
+              <div>
+                <h3>Check for updates</h3>
+                <p>
+                  Manually check for new versions of anyBot.
+                  {!data.update?.feedConfigured && (
+                    <span className="update-feed-note">
+                      {" "}Update feed not configured. Set ANYBOT_UPDATE_FEED_URL to enable automatic updates.
+                    </span>
+                  )}
+                </p>
+              </div>
+              <button
+                className="secondary"
+                disabled={busy || data.update?.state === "downloading"}
+                onClick={async () => {
+                  setBusy(true);
+                  try {
+                    await window.anybot.update.check();
+                  } catch (e) {
+                    setError(e.message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                <RefreshCw size={15} />
+                Check now
+              </button>
+            </div>
             <div className="settings-nav">
               <button
                 className="settings-nav-item"

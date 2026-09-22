@@ -453,6 +453,108 @@ nav button.selected,
   background: transparent;
   border-color: #c8d0e0;
 }
+.update-progress-bar {
+  height: 4px;
+  background: #dce4f7;
+  border-radius: 2px;
+  margin-top: 10px;
+  overflow: hidden;
+}
+.update-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4773c5, #5a8ceb);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+.update-feed-note {
+  color: #a47732;
+  font-style: italic;
+}
+
+/* Update Button in Sidebar */
+.update-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  font-size: 10px;
+  font-weight: 550;
+  border-radius: 6px;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+.update-btn span {
+  display: none;
+}
+@media (min-width: 1200px) {
+  .update-btn span {
+    display: inline;
+  }
+}
+.update-btn.available {
+  background: linear-gradient(135deg, #4773c5 0%, #5a8ceb 100%);
+  color: white;
+  box-shadow: 0 2px 8px rgba(71, 115, 197, 0.25);
+}
+.update-btn.available:hover:not(:disabled) {
+  background: linear-gradient(135deg, #3a63b5 0%, #4a7cdb 100%);
+  box-shadow: 0 3px 12px rgba(71, 115, 197, 0.35);
+  transform: translateY(-1px);
+}
+.update-btn.downloading {
+  background: #eef3fd;
+  color: #4773c5;
+  padding: 4px;
+}
+.update-btn.checking {
+  background: #f5f7fa;
+  color: #8a94a3;
+  padding: 6px;
+}
+.update-btn.checking .spinning {
+  animation: spin 1s linear infinite;
+}
+.update-btn.ready {
+  background: linear-gradient(135deg, #4e9777 0%, #5daa89 100%);
+  color: white;
+  box-shadow: 0 2px 8px rgba(78, 151, 119, 0.25);
+}
+.update-btn.ready:hover:not(:disabled) {
+  background: linear-gradient(135deg, #3d8666 0%, #4c9978 100%);
+  box-shadow: 0 3px 12px rgba(78, 151, 119, 0.35);
+  transform: translateY(-1px);
+}
+.update-btn.error {
+  background: linear-gradient(135deg, #e05d44 0%, #e87a65 100%);
+  color: white;
+  box-shadow: 0 2px 8px rgba(224, 93, 68, 0.25);
+}
+.update-btn.error:hover:not(:disabled) {
+  background: linear-gradient(135deg, #c74d36 0%, #d86a55 100%);
+  box-shadow: 0 3px 12px rgba(224, 93, 68, 0.35);
+  transform: translateY(-1px);
+}
+.update-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
+  transform: none;
+}
+.update-progress-ring {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.update-progress-text {
+  position: absolute;
+  font-size: 6px;
+  font-weight: 600;
+  color: #4773c5;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 main {
   min-width: 0;
   flex: 1;
