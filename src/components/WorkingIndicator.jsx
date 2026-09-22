@@ -1,5 +1,5 @@
 import { Square } from "lucide-react";
-import { SlimeAvatar } from "./SlimeAvatar.jsx";
+import { RobotAvatar } from "./RobotAvatar.jsx";
 
 export function WorkingIndicator({ runs, employees, onStopAll }) {
   if (!runs || runs.length === 0) return null;
@@ -26,7 +26,7 @@ export function WorkingIndicator({ runs, employees, onStopAll }) {
       <div className="working-indicator-shimmer" />
       <div className="working-indicator-avatars">
         {uniqueEmployees.slice(0, 3).map((employee) => (
-          <SlimeAvatar key={employee.id} employee={employee} small working />
+          <RobotAvatar key={employee.id} employee={employee} small working />
         ))}
         {uniqueEmployees.length > 3 && (
           <span className="working-indicator-overflow">

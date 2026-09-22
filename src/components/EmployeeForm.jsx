@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { Check, Folder, Plus } from "lucide-react";
-import { names, customModelValue, avatarColors, avatarShapes, avatarFaces } from "../constants.js";
-import { SlimeAvatarPreview, parseAvatarConfig, stringifyAvatarConfig } from "./SlimeAvatar.jsx";
+import { names, customModelValue, avatarColors, avatarHeadStyles, avatarEyeStyles } from "../constants.js";
+import { RobotAvatarPreview, parseAvatarConfig, stringifyAvatarConfig } from "./RobotAvatar.jsx";
 
 export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [] }) {
   const optionsFor = (harness) => {
@@ -90,7 +90,7 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [] }) 
       </div>
       <div className="avatar-customization">
         <div className="avatar-preview-section">
-          <SlimeAvatarPreview
+          <RobotAvatarPreview
             color={form.avatarColor}
             shape={form.avatarShape}
             face={form.avatarFace}
@@ -117,27 +117,27 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [] }) 
           </label>
           <div className="avatar-selects">
             <label>
-              Shape
+              Head Style
               <select
                 value={form.avatarShape}
                 onChange={(e) => set("avatarShape", e.target.value)}
               >
-                {avatarShapes.map((shape) => (
-                  <option key={shape.id} value={shape.id}>
-                    {shape.name}
+                {avatarHeadStyles.map((style) => (
+                  <option key={style.id} value={style.id}>
+                    {style.name}
                   </option>
                 ))}
               </select>
             </label>
             <label>
-              Expression
+              Eye Style
               <select
                 value={form.avatarFace}
                 onChange={(e) => set("avatarFace", e.target.value)}
               >
-                {avatarFaces.map((face) => (
-                  <option key={face.id} value={face.id}>
-                    {face.name}
+                {avatarEyeStyles.map((style) => (
+                  <option key={style.id} value={style.id}>
+                    {style.name}
                   </option>
                 ))}
               </select>

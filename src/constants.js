@@ -52,20 +52,23 @@ export const avatarColors = [
   { id: "rose", name: "Rose", fill: "#fce8f0", stroke: "#f0c0d8", accent: "#e898b8" },
 ];
 
-export const avatarShapes = [
-  { id: "blob", name: "Blob", description: "Classic blobby slime" },
-  { id: "round", name: "Round", description: "Rounder, more circular" },
-  { id: "tall", name: "Tall", description: "Stretched vertically" },
-  { id: "wide", name: "Wide", description: "Stretched horizontally" },
-  { id: "spiky", name: "Spiky", description: "More pointed edges" },
-  { id: "wavy", name: "Wavy", description: "Gentle wave pattern" },
+export const avatarHeadStyles = [
+  { id: "dome", name: "Dome", description: "Rounded helmet shape" },
+  { id: "square", name: "Square", description: "Boxy robot head" },
+  { id: "hexagon", name: "Hexagon", description: "Angular hex shape" },
+  { id: "visor", name: "Visor", description: "Wide visor style" },
+  { id: "bubble", name: "Bubble", description: "Spherical bubble head" },
+  { id: "angular", name: "Angular", description: "Sharp geometric design" },
 ];
 
-export const avatarFaces = [
-  { id: "default", name: "Default", description: "Classic friendly face" },
-  { id: "happy", name: "Happy", description: "Extra cheerful smile" },
-  { id: "focused", name: "Focused", description: "Concentrated look" },
-  { id: "curious", name: "Curious", description: "Inquisitive expression" },
-  { id: "sleepy", name: "Sleepy", description: "Relaxed, half-closed eyes" },
-  { id: "excited", name: "Excited", description: "Big eyes, wide smile" },
+export const avatarEyeStyles = [
+  { id: "round", name: "Round", description: "Classic round robot eyes" },
+  { id: "oval", name: "Oval", description: "Tall oval eye sensors" },
+  { id: "visor", name: "Visor", description: "Single visor display" },
+  { id: "led", name: "LED", description: "Rectangular LED panels" },
+  { id: "dots", name: "Dots", description: "Small dot sensors" },
+  { id: "slits", name: "Slits", description: "Wide horizontal slits" },
 ];
+
+export const avatarShapes = avatarHeadStyles;
+export const avatarFaces = avatarEyeStyles;
