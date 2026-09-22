@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+// Default update feed URL - must match desktop/main.cjs
+const DEFAULT_UPDATE_FEED_URL = "https://github.com/gilfila/anyBot-updates/releases/latest/download";
+
 // Test version comparison logic
 function compareVersions(a, b) {
   const pa = String(a).replace(/^v/, "").split(".").map(Number);
@@ -25,6 +28,15 @@ function isValidUpdateFeedUrl(url) {
   } catch {
     return false;
   }
+}
+
+// Parse GitHub releases URL to extract owner/repo
+function parseGitHubReleasesUrl(url) {
+  const match = url.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/releases/);
+  if (match) {
+    return { owner: match[1], repo: match[2] };
+  }
+  return null;
 }
 
 test("compareVersions handles standard semver", () => {
@@ -86,6 +98,59 @@ test("isValidUpdateFeedUrl rejects invalid URLs", () => {
 test("isValidUpdateFeedUrl accepts URLs with paths and ports", () => {
   assert.equal(isValidUpdateFeedUrl("https://example.com:8443/updates"), true);
   assert.equal(isValidUpdateFeedUrl("https://releases.example.com/v1/anybot"), true);
+});
+
+// Default URL tests
+test("default update feed URL is valid HTTPS", () => {
+  assert.equal(isValidUpdateFeedUrl(DEFAULT_UPDATE_FEED_URL), true);
+});
+
+test("default update feed URL points to anyBot-updates repo", () => {
+  assert.ok(DEFAULT_UPDATE_FEED_URL.includes("gilfila/anyBot-updates"));
+  assert.ok(DEFAULT_UPDATE_FEED_URL.includes("releases"));
+});
+
+test("default update feed URL uses GitHub releases latest/download pattern", () => {
+  assert.ok(DEFAULT_UPDATE_FEED_URL.endsWith("/releases/latest/download"));
+});
+
+// GitHub URL parsing tests
+test("parseGitHubReleasesUrl extracts owner and repo from releases URL", () => {
+  const result = parseGitHubReleasesUrl("https://github.com/gilfila/anyBot-updates/releases/latest/download");
+  assert.deepEqual(result, { owner: "gilfila", repo: "anyBot-updates" });
+});
+
+test("parseGitHubReleasesUrl handles various GitHub releases URL formats", () => {
+  assert.deepEqual(
+    parseGitHubReleasesUrl("https://github.com/owner/repo/releases"),
+    { owner: "owner", repo: "repo" }
+  );
+  assert.deepEqual(
+    parseGitHubReleasesUrl("https://github.com/my-org/my-app/releases/download/v1.0.0/file.exe"),
+    { owner: "my-org", repo: "my-app" }
+  );
+  assert.deepEqual(
+    parseGitHubReleasesUrl("https://github.com/user123/project_name/releases/latest"),
+    { owner: "user123", repo: "project_name" }
+  );
+});
+
+test("parseGitHubReleasesUrl returns null for non-GitHub URLs", () => {
+  assert.equal(parseGitHubReleasesUrl("https://example.com/releases"), null);
+  assert.equal(parseGitHubReleasesUrl("https://gitlab.com/user/repo/releases"), null);
+  assert.equal(parseGitHubReleasesUrl("https://github.com/user"), null);
+  assert.equal(parseGitHubReleasesUrl("https://github.com/user/repo"), null);
+});
+
+test("parseGitHubReleasesUrl returns null for HTTP GitHub URLs", () => {
+  assert.equal(parseGitHubReleasesUrl("http://github.com/user/repo/releases"), null);
+});
+
+test("default URL is correctly parsed as GitHub releases", () => {
+  const result = parseGitHubReleasesUrl(DEFAULT_UPDATE_FEED_URL);
+  assert.ok(result !== null);
+  assert.equal(result.owner, "gilfila");
+  assert.equal(result.repo, "anyBot-updates");
 });
 
 // Test update state transitions

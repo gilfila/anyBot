@@ -25,11 +25,12 @@ let window,
 
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
-// Configurable update feed URL - points to public endpoint with binaries + latest.yml metadata.
-// Set via ANYBOT_UPDATE_FEED_URL environment variable or build-time configuration.
-// Example: https://releases.anybot.dev/desktop or a GitHub releases URL for a public repo.
-// For private source repos, host binaries + latest.yml on a separate public endpoint.
-const UPDATE_FEED_URL = process.env.ANYBOT_UPDATE_FEED_URL || null;
+// Default update feed URL - points to public binary-only GitHub repo with releases.
+// The source repo (gilfila/anyBot) remains private; gilfila/anyBot-updates contains
+// only compiled binaries and electron-updater metadata (latest.yml, blockmaps).
+// Override with ANYBOT_UPDATE_FEED_URL environment variable if needed.
+const DEFAULT_UPDATE_FEED_URL = "https://github.com/gilfila/anyBot-updates/releases/latest/download";
+const UPDATE_FEED_URL = process.env.ANYBOT_UPDATE_FEED_URL || DEFAULT_UPDATE_FEED_URL;
 
 // Update state machine: idle → checking → available → downloading → downloaded → error
 const UpdateState = {
@@ -193,6 +194,15 @@ function isValidUpdateFeedUrl(url) {
 }
 
 // Initialize electron-updater with the configured feed URL
+// Parse GitHub releases URL to extract owner/repo for GitHub provider
+function parseGitHubReleasesUrl(url) {
+  const match = url.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/releases/);
+  if (match) {
+    return { owner: match[1], repo: match[2] };
+  }
+  return null;
+}
+
 function initializeAutoUpdater() {
   if (!UPDATE_FEED_URL) {
     console.log("Update feed URL not configured. Set ANYBOT_UPDATE_FEED_URL to enable auto-updates.");
@@ -212,11 +222,22 @@ function initializeAutoUpdater() {
     electronAutoUpdater.autoInstallOnAppQuit = false;
     electronAutoUpdater.allowDowngrade = false;
     
-    // Set the update feed URL (generic provider)
-    electronAutoUpdater.setFeedURL({
-      provider: "generic",
-      url: UPDATE_FEED_URL,
-    });
+    // Detect GitHub releases URL pattern and use appropriate provider
+    const githubInfo = parseGitHubReleasesUrl(UPDATE_FEED_URL);
+    if (githubInfo) {
+      // Use GitHub provider for GitHub releases URLs - supports latest.yml lookup
+      electronAutoUpdater.setFeedURL({
+        provider: "github",
+        owner: githubInfo.owner,
+        repo: githubInfo.repo,
+      });
+    } else {
+      // Use generic provider for other HTTPS URLs
+      electronAutoUpdater.setFeedURL({
+        provider: "generic",
+        url: UPDATE_FEED_URL,
+      });
+    }
 
     // Event handlers
     electronAutoUpdater.on("checking-for-update", () => {
