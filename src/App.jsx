@@ -14,8 +14,6 @@ import {
   ExternalLink,
   Folder,
   FileText,
-  FolderTree,
-  Globe,
   Loader,
   Mic,
   MessageSquare,
@@ -33,7 +31,6 @@ import {
   Settings2,
   ShieldCheck,
   Square,
-  Terminal,
   Users,
   Workflow,
   Volume2,
@@ -147,7 +144,7 @@ import { ConversationForm } from "./components/ConversationForm.jsx";
 import { ConversationMembersForm } from "./components/ConversationMembersForm.jsx";
 import { RoutineForm } from "./components/RoutineForm.jsx";
 import { MessageContent } from "./components/MessageContent.jsx";
-import { WorkspaceTools } from "./components/WorkspaceTools.jsx";
+import { ContextRail } from "./components/ContextRail.jsx";
 import { HtmlPreviewModal } from "./components/HtmlPreviewModal.jsx";
 
 export function App() {
@@ -211,6 +208,7 @@ export function App() {
   const openInBrowser = useCallback((html) => {
     setBrowserHtml(html);
     setActiveToolsPanel('browser');
+    setRightSidebarOpen(true);
     setHtmlPreview(null);
   }, []);
   
@@ -421,7 +419,7 @@ export function App() {
     setDismissedRuns((prev) => new Set([...prev, runId]));
   }
   return (
-    <div className={`app-shell${activeToolsPanel ? ' tools-open' : ''}`}>
+    <div className="app-shell">
       <aside className={`sidebar ${leftSidebarOpen ? "" : "collapsed"}`}>
         <div className="brand">
           <span className="brand-mark">
@@ -606,32 +604,6 @@ export function App() {
             </strong>
           </div>
           <div className="topbar-right">
-            <div className="workspace-tools-toggle">
-              <button 
-                className={activeToolsPanel === 'browser' ? 'active' : ''}
-                onClick={() => toggleToolsPanel('browser')}
-                title="In-app browser"
-              >
-                <Globe size={14} />
-                Browser
-              </button>
-              <button 
-                className={activeToolsPanel === 'terminal' ? 'active' : ''}
-                onClick={() => toggleToolsPanel('terminal')}
-                title="Terminal"
-              >
-                <Terminal size={14} />
-                Terminal
-              </button>
-              <button 
-                className={activeToolsPanel === 'files' ? 'active' : ''}
-                onClick={() => toggleToolsPanel('files')}
-                title="File explorer"
-              >
-                <FolderTree size={14} />
-                Files
-              </button>
-            </div>
             <span className="local-label">
               <Monitor size={14} />
               On this computer
@@ -643,8 +615,8 @@ export function App() {
               <button
                 className="sidebar-toggle"
                 onClick={toggleRightSidebar}
-                title={rightSidebarOpen ? "Hide context panel" : "Show context panel"}
-                aria-label={rightSidebarOpen ? "Hide context panel" : "Show context panel"}
+                title={rightSidebarOpen ? "Hide context rail" : "Show context rail"}
+                aria-label={rightSidebarOpen ? "Hide context rail" : "Show context rail"}
               >
                 {rightSidebarOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
               </button>
@@ -983,6 +955,7 @@ export function App() {
                           onOpenBrowser={(url) => {
                             setBrowserUrl(url);
                             setActiveToolsPanel('browser');
+                            setRightSidebarOpen(true);
                           }}
                         />
                       </div>
@@ -1117,66 +1090,23 @@ export function App() {
                 Local harnesses use your configured accounts and permissions.
               </div>
             </section>
-            <aside className={`context-panel ${rightSidebarOpen ? "" : "collapsed"}`}>
-              <div className="eyebrow">IN THIS CONVERSATION</div>
-              {conversation.members.map((id) => {
-                const e = data.employees.find((e) => e.id === id);
-                const isWorking = activeRuns.some((r) => r.employee === id);
-                return (
-                  <div className="participant" key={id}>
-                    <SlimeAvatar small employee={e} working={isWorking} />
-                    <div>
-                      <strong>{e?.name}</strong>
-                      <small>{e?.role}</small>
-                      <span>{harnessName(e?.harness)}</span>
-                    </div>
-                  </div>
-                );
-              })}
-              <div className="context-divider" />
-              <div className="eyebrow">DELIVERABLES</div>
-              {(data.artifacts || []).filter(
-                (a) => a.conversation === conversationId,
-              ).length === 0 && (
-                <p>Files returned by your employees will appear here.</p>
-              )}
-              {(data.artifacts || [])
-                .filter((a) => a.conversation === conversationId)
-                .map((a) => (
-                  <button
-                    className="artifact-item"
-                    key={a.id}
-                    onClick={() => openArtifact(a)}
-                  >
-                    <FileText size={18} />
-                    <span>
-                      {a.name}
-                      <small>
-                        {Math.max(1, Math.ceil(a.bytes / 1024))} KB ·{" "}
-                        {time(a.created)}
-                      </small>
-                    </span>
-                  </button>
-                ))}
-              <div className="context-divider" />
-              <div className="eyebrow">HOW WORK HAPPENS</div>
-              <p>
-                Each employee runs in their own workspace. Handoffs stay within
-                this conversation.
-              </p>
-              <div className="detail-line">
-                <Workflow size={15} />
-                Up to 8 runs per task
-              </div>
-              <div className="detail-line">
-                <Monitor size={15} />
-                Runs on this computer
-              </div>
-              <div className="detail-line">
-                <ShieldCheck size={15} />
-                Trusted local execution
-              </div>
-            </aside>
+            <ContextRail
+              open={rightSidebarOpen}
+              conversation={conversation}
+              employees={data.employees}
+              activeRuns={activeRuns}
+              artifacts={data.artifacts}
+              conversationId={conversationId}
+              harnessName={harnessName}
+              onOpenArtifact={openArtifact}
+              activeToolsTab={activeToolsPanel}
+              onToolsTabChange={setActiveToolsPanel}
+              browserUrl={browserUrl}
+              browserHtml={browserHtml}
+              explorerPath={explorerPath}
+              onBrowserNavigate={(url) => setBrowserUrl(url)}
+              onExplorerSelect={(path) => setExplorerPath(path)}
+            />
           </div>
         )}
         {view === "work" && (
@@ -1796,15 +1726,6 @@ export function App() {
           )}
         </Modal>
       )}
-      <WorkspaceTools
-        activePanel={activeToolsPanel}
-        onClose={setActiveToolsPanel}
-        browserUrl={browserUrl}
-        browserHtml={browserHtml}
-        explorerPath={explorerPath}
-        onBrowserNavigate={(url) => setBrowserUrl(url)}
-        onExplorerSelect={(path) => setExplorerPath(path)}
-      />
       {htmlPreview && (
         <HtmlPreviewModal
           html={htmlPreview.html}

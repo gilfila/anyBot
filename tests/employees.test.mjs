@@ -197,9 +197,10 @@ test("schema one employee records migrate without losing fields", async (t) => {
   assert.equal(employee.model, "");
   assert.equal(employee.timeoutMinutes, 10);
   assert.equal(employee.permissionMode, "dontAsk");
+  assert.equal(employee.avatar, "");
   assert.equal(
     store.one("SELECT value FROM metadata WHERE key='schema'").value,
-    "4",
+    "5",
   );
   store.close();
 });
