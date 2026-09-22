@@ -4,6 +4,17 @@ All notable changes to anyBot are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+- **Projects**: Group chats are now called "Projects" with configurable settings
+- Project settings: Allowed folders and default artifacts folder per project
+- Artifacts are automatically copied to the project artifacts folder when set
+- Project allowed folders are included in agent prompts for context
+
+### Fixed
+- Settings page no longer shows "Update feed not configured" when the built-in default feed is active
+
 ## [0.2.18]
 
 - **Silent in-app updates**: Updates install fully behind the scenes with no NSIS Setup wizard

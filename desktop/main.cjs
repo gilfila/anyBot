@@ -313,6 +313,10 @@ function notifyRenderer() {
 
 // Get the current update state for the renderer
 function getUpdateState() {
+  // Always include feedConfigured so the UI knows whether the feed is set up,
+  // even when there's no pending update to display.
+  const feedConfigured = !!UPDATE_FEED_URL && isValidUpdateFeedUrl(UPDATE_FEED_URL);
+
   // If update is dismissed, hide it unless we're already downloading/downloaded
   if (
     updateInfo &&
@@ -320,11 +324,11 @@ function getUpdateState() {
     compareVersions(updateInfo.version, dismissedVersion) <= 0 &&
     updateState === UpdateState.AVAILABLE
   ) {
-    return null;
+    return { feedConfigured };
   }
 
   if (!updateInfo && updateState === UpdateState.IDLE) {
-    return null;
+    return { feedConfigured };
   }
 
   return {
@@ -334,7 +338,7 @@ function getUpdateState() {
     releaseDate: updateInfo?.releaseDate || null,
     progress: updateProgress,
     error: updateError,
-    feedConfigured: !!UPDATE_FEED_URL,
+    feedConfigured,
   };
 }
 
@@ -472,6 +476,7 @@ const methods = new Set([
   "employees.setArchived",
   "conversations.create",
   "conversations.updateMembers",
+  "conversations.updateSettings",
   "messages.send",
   "runs.cancel",
   "routines.create",

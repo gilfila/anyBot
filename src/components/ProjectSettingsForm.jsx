@@ -1,13 +1,14 @@
 import React, { useState } from "react";
-import { Folder, MessageSquare, Plus, X } from "lucide-react";
-import { Avatar } from "./Avatar.jsx";
+import { Folder, Plus, Save, X } from "lucide-react";
 
-export function ConversationForm({ employees, busy, onSave }) {
-  const [title, setTitle] = useState(""),
-    [members, setMembers] = useState([]),
-    [delegation, setDelegation] = useState(false);
-  const [allowedFolders, setAllowedFolders] = useState([]);
-  const [artifactsFolder, setArtifactsFolder] = useState("");
+export function ProjectSettingsForm({ conversation, busy, onSave }) {
+  const [title, setTitle] = useState(conversation.title || "");
+  const [allowedFolders, setAllowedFolders] = useState(
+    conversation.allowedFolders || []
+  );
+  const [artifactsFolder, setArtifactsFolder] = useState(
+    conversation.artifactsFolder || ""
+  );
 
   async function chooseFolder(onSelect) {
     const path = await window.anybot?.chooseDirectory();
@@ -31,7 +32,12 @@ export function ConversationForm({ employees, busy, onSave }) {
       className="modal-form"
       onSubmit={(e) => {
         e.preventDefault();
-        onSave({ title, members, delegation, allowedFolders, artifactsFolder });
+        onSave({
+          conversation: conversation.id,
+          title,
+          allowedFolders,
+          artifactsFolder,
+        });
       }}
     >
       <label>
@@ -44,43 +50,6 @@ export function ConversationForm({ employees, busy, onSave }) {
           placeholder="e.g. Product launch"
           autoFocus
         />
-      </label>
-      <label>Bring in your employees</label>
-      {!employees.length && (
-        <p>Create an employee first to start a project.</p>
-      )}
-      <div className="member-picker">
-        {employees.map((e) => (
-          <label className="checkbox" key={e.id}>
-            <input
-              type="checkbox"
-              checked={members.includes(e.id)}
-              onChange={() =>
-                setMembers(
-                  members.includes(e.id)
-                    ? members.filter((m) => m !== e.id)
-                    : [...members, e.id],
-                )
-              }
-            />
-            <Avatar small employee={e} />
-            <span>
-              {e.name}
-              <small>{e.role}</small>
-            </span>
-          </label>
-        ))}
-      </div>
-      <label className="checkbox trust">
-        <input
-          type="checkbox"
-          checked={delegation}
-          onChange={(e) => setDelegation(e.target.checked)}
-        />
-        <span>
-          Allow employees to hand work to one another within this project.
-          Limited to 8 runs per root task.
-        </span>
       </label>
       <div className="project-folders-section">
         <label>
@@ -133,11 +102,21 @@ export function ConversationForm({ employees, busy, onSave }) {
             <Folder size={14} />
             Browse
           </button>
+          {artifactsFolder && (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setArtifactsFolder("")}
+              title="Clear artifacts folder"
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
       </div>
-      <button className="primary full" disabled={busy || !members.length}>
-        <MessageSquare size={16} />
-        Create project
+      <button className="primary full" disabled={busy || !title.trim()}>
+        <Save size={16} />
+        Save settings
       </button>
     </form>
   );

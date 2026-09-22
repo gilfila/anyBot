@@ -146,6 +146,7 @@ import { RoutineForm } from "./components/RoutineForm.jsx";
 import { MessageContent } from "./components/MessageContent.jsx";
 import { ContextRail } from "./components/ContextRail.jsx";
 import { HtmlPreviewModal } from "./components/HtmlPreviewModal.jsx";
+import { ProjectSettingsForm } from "./components/ProjectSettingsForm.jsx";
 
 export function App() {
   const harnessName = (id) =>
@@ -430,7 +431,7 @@ export function App() {
         <label className="sidebar-search">
           <Search size={15} />
           <input
-            aria-label="Search bots and group conversations"
+            aria-label="Search bots and projects"
             placeholder="Search"
             value={sidebarSearch}
             onChange={(event) => setSidebarSearch(event.target.value)}
@@ -490,10 +491,10 @@ export function App() {
           {!sidebarEmployees.length && <p className="side-empty">No bots match your search.</p>}
         </div>
         <div className="nav-label conversation-label">
-          GROUP CHATS
+          PROJECTS
           <button
-            title="New group conversation"
-            aria-label="New group conversation"
+            title="New project"
+            aria-label="New project"
             onClick={() => setModal({ type: "conversation" })}
           >
             <Plus size={16} />
@@ -501,7 +502,7 @@ export function App() {
         </div>
         <div className="conversation-list">
           {groupConversations.length === 0 ? (
-            <p className="side-empty">Your group conversations will live here.</p>
+            <p className="side-empty">Your projects will live here.</p>
           ) : (
             groupConversations.map((c) => {
               const unread = hasUnreadMessages(c.id);
@@ -891,6 +892,18 @@ export function App() {
                     <Users size={16} />
                     Manage bots
                   </button>
+                  {conversation.members.length > 1 && (
+                    <button
+                      type="button"
+                      className="secondary"
+                      title="Project settings"
+                      aria-label="Project settings"
+                      onClick={() => setModal({ type: "project-settings" })}
+                    >
+                      <Settings2 size={16} />
+                      Settings
+                    </button>
+                  )}
                 </div>
                 {conversation.members.length === 1 && (
                   <button
@@ -1630,7 +1643,9 @@ export function App() {
                   ? "Create a routine"
                   : modal.type === "conversation-members"
                     ? "Manage conversation bots"
-                  : "Start a conversation"
+                    : modal.type === "project-settings"
+                      ? "Project settings"
+                      : "Create a project"
           }
           onClose={() => setModal(null)}
         >
@@ -1708,6 +1723,15 @@ export function App() {
                   conversation: conversationId,
                   members,
                 });
+                if (next) setModal(null);
+              }}
+            />
+          ) : modal.type === "project-settings" ? (
+            <ProjectSettingsForm
+              conversation={conversation}
+              busy={busy}
+              onSave={async (settings) => {
+                const next = await act("conversations.updateSettings", settings);
                 if (next) setModal(null);
               }}
             />
