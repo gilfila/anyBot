@@ -358,6 +358,18 @@ nav button.selected,
   gap: 10px;
   align-items: center;
   font-size: 12px;
+  min-width: 0;
+}
+.user > div {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.user > div > small {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .user small {
   font-size: 10px;
@@ -372,6 +384,7 @@ nav button.selected,
   border-radius: 50%;
   background: #e3e5ea;
   color: #646d7c;
+  flex-shrink: 0;
 }
 .settings-cog {
   margin-left: auto;
@@ -379,6 +392,7 @@ nav button.selected,
   height: 30px;
   color: #7c8593;
   position: relative;
+  flex-shrink: 0;
 }
 .settings-cog:hover { background: #e7ecf8; color: #315db7; }
 .settings-cog.has-update { color: #4773c5; }
@@ -475,13 +489,18 @@ nav button.selected,
 .update-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
   padding: 6px 10px;
   font-size: 10px;
   font-weight: 550;
   border-radius: 6px;
   white-space: nowrap;
-  transition: all 0.2s ease;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+  flex-shrink: 0;
+  min-width: 28px;
+  min-height: 28px;
+  box-sizing: border-box;
 }
 .update-btn span {
   display: none;
@@ -504,12 +523,12 @@ nav button.selected,
 .update-btn.downloading {
   background: #eef3fd;
   color: #4773c5;
-  padding: 4px;
+  padding: 5px;
 }
 .update-btn.checking {
   background: #f5f7fa;
   color: #8a94a3;
-  padding: 6px;
+  padding: 7px;
 }
 .update-btn.checking .spinning {
   animation: spin 1s linear infinite;
