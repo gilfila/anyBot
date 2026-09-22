@@ -145,11 +145,14 @@ export class Artifacts {
       "SELECT id,conversation,run,name,bytes,created FROM artifacts ORDER BY rowid",
     );
   }
-  async capture(run, employee, output, signal) {
+  async capture(run, employee, output, signal, projectArtifactsFolder = "") {
     const paths = artifactPaths(output),
       entries = [];
     let total = 0;
     await mkdir(this.directory, { recursive: true });
+    if (projectArtifactsFolder) {
+      await mkdir(projectArtifactsFolder, { recursive: true });
+    }
     for (const path of paths) {
       if (signal?.aborted) throw new Error("Run cancelled");
       const source = await confinedFile(employee.workspace, path);
@@ -162,7 +165,6 @@ export class Artifacts {
         total += stat.size;
         if (total > 30 * 1024 * 1024)
           throw new Error("Artifact batch exceeds 30 MB");
-        // Bound allocation even if a file grows after stat.
         const buffer = Buffer.alloc(Math.min(stat.size + 1, MAX_FILE + 1));
         let offset = 0;
         while (offset < buffer.length) {
@@ -193,6 +195,17 @@ export class Artifacts {
         });
       } catch (error) {
         if (error.code !== "EEXIST") throw error;
+      }
+      if (projectArtifactsFolder) {
+        try {
+          await writeFile(
+            join(projectArtifactsFolder, basename(path)),
+            bytes,
+            { mode: 0o600 },
+          );
+        } catch (error) {
+          if (error.code !== "EEXIST") throw error;
+        }
       }
       entries.push({
         id: id(),

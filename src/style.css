@@ -1625,6 +1625,82 @@ dialog::backdrop {
   color: #939dac;
   font-size: 10px;
 }
+
+.project-folders-section {
+  margin-top: 8px;
+}
+.project-folders-section label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+.project-folders-section label small {
+  font-weight: 400;
+  color: #7a869b;
+  font-size: 11px;
+}
+.folder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.folder-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #f5f7fa;
+  border-radius: 6px;
+  font-size: 11px;
+  color: #58657b;
+}
+.folder-item .folder-path {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-item .folder-remove {
+  padding: 3px;
+  border-radius: 4px;
+  color: #8a95a8;
+}
+.folder-item .folder-remove:hover {
+  background: #e8ecf2;
+  color: #5a6575;
+}
+.folder-add {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  font-size: 11px;
+}
+.folder-picker {
+  display: flex;
+  gap: 8px;
+}
+.folder-picker input {
+  flex: 1;
+  border: 1px solid #dce2eb;
+  background: #fff;
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #58657b;
+  font-size: 11px;
+}
+.folder-picker button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 12px;
+  font-size: 11px;
+}
+
 @media (max-width: 1200px) {
   .sidebar:not(.collapsed) {
     width: 215px;
