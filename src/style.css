@@ -3261,3 +3261,184 @@ dialog::backdrop {
   font-size: 9px;
   color: #9aa5b5;
 }
+
+/* Bot Row Menu Styles */
+.bot-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: 7px;
+}
+
+.bot-row:hover,
+.bot-row:focus-within {
+  background: #eef2f7;
+}
+
+.bot-row.selected {
+  background: #e7ecf8;
+}
+
+.bot-row.selected .bot-row-main {
+  color: #325dbc;
+  font-weight: 550;
+}
+
+.bot-row-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 8px 10px;
+  justify-content: flex-start;
+  text-align: left;
+  color: #626b79;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.bot-row-main span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.bot-row-main .unread-dot {
+  flex-shrink: 0;
+}
+
+.bot-row-menu-trigger {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  color: #8a94a3;
+  opacity: 0;
+  flex-shrink: 0;
+  margin-right: 6px;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.bot-row:hover .bot-row-menu-trigger,
+.bot-row:focus-within .bot-row-menu-trigger,
+.bot-row-menu-trigger:focus,
+.bot-row-menu-trigger[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.bot-row-menu-trigger:hover {
+  background: #dce4f7;
+  color: #4773c5;
+}
+
+.bot-row-menu-trigger:focus-visible {
+  opacity: 1;
+  outline: 2px solid #668cec;
+  outline-offset: 1px;
+}
+
+.bot-row-menu {
+  position: absolute;
+  top: 100%;
+  right: 4px;
+  z-index: 100;
+  min-width: 130px;
+  background: #fff;
+  border: 1px solid #dce2eb;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(23, 33, 60, 0.12);
+  padding: 4px;
+  animation: menu-fade-in 0.15s ease-out;
+}
+
+@keyframes menu-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.bot-row-menu button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  font-size: 12px;
+  color: #4a5565;
+  border-radius: 5px;
+  text-align: left;
+  justify-content: flex-start;
+}
+
+.bot-row-menu button:hover {
+  background: #f5f7fa;
+}
+
+.bot-row-menu button:focus-visible {
+  outline: 2px solid #668cec;
+  outline-offset: -2px;
+}
+
+.bot-row-menu button.danger {
+  color: #b44f42;
+  background: transparent;
+  padding: 9px 12px;
+}
+
+.bot-row-menu button.danger:hover {
+  background: #fef2f0;
+}
+
+/* Delete Confirmation Modal */
+.delete-confirm-content {
+  text-align: center;
+  padding: 8px 0;
+}
+
+.delete-confirm-avatar {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.delete-confirm-content > p {
+  font-size: 14px;
+  color: #3a4252;
+  margin-bottom: 8px;
+}
+
+.delete-confirm-content > p strong {
+  font-weight: 600;
+}
+
+.delete-confirm-note {
+  font-size: 12px;
+  color: #7a869b;
+  margin-bottom: 20px;
+  line-height: 1.6;
+}
+
+.delete-confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.delete-confirm-actions button {
+  padding: 10px 18px;
+  font-size: 12px;
+}
+
+.delete-confirm-actions .danger {
+  background: #e05d44;
+  color: #fff;
+}
+
+.delete-confirm-actions .danger:hover:not(:disabled) {
+  background: #c74d36;
+}

@@ -18,11 +18,13 @@ import {
   Mic,
   MessageSquare,
   Monitor,
+  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
   Pause,
+  Pencil,
   Play,
   Plus,
   RefreshCw,
@@ -31,6 +33,7 @@ import {
   Settings2,
   ShieldCheck,
   Square,
+  Trash2,
   Users,
   Workflow,
   Volume2,
@@ -167,6 +170,8 @@ export function App() {
   const [showArchived, setShowArchived] = useState(false);
   const [dismissedRuns, setDismissedRuns] = useState(new Set());
   const [lastSeenMessages, setLastSeenMessages] = useState({});
+  const [openBotMenu, setOpenBotMenu] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(() => {
     try {
       const saved = localStorage.getItem("anybot-left-sidebar");
@@ -306,6 +311,19 @@ export function App() {
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length, conversationId]);
+  useEffect(() => {
+    if (!openBotMenu) return;
+    const handleClickOutside = () => setOpenBotMenu(null);
+    const handleEscape = (e) => {
+      if (e.key === "Escape") setOpenBotMenu(null);
+    };
+    document.addEventListener("click", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("click", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [openBotMenu]);
   async function send(event) {
     event.preventDefault();
     if (busy || !draft.trim() || !activeRecipients.length) return;
@@ -472,20 +490,65 @@ export function App() {
           {sidebarEmployees.map((employee) => {
             const botConv = getConversationForEmployee(employee.id);
             const unread = botConv && hasUnreadMessages(botConv.id);
+            const isMenuOpen = openBotMenu === employee.id;
             return (
-              <button
+              <div
                 key={employee.id}
-                className={
-                  view === "chat" && conversation?.members.length === 1 && conversation.members[0] === employee.id
-                    ? "selected"
-                    : ""
-                }
-                onClick={() => directChat(employee)}
+                className={`bot-row ${view === "chat" && conversation?.members.length === 1 && conversation.members[0] === employee.id ? "selected" : ""}`}
               >
-                <SlimeAvatar small employee={employee} />
-                <span>{employee.name}</span>
-                {unread && <i className="unread-dot" />}
-              </button>
+                <button
+                  className="bot-row-main"
+                  onClick={() => directChat(employee)}
+                >
+                  <SlimeAvatar small employee={employee} />
+                  <span>{employee.name}</span>
+                  {unread && <i className="unread-dot" />}
+                </button>
+                <button
+                  className="bot-row-menu-trigger"
+                  aria-label={`Actions for ${employee.name}`}
+                  aria-expanded={isMenuOpen}
+                  aria-haspopup="menu"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpenBotMenu(isMenuOpen ? null : employee.id);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setOpenBotMenu(null);
+                  }}
+                >
+                  <MoreHorizontal size={14} />
+                </button>
+                {isMenuOpen && (
+                  <div
+                    className="bot-row-menu"
+                    role="menu"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      role="menuitem"
+                      onClick={() => {
+                        setOpenBotMenu(null);
+                        setModal({ type: "employee", preset: employee, editing: true });
+                      }}
+                    >
+                      <Pencil size={14} />
+                      Edit
+                    </button>
+                    <button
+                      role="menuitem"
+                      className="danger"
+                      onClick={() => {
+                        setOpenBotMenu(null);
+                        setDeleteConfirm(employee);
+                      }}
+                    >
+                      <Trash2 size={14} />
+                      Delete
+                    </button>
+                  </div>
+                )}
+              </div>
             );
           })}
           {!sidebarEmployees.length && <p className="side-empty">No bots match your search.</p>}
@@ -1756,6 +1819,47 @@ export function App() {
           onClose={() => setHtmlPreview(null)}
           onOpenInBrowser={openInBrowser}
         />
+      )}
+      {deleteConfirm && (
+        <Modal
+          title="Delete bot"
+          onClose={() => setDeleteConfirm(null)}
+        >
+          <div className="delete-confirm-content">
+            <div className="delete-confirm-avatar">
+              <SlimeAvatar employee={deleteConfirm} />
+            </div>
+            <p>
+              Are you sure you want to delete <strong>{deleteConfirm.name}</strong>?
+            </p>
+            <p className="delete-confirm-note">
+              This will archive the bot. Their conversations and work history will be preserved, but the bot will no longer appear in your team.
+            </p>
+            <div className="delete-confirm-actions">
+              <button
+                className="secondary"
+                onClick={() => setDeleteConfirm(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="danger"
+                disabled={busy}
+                onClick={async () => {
+                  const result = await act("employees.setArchived", {
+                    id: deleteConfirm.id,
+                    revision: deleteConfirm.revision,
+                    archived: true,
+                  });
+                  if (result) setDeleteConfirm(null);
+                }}
+              >
+                <Trash2 size={14} />
+                Delete
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );
