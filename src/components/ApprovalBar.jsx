@@ -37,7 +37,7 @@ export function ApprovalBar({ approvals, employees, onDecide }) {
             <span className="approval-icon" aria-hidden="true">
               <ShieldAlert size={16} />
             </span>
-            {employee && <RobotAvatar small employee={employee} />}
+            {employee && <RobotAvatar size={44} employee={employee} />}
             <div className="approval-text">
               <strong>
                 {employee?.name || "A bot"} wants to {describeTool(approval.tool)}

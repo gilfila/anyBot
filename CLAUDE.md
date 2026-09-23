@@ -1,14 +1,14 @@
 # CLAUDE.md: anyBot
 
 ## Purpose
-Local-first desktop workspace for named AI "employees" (a Grok-bot-style team UI). Each bot runs through a local harness (Claude Code, Codex CLI, Gemini CLI, Hermes, Cursor Agent CLI, or a custom CLI), can share project conversations, and can delegate to other bots. Source repo `gilfila/anyBot` (private); binaries ship through the public `gilfila/anyBot-updates` feed. README.md has the full product and ops detail; design.md is the architecture/security doc.
+Local-first desktop workspace for named AI "employees" (a Grok-bot-style team UI). Each bot runs through a local harness (Claude Code, Codex CLI, Gemini CLI, Hermes, Cursor Agent CLI, or a custom CLI), can share project conversations, and can delegate to other bots. Source repo `gilfila/anyBot` (private); binaries ship through the public `gilfila/anyBot-updates` feed. README.md is the features-first overview (screenshots in `docs/screenshots/`); `docs/operations.md` has the run/update/release/ops detail; design.md is the architecture/security doc.
 
 ## Stack
 Electron 44 main process (`desktop/main.cjs`) + sandboxed React 19 renderer (`src/`, Vite) + coordinator in an Electron utility process (`runtime/`, SQLite). `electron-updater` for silent NSIS updates. Capacitor mobile companion (`mobile/`), headless server (`server/`).
 
 ## Run / Build / Test
 - `npm start` (builds renderer, opens Electron). `npm run build` for the renderer only.
-- `npm test` (node:test, ~127 tests), `npm run test:runtime` (Electron utility-process smoke), `npm run doctor`, `npm run verify:local` (all gates).
+- `npm test` (node:test, ~200 tests), `npm run test:runtime` (Electron utility-process smoke), `npm run doctor`, `npm run verify:local` (all gates).
 - `npm run package` builds `release/anyBot-Setup-X.Y.Z.exe` + `latest.yml` + blockmap. Releases are uploaded to `gilfila/anyBot-updates` by hand; CI builds with `--publish never`.
 
 ## Structure
@@ -41,6 +41,7 @@ Electron 44 main process (`desktop/main.cjs`) + sandboxed React 19 renderer (`sr
 - **Harness flags:** set in `invocation()` in `adapters.mjs`. auto → `--permission-mode auto --allowedTools Edit(./**)`, plus `--permission-prompts host --permission-prompt-tool mcp__anybot__approve --mcp-config`. Never add `--strict-mcp-config`, because bots rely on the owner's other MCP servers.
 - **UI:** `ApprovalBar` in the chat, and "Needs your approval" in the sidebar. Worker `attention` messages become Windows notifications in `main.cjs`.
 - **Default mode:** auto. Schema v12 moved `ask` bots to `auto`.
+**Bot editor + README (0.3.9):** avatars are sized per place with `<RobotAvatar size>` (sidebar 50, chat 52, roster 72, org 64/88); `.robot-avatar` CSS sizes are ignored. Dialog headings and the form's last `.primary.full` button are sticky (end of `style.css`). Model lists come live from each harness via `discoverLiveModels` in `adapters.mjs`, refreshed by the `harnesses.models` command each time the editor opens; don't reintroduce a hard-coded model filter. README screenshots are taken from the Playwright mock bridge (demo data, not a real profile); retake them when the UI changes noticeably.
 **Popups in scrolling lists:** use `FloatingMenu` (portal + fixed position), never an absolutely positioned child. That caused the clipped bot menu.
 **Next after that:** Phase 5, a local MCP server so bots can query and write live mid-run.
 **Shared working tree:** another session (Codex, avatar "Character Studio" redesign) edits these files in this checkout: `src/constants.js`, `src/lib/avatar-config.js`, `src/lib/bot-avatar-*.js`, `src/components/RobotAvatar.jsx`, `src/components/robot-avatar.css`, `.superdesign/`, and `design/bot-redesign-options.md`. It also has uncommitted hunks in `src/App.jsx`, `src/components/EmployeeForm.jsx`, and `CHANGELOG.md` (its Unreleased entry). Never stage those; for shared files, stage only your own hunks. Commit with explicit paths, not `git add -A src`.

@@ -602,7 +602,7 @@ export function App() {
                   className="bot-row-main"
                   onClick={() => directChat(employee)}
                 >
-                  <RobotAvatar small employee={employee} working={run?.status === "running"} />
+                  <RobotAvatar size={50} employee={employee} working={run?.status === "running"} />
                   <span className="bot-row-text">
                     <span className="bot-row-name">{employee.name}</span>
                     <small className={waiting || run?.status === "running" ? "live" : ""}>
@@ -888,7 +888,7 @@ export function App() {
                           className={`roster-row${working ? " is-working" : ""}${e.archived ? " is-archived" : ""}`}
                           key={e.id}
                         >
-                          <RobotAvatar employee={e} working={working} />
+                          <RobotAvatar size={72} employee={e} working={working} />
                           <div className="roster-who">
                             <h3>{e.name}</h3>
                             <span className="role">{e.role}</span>
@@ -1022,7 +1022,7 @@ export function App() {
                       key={p.harness}
                       onClick={() => setModal({ type: "employee", preset: p })}
                     >
-                      <RobotAvatar employee={p} />
+                      <RobotAvatar size={64} employee={p} />
                       <span className="template-text">
                         <strong>{p.role}</strong>
                         <small>{p.summary}</small>
@@ -1205,7 +1205,7 @@ export function App() {
                       <Avatar small employee={{ name: "Y" }} />
                     ) : m.author === "system" ? null : (
                       <RobotAvatar
-                        small
+                        size={52}
                         employee={data.employees.find((e) => e.id === m.author)}
                       />
                     )}
@@ -1242,7 +1242,7 @@ export function App() {
                 {activeRuns.map((r) => (
                   <div className="message live-run" key={r.id}>
                     <RobotAvatar
-                      small
+                      size={52}
                       employee={data.employees.find((e) => e.id === r.employee)}
                       working
                     />
@@ -1449,7 +1449,7 @@ export function App() {
                 {[...data.runs].reverse().map((r) => (
                   <article className="run-row" key={r.id}>
                     <RobotAvatar
-                      small
+                      size={44}
                       employee={data.employees.find((e) => e.id === r.employee)}
                       working={r.status === "running"}
                     />
@@ -2078,7 +2078,7 @@ export function App() {
         >
           <div className="delete-confirm-content">
             <div className="delete-confirm-avatar">
-              <RobotAvatar employee={deleteConfirm} />
+              <RobotAvatar size={88} employee={deleteConfirm} />
             </div>
             <p>
               Are you sure you want to delete <strong>{deleteConfirm.name}</strong>?

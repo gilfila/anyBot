@@ -630,7 +630,7 @@ function NodePanel({ node, graph, data, who, act, onSelect, onFocus, onClose, on
       <div className="task-peek-body">
         {employee ? (
           <div className="agent-hero">
-            <RobotAvatar employee={employee} working={working} />
+            <RobotAvatar size={72} employee={employee} working={working} />
             <div>
               <h2>{employee.name}</h2>
               <p>{employee.role}</p>
