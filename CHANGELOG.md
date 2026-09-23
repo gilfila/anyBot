@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-09-23
+
+### Added
+- **Themes** (Settings → Appearance). Each theme changes colors, type, the background behind the app, and how chat boxes look:
+  - **Matrix:** phosphor green on black, terminal type, square corners, faint CRT scanlines, code raining down behind the app, and a shell prompt in front of your messages.
+  - **Solarpunk:** a light, airy look with a sunny sky, drifting clouds, and a valley of rolling hills. The valley has terraced wheat, fruit trees, sunflowers, solar panels, a turning wind turbine, and robots tending the gardens. Rounded glass panels and leaf-shaped chat boxes.
+  - **Cyberpunk:** neon on midnight, with a glowing skyline and a rolling grid. Borders cycle through neon colors, and chat boxes are holograms with scanlines and corner brackets that flicker in.
+  - **Studio paper** stays the default.
+
+  Every card previews its theme in that theme's own colors. The choice is saved on this computer and applied before the first paint.
+- **Animated backgrounds and effects** switch. It is always off when Windows asks for reduced motion, and backgrounds pause while the window is hidden.
+- **Custom themes are designed but not built yet:** `docs/themes.md` describes import, editing, and sharing. Themes are data only (colors, a font, and named presets) and must pass readability checks, so a theme can't run code.
+
+### Fixed
+- **The bot menu (Edit, Delete) no longer gets clipped by the sidebar's bot list or adds a scrollbar to it.** It opens as a top-level popup over everything, flips upward near the bottom of the window, takes keyboard focus (arrow keys move between items, Escape closes it), and closes when the list scrolls.
+
+### Technical
+- `src/themes/themes.js` holds the themes as data, plus OKLCH-to-sRGB contrast math and `validateTheme()`. The same checks will gate imported themes.
+- `src/lib/theme.js` stores and applies the theme. `ThemeBackdrop` draws the canvas code rain, the SVG meadow, and the neon city. `themes.css` holds the decoration presets.
+- The knowledge-graph category colors are re-validated for each theme's surface (lightness band, all pairs, color-vision deficiency). The UI font is now the `--font-ui` token.
+- New `FloatingMenu` component (portal, fixed position, focus management). Tests: `tests/themes.test.mjs`.
+- The Organization page (org chart, knowledge graph, d3) is code-split and loads on first visit, keeping the main bundle under Vite's 500 KB advisory.
+
 ## [0.3.5] - 2026-09-23
 
 ### Changed
