@@ -39,5 +39,5 @@ export function verifyPublicAssets(version, assets, hashes) {
 
 export function downloadReadme(version) {
   compareVersions(version, version);
-  return `# anyBot for Windows\n\n[**Download anyBot ${version} — Windows installer**](https://github.com/gilfila/anyBot-updates/releases/download/v${version}/anyBot-Setup-${version}.exe)\n\nRun the installer. Existing installations can use **Check for updates** inside anyBot.\n\nThis repository hosts installation and update files. The application's development repository is private.\n`;
+  return `# anyBot for Windows\n\n[**Download anyBot ${version} — Windows installer**](https://github.com/gilfila/anyBot-updates/releases/download/v${version}/anyBot-Setup-${version}.exe)\n\nRun the installer. Existing installations can use **Check for updates** inside anyBot.\n\nThis repository hosts installation and update files only.\n`;
 }

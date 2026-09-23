@@ -45,8 +45,10 @@ function exercise(scenario) {
           }
           if(u.hostname==='github.com')return new Response(readFileSync('release/latest.yml'));
           const p=u.pathname;
-          if(p==='/repos/gilfila/anyBot/')return response({private:true});
-          if(p==='/repos/gilfila/anyBot-updates/')return response({private:false,default_branch:'main'});
+          // Like GitHub: a trailing slash is a 404.
+          if(p.endsWith('/'))return response({message:'Not Found'},404);
+          if(p==='/repos/gilfila/anyBot')return response({full_name:'gilfila/anyBot',private:false});
+          if(p==='/repos/gilfila/anyBot-updates')return response({full_name:'gilfila/anyBot-updates',private:scenario==='private-updates',default_branch:'main'});
           if(p.endsWith('/git/ref/heads/main'))return response({object:{sha:scenario==='stale'?'b'.repeat(40):sha}});
           if(p.endsWith('/git/trees/main'))return response({tree:[{path:scenario==='public-source'?'src/App.jsx':'README.md'}]});
           if(p.endsWith('/releases/latest'))return release&&!release.draft?response(release):response(null,404);
@@ -66,7 +68,7 @@ function exercise(scenario) {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
-test('publisher uploads only the three assets, verifies before promotion, and tags exact private source', () => {
+test('publisher uploads only the three assets, verifies before promotion, and tags the exact source commit', () => {
   const result = exercise('success');
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.state.tag.object.sha, sha);
@@ -76,7 +78,7 @@ test('publisher uploads only the three assets, verifies before promotion, and ta
   assert.ok(promotion > result.state.calls.indexOf('POST /repos/gilfila/anyBot/git/refs'));
   assert.ok(result.state.calls.slice(0,promotion).includes('GET /repos/gilfila/anyBot-updates/releases/1'));
 });
-for (const scenario of ['wrong-audit', 'bad-digest', 'stale', 'public-source', 'version-collision']) {
+for (const scenario of ['wrong-audit', 'bad-digest', 'stale', 'public-source', 'version-collision', 'private-updates']) {
   test(`publisher fails closed without changing Latest: ${scenario}`, () => {
     const result = exercise(scenario);
     assert.notEqual(result.status, 0);

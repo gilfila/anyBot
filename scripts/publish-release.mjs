@@ -8,12 +8,13 @@ const sha = process.env.GITHUB_SHA;
 const version = JSON.parse(readFileSync('package.json')).version;
 const tag = `v${version}`;
 const marker = `<!-- source-commit: ${sha} -->`;
-if (process.env.GITHUB_REPOSITORY !== sourceRepo || process.env.GITHUB_REF !== 'refs/heads/main' || !/^[a-f0-9]{40}$/.test(sha || '')) throw Error('Publish only from the private repository main branch');
+if (process.env.GITHUB_REPOSITORY !== sourceRepo || process.env.GITHUB_REF !== 'refs/heads/main' || !/^[a-f0-9]{40}$/.test(sha || '')) throw Error('Publish only from the source repository main branch');
 if (!process.env.SOURCE_TOKEN || !process.env.RELEASE_TOKEN) throw Error('Missing scoped publishing credentials');
 
 async function api(repo, endpoint, { method = 'GET', body, missing = false } = {}) {
   const token = repo === sourceRepo ? process.env.SOURCE_TOKEN : process.env.RELEASE_TOKEN;
-  const response = await fetch(`https://api.github.com/repos/${repo}/${endpoint}`, {
+  // No trailing slash: GitHub answers /repos/owner/name/ with 404.
+  const response = await fetch(`https://api.github.com/repos/${repo}${endpoint ? `/${endpoint}` : ''}`, {
     method, headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', ...(body ? { 'Content-Type': 'application/json' } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
@@ -24,7 +25,9 @@ async function api(repo, endpoint, { method = 'GET', body, missing = false } = {
 
 const source = await api(sourceRepo, '');
 const target = await api(publicRepo, '');
-if (!source.private || target.private) throw Error('Expected private source and public distribution repository');
+// The source repo may be public (it is since 2026-09-23); the distribution
+// repo must be public so installed copies can update without credentials.
+if (!source.full_name || target.private) throw Error('Expected a public distribution repository');
 const main = await api(sourceRepo, 'git/ref/heads/main');
 if (main.object.sha !== sha) throw Error('A newer merge exists; refusing to publish a stale main build');
 const tree = await api(publicRepo, `git/trees/${target.default_branch}?recursive=1`);

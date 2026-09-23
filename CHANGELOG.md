@@ -9,6 +9,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [0.3.12] - 2026-09-23
 
 ### Fixed
+- **Automated publishing works.** Its first real run found two bugs in `scripts/publish-release.mjs`, which had never run before because of the billing block.
+  - It requested `repos/gilfila/anyBot/` with a trailing slash, which GitHub answers with 404. The test mock accepted the slash, so the tests missed it; the mock now returns 404 for trailing slashes, as GitHub does.
+  - It refused to publish unless the source repo was private. The source is public now, so only the distribution repo is required to be public. A new test covers a private distribution repo.
+  - The public download page no longer says the source is private.
 - **Release builds no longer fail on a slow test.** The first automated release of 0.3.11 failed because one test's wait for queued runs gave up after 5 seconds. GitHub's Windows runners took over 8, even though the test passes easily on a PC.
   - Every test that waits for runs to settle now allows up to 30 seconds.
   - Passing tests are no faster or slower; only a real hang takes longer to report.
