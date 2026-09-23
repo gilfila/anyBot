@@ -5,6 +5,7 @@ export const empty = {
   runs: [],
   routines: [],
   artifacts: [],
+  tasks: [],
   harnesses: [],
   runtime: { paused: false, active: 0 },
   update: null,

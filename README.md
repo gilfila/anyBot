@@ -107,6 +107,7 @@ For a private VPS, the headless gateway supports configured human conversation A
 
 - Named employees have a role, instructions, harness, model override, workspace, and bounded run duration.
 - A run defaults to 10 minutes and can be configured per employee to 1 hour, 6 hours, or 24 hours. The harness stays active until it exits, is cancelled, or reaches that safety limit.
+- Every project has a Notion-style task board (Backlog, In progress, Review, Done) with a table view and a side-peek task panel. Starting a task runs all of its assignees: the first leads and the rest collaborate. Employees update the board through an `anybot-actions` block at the end of a reply (progress notes, checklist items, status moves, new Backlog tasks); the coordinator validates every action against the project and the task's assignees and reviewer. An optional per-project autopilot starts idle assignees' top Backlog task.
 - Conversations support multiple employees and explicit structured delegation. Delegated child work returns to the parent employee through the coordinator.
 - Routines persist in SQLite, skip missed occurrences, prevent overlap, and keep bounded checks running while the desktop runtime is available.
 - Runs support pause, cancellation, stop-all, output streaming, artifact capture, content-addressed storage, and safe text previews.
