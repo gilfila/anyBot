@@ -1,6 +1,6 @@
 {
   "appId": "dev.anybot.mobile",
-  "appName": "anyBot",
+  "appName": "Any Bot",
   "webDir": "mobile-dist",
   "server": { "androidScheme": "https" }
 }

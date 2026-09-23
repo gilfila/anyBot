@@ -211,7 +211,7 @@ function checkPendingUpdate(userData, currentVersion) {
     level: "error",
     source: "updater",
     code: "update.install_failed",
-    message: `The update to ${pending.to} did not install: anyBot started as ${currentVersion}.`,
+    message: `The update to ${pending.to} did not install: Any Bot started as ${currentVersion}.`,
     context: { from: pending.from, to: pending.to, running: currentVersion, attempted: pending.at },
   };
 }

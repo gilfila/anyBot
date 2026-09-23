@@ -37,7 +37,7 @@ export function installErrorReporting() {
 const who = (context) => context?.employee || "A bot";
 const tool = (context) => context?.harness || "its harness";
 // Plain-language titles and next steps for each diagnostic code. `action`
-// names a button the panel can offer; `bug` marks problems in anyBot itself.
+// names a button the panel can offer; `bug` marks problems in Any Bot itself.
 export function describeIssue(issue) {
   const c = issue.context || {};
   const table = {
@@ -82,7 +82,7 @@ export function describeIssue(issue) {
       action: "employee",
     },
     "actions.invalid_block": {
-      title: `${who(c)} sent a board update anyBot couldn't read`,
+      title: `${who(c)} sent a board update Any Bot couldn't read`,
       hint: "The bot's anybot-actions block wasn't valid. One-offs are harmless; repeats mean its instructions need tightening.",
     },
     "actions.rejected": {
@@ -95,10 +95,10 @@ export function describeIssue(issue) {
     },
     "artifacts.not_collected": {
       title: `Files from ${who(c)} weren't collected`,
-      hint: "The bot listed files anyBot couldn't accept (see below).",
+      hint: "The bot listed files Any Bot couldn't accept (see below).",
     },
     "autopilot.start_failed": { title: "Autopilot couldn't start a task", hint: "The reason is below. The task stays in Backlog." },
-    "task.settle_failed": { title: "A task didn't update after its run", hint: "This is a bug in anyBot.", bug: true },
+    "task.settle_failed": { title: "A task didn't update after its run", hint: "This is a bug in Any Bot.", bug: true },
     "update.failed": {
       title: "An update failed",
       hint: "Retry from Check for updates. If it keeps failing, copy the report.",
@@ -106,7 +106,7 @@ export function describeIssue(issue) {
     },
     "update.install_failed": {
       title: `The update to ${c.to || "a new version"} didn't install`,
-      hint: "anyBot restarted on the old version. Try again, or run the installer from the update feed.",
+      hint: "Any Bot restarted on the old version. Try again, or run the installer from the update feed.",
       action: "update",
       bug: true,
     },
@@ -114,23 +114,23 @@ export function describeIssue(issue) {
     "update.warning": { title: "The updater reported a warning", hint: "Usually harmless. Details are below." },
     "runtime.exited": {
       title: "The coordinator stopped unexpectedly",
-      hint: "anyBot restarts it automatically. Repeats are a bug.",
+      hint: "Any Bot restarts it automatically. Repeats are a bug.",
       bug: true,
     },
     "runtime.stderr": { title: "The coordinator printed an error", hint: "Details are below.", bug: true },
-    "command.failed": { title: "An action in the app failed unexpectedly", hint: "This is a bug in anyBot.", bug: true },
-    "renderer.crash": { title: "A screen crashed", hint: "anyBot showed a recovery page. This is a bug.", bug: true },
-    "renderer.error": { title: "A screen hit an error", hint: "This is a bug in anyBot.", bug: true },
-    "renderer.rejection": { title: "A screen hit an error", hint: "This is a bug in anyBot.", bug: true },
+    "command.failed": { title: "An action in the app failed unexpectedly", hint: "This is a bug in Any Bot.", bug: true },
+    "renderer.crash": { title: "A screen crashed", hint: "Any Bot showed a recovery page. This is a bug.", bug: true },
+    "renderer.error": { title: "A screen hit an error", hint: "This is a bug in Any Bot.", bug: true },
+    "renderer.rejection": { title: "A screen hit an error", hint: "This is a bug in Any Bot.", bug: true },
     "renderer.markdown": {
       title: "A message couldn't be formatted",
-      hint: "anyBot showed it as plain text instead. This is a bug.",
+      hint: "Any Bot showed it as plain text instead. This is a bug.",
       bug: true,
     },
-    "renderer.gone": { title: "The window's renderer stopped", hint: "anyBot reloaded the window.", bug: true },
-    "renderer.load_failed": { title: "The window failed to load", hint: "This is a bug in anyBot.", bug: true },
-    "main.exception": { title: "anyBot hit an internal error", hint: "This is a bug in anyBot.", bug: true },
-    "main.rejection": { title: "anyBot hit an internal error", hint: "This is a bug in anyBot.", bug: true },
+    "renderer.gone": { title: "The window's renderer stopped", hint: "Any Bot reloaded the window.", bug: true },
+    "renderer.load_failed": { title: "The window failed to load", hint: "This is a bug in Any Bot.", bug: true },
+    "main.exception": { title: "Any Bot hit an internal error", hint: "This is a bug in Any Bot.", bug: true },
+    "main.rejection": { title: "Any Bot hit an internal error", hint: "This is a bug in Any Bot.", bug: true },
     "process.gone": { title: "A background process stopped", hint: "Details are below.", bug: true },
   };
   return table[issue.code] || { title: issue.code, hint: "" };
@@ -147,7 +147,7 @@ export { ago as issueAge };
 
 // Plain-text report for pasting into a chat with Claude or a bug tracker.
 export function issueReport(groups, { version = "" } = {}) {
-  const lines = [`anyBot diagnostics (v${version}, ${new Date().toISOString()})`, ""];
+  const lines = [`Any Bot diagnostics (v${version}, ${new Date().toISOString()})`, ""];
   if (!groups.length) lines.push("No problems recorded.");
   for (const group of groups) {
     const { title } = describeIssue(group);

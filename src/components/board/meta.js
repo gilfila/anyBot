@@ -39,6 +39,6 @@ export function isOverdue(due, status) {
 
 export function authorName(author, employees) {
   if (author === "human") return "You";
-  if (author === "system") return "anyBot";
+  if (author === "system") return "Any Bot";
   return employees.find((e) => e.id === author)?.name || "Former employee";
 }

@@ -1,5 +1,5 @@
-const VERSION = "anybot-mobile-v1";
-const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./anybot-mark.svg"];
+const VERSION = "anybot-mobile-v2-sage";
+const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./favicon.png", "./scout-192.png", "./scout-512.png", "./scout-maskable-512.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(VERSION).then((cache) => cache.addAll(SHELL)));

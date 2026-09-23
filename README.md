@@ -1,8 +1,8 @@
-# anyBot
+# Any Bot
 
 **A team of AI employees that works on your own computer.**
 
-anyBot takes the AI agent tools you already use (Claude Code, Codex, Gemini CLI, Hermes, and Cursor) and turns each one into a named teammate. Every bot gets a role, instructions, its own workspace, and a robot avatar. You can:
+Any Bot takes the AI agent tools you already use (Claude Code, Codex, Gemini CLI, Hermes, and Cursor) and turns each one into a named teammate. Every bot gets a role, instructions, its own workspace, and a robot avatar. You can:
 
 - put bots in a project together
 - hand them tasks
@@ -15,12 +15,12 @@ Everything runs on your machine, using your own accounts.
 ## Get started
 
 1. **Install a harness.** Install at least one agent CLI and sign in to it once in a terminal. The options are Claude Code, Codex CLI, Gemini CLI, Hermes Agent, and Cursor Agent CLI.
-2. **Install anyBot.** Download the latest `anyBot-Setup-X.Y.Z.exe` from [the releases page](https://github.com/gilfila/anyBot-updates/releases/latest) and run it.
+2. **Install Any Bot.** Download the latest `anyBot-Setup-X.Y.Z.exe` from [the releases page](https://github.com/gilfila/anyBot-updates/releases/latest) and run it.
    - It installs for your Windows account only, so it doesn't need admin rights.
    - The builds aren't code-signed yet, so SmartScreen may warn you. Choose **More info → Run anyway**.
-3. **Hire your first bot.** anyBot suggests a few starter roles. Pick one, or make your own.
+3. **Hire your first bot.** Any Bot suggests a few starter roles. Pick one, or make your own.
 
-anyBot updates itself. When a new version is ready, an **Update** button appears next to your name. One click installs the update and restarts the app.
+Any Bot updates itself. When a new version is ready, an **Update** button appears next to your name. One click installs the update and restarts the app.
 
 ## What you can do
 
@@ -59,7 +59,7 @@ Bots run in **Auto** mode by default:
 - **Edits inside the bot's own workspace are always allowed.**
 - **Risky actions wait for you,** such as deleting files, force-pushing, or anything outside the workspace.
 
-When a bot needs permission, an approval card appears above the message box. It shows exactly what the bot wants to run, with **Approve** and **Decline** buttons. A Windows notification tells you if anyBot is in the background. Requests nobody answers within 15 minutes are declined.
+When a bot needs permission, an approval card appears above the message box. It shows exactly what the bot wants to run, with **Approve** and **Decline** buttons. A Windows notification tells you if Any Bot is in the background. Requests nobody answers within 15 minutes are declined.
 
 You can also set a bot to ask before every action, or to make edits freely and ask about everything else.
 
@@ -132,10 +132,10 @@ One switch turns off the animations.
 
 ### Know when something goes wrong
 
-**Settings → Diagnostics** lists problems anyBot noticed, grouped and explained in plain language:
+**Settings → Diagnostics** lists problems Any Bot noticed, grouped and explained in plain language:
 
 - a harness that hit a usage limit or isn't signed in
-- bot output anyBot couldn't apply
+- bot output Any Bot couldn't apply
 - updates that failed
 - crashes
 
@@ -145,8 +145,8 @@ Many problems have a button that takes you to the fix. **Copy report** gives you
 
 ### Keep working in the background
 
-- **The tray:** closing the window keeps anyBot running in the tray, so your bots keep working. **Quit and stop active work** in the tray menu stops everything.
-- **Launch at login** (Settings → Runtime & privacy) starts anyBot when you sign in to Windows, so routines and long runs pick up again. The computer still has to stay on.
+- **The tray:** closing the window keeps Any Bot running in the tray, so your bots keep working. **Quit and stop active work** in the tray menu stops everything.
+- **Launch at login** (Settings → Runtime & privacy) starts Any Bot when you sign in to Windows, so routines and long runs pick up again. The computer still has to stay on.
 
 ## Supported harnesses
 
@@ -162,7 +162,7 @@ Many problems have a button that takes you to the fix. **Copy report** gives you
 ## Privacy and safety
 
 - **Local:** your conversations, tasks, canvas, memory, and knowledge graph are stored on your computer.
-- **Your accounts:** bots run under your Windows account, signed in with your own CLI accounts, and anyBot never copies those sign-ins.
+- **Your accounts:** bots run under your Windows account, signed in with your own CLI accounts, and Any Bot never copies those sign-ins.
 - **Not a sandbox:** a bot's workspace folder is where it works, not a security sandbox. Only hire bots on harnesses you trust.
 - **Bot output is untrusted:** anything a bot writes is escaped before it's shown. HTML previews run in a locked-down frame that can't reach the app.
 
@@ -183,3 +183,5 @@ npm test       # unit and integration tests
 - [design.md](design.md): architecture and security model
 - [CHANGELOG.md](CHANGELOG.md): release history
 - [docs/](docs): harness setup, model catalog, themes, voice, and more
+
+The shared [Sage Scout identity](assets/brand/README.md) supplies the app, installer, desktop/tray, browser and mobile icons.

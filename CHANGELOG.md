@@ -6,6 +6,98 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.10] - 2026-09-23
+
+
+### Changed
+- Unified Any Bot branding around the approved darker sage Scout helmet, with matching desktop, taskbar, tray, installer, app header, browser, and mobile launcher artwork.
+- Product display name is now **Any Bot**. Existing app IDs, executable/update filenames, installation identity and user profiles remain compatible.
+- Enabled Windows icon and executable metadata embedding while retaining unsigned builds. Added reproducible icon exports from one approved master.
+## [0.3.9] - 2026-09-23
+
+### Added
+- **The model list stays current on its own.** Every time you open the bot editor, anyBot reads each harness's own list. New models show up the day they ship, with no anyBot update:
+  - **Claude Code:** its server-provided list, including context variants such as `claude-fable-5-1[1m]`. Models that need a newer CLI appear grayed out, with the reason.
+  - **Codex:** its model cache.
+  - **Gemini:** the models in the installed CLI.
+  - **Hermes:** its configured provider's catalog.
+
+  The old filter that showed only Fable, Sonnet, and Opus for Claude is gone. A model you typed under Custom switches to the list entry once it appears there.
+- **A features-first README** with screenshots of the current app. The technical material (running from source, updates, publishing releases, verification, mobile, headless mode, security boundaries) moved to `docs/operations.md`.
+
+### Changed
+- **Bigger bot avatars.** The robots were too small to show their animation and detail, so they are larger everywhere:
+  - sidebar and chat: about 50px (from 38px)
+  - team roster and first-run templates: 64–72px
+  - org chart and knowledge-graph cards: 64–88px
+  - approval cards and the working indicator: 44px
+- **The bot editor's close button and Save stay on screen.** In every dialog, the heading and close button stay pinned at the top and the Save button at the bottom. Only the form scrolls.
+
+### Technical
+- **`discoverLiveModels(harnessId)`** in `runtime/adapters.mjs` reads the lists:
+  - Claude Code: `~/.claude.json` `additionalModelOptionsCache`
+  - Codex: `models_cache.json` in `CODEX_HOME`, in priority order, skipping hidden models
+  - Gemini: model ids scanned from the CLI bundle, cached by the bundle's modified time
+  - Hermes: `config.yaml` names the provider, then its `cache/model_catalog.json` (CRLF-safe)
+- **`mergeModelOptions`** dedupes the entries, with the owner's `models.json` first.
+- **Refresh on open:** the new coordinator command `harnesses.models` (on the IPC allowlist) refreshes only the model lists. The editor calls it when it opens.
+- **Bracketed model ids** such as `[1m]` are now valid. Models are passed as a single argv entry, never through a shell.
+- **Tests:** `tests/models.test.mjs`.
+
+
+## [0.3.8] - 2026-09-23
+
+### Fixed
+- **Bots could get blocked with no way to approve anything.** Claude bots ran headless in "ask" mode, so every gated action (writing a file, running a command, opening a browser) raised a permission prompt that could never be shown. Each one quietly became a denial.
+
+### Added
+- **Auto mode is the new default.** Claude bots use Claude Code's auto mode:
+  - safe actions just run
+  - file edits inside the bot's workspace are always allowed
+  - only risky actions wait for you, such as deleting files, force-pushing, or work outside the workspace
+
+  Existing bots that were on "Ask before acting" were moved to Auto, since that mode could only deny.
+- **Approvals in the chat.** When a bot needs permission, an approval card appears above the composer. It shows exactly what the bot wants to do (the command, file, or address) with **Approve** and **Decline**.
+  - The bot's run pauses until you answer. Requests nobody answers within 15 minutes are declined.
+  - Each answer, expiry, or withdrawal leaves a line in the chat, so you and the bot can see what happened.
+  - The bot's row in the sidebar says "Needs your approval", and a Windows notification appears if anyBot isn't in front.
+- **Three permission modes** on the bot form:
+  - **Auto** (safe actions run, risky ones ask you)
+  - **Edits run, everything else asks you**
+  - **Ask before every action**
+
+  Codex, Gemini, and Cursor have no approval hook. In Auto they edit files in their workspace, and actions that would need approval are skipped.
+
+### Technical
+- **Claude runs:** `--permission-mode auto --allowedTools "Edit(./**)"` (or `acceptEdits` / `default`), plus `--permission-prompts host --permission-prompt-tool mcp__anybot__approve --mcp-config <per-run file>`.
+- **The bridge:** `runtime/approval-mcp.mjs` is a dependency-free stdio MCP server, run with `ELECTRON_RUN_AS_NODE` and unpacked from `app.asar`. It forwards each request over loopback HTTP, with a random 256-bit per-run token, to `runtime/approvals.mjs`, which holds the request open until the owner decides.
+- **Limits:** tokens die with the run, request bodies are capped at 64 KB, and each run can have at most 20 pending requests.
+- **Schema v12:** an `approvals` table. The owner decides through the `approvals.decide` IPC method. Gemini's Auto maps to `--approval-mode auto_edit`.
+- **Verified with the real Claude Code CLI** through anyBot's coordinator. In auto mode, a file write and `ls` ran without asking, and `rm -f old.txt` waited for approval, then ran once approved. Declined requests are reported to the bot. Tests: `tests/approvals.test.mjs`.
+
+## [0.3.7] - 2026-09-23
+
+### Added
+- **Themes** (Settings → Appearance). Each theme changes colors, type, the background behind the app, and how chat boxes look:
+  - **Matrix:** phosphor green on black, terminal type, square corners, faint CRT scanlines, code raining down behind the app, and a shell prompt in front of your messages.
+  - **Solarpunk:** a light, airy look with a sunny sky, drifting clouds, and a valley of rolling hills. The valley has terraced wheat, fruit trees, sunflowers, solar panels, a turning wind turbine, and robots tending the gardens. Rounded glass panels and leaf-shaped chat boxes.
+  - **Cyberpunk:** neon on midnight, with a glowing skyline and a rolling grid. Borders cycle through neon colors, and chat boxes are holograms with scanlines and corner brackets that flicker in.
+  - **Studio paper** stays the default.
+
+  Every card previews its theme in that theme's own colors. The choice is saved on this computer and applied before the first paint.
+- **Animated backgrounds and effects** switch. It is always off when Windows asks for reduced motion, and backgrounds pause while the window is hidden.
+- **Custom themes are designed but not built yet:** `docs/themes.md` describes import, editing, and sharing. Themes are data only (colors, a font, and named presets) and must pass readability checks, so a theme can't run code.
+
+### Fixed
+- **The bot menu (Edit, Delete) no longer gets clipped by the sidebar's bot list or adds a scrollbar to it.** It opens as a top-level popup over everything, flips upward near the bottom of the window, takes keyboard focus (arrow keys move between items, Escape closes it), and closes when the list scrolls.
+
+### Technical
+- `src/themes/themes.js` holds the themes as data, plus OKLCH-to-sRGB contrast math and `validateTheme()`. The same checks will gate imported themes.
+- `src/lib/theme.js` stores and applies the theme. `ThemeBackdrop` draws the canvas code rain, the SVG meadow, and the neon city. `themes.css` holds the decoration presets.
+- The knowledge-graph category colors are re-validated for each theme's surface (lightness band, all pairs, color-vision deficiency). The UI font is now the `--font-ui` token.
+- New `FloatingMenu` component (portal, fixed position, focus management). Tests: `tests/themes.test.mjs`.
+- The Organization page (org chart, knowledge graph, d3) is code-split and loads on first visit, keeping the main bundle under Vite's 500 KB advisory.
+
 ## [0.3.6] - 2026-09-23
 
 ### Added

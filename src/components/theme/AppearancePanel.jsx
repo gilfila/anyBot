@@ -75,7 +75,7 @@ export function AppearancePanel() {
         <Palette size={18} />
         <div>
           <strong>Your own themes are coming.</strong> You'll be able to import a theme file with your own colors and font, and
-          pick a background and chat style from the ones above. anyBot checks every theme for readable contrast before
+          pick a background and chat style from the ones above. Any Bot checks every theme for readable contrast before
           applying it, and themes can't run code.
         </div>
       </div>

@@ -175,7 +175,7 @@ export class Approvals {
   }
   async close() {
     await this.starting?.catch(() => {});
-    for (const approvalId of [...this.waiting.keys()]) this.settle(approvalId, "cancelled", "anyBot is shutting down.");
+    for (const approvalId of [...this.waiting.keys()]) this.settle(approvalId, "cancelled", "Any Bot is shutting down.");
     await new Promise((resolve) => (this.server ? this.server.close(() => resolve()) : resolve()));
     this.server = null;
   }
