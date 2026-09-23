@@ -37,6 +37,35 @@
   }
 }
 
+/* --- Video scenes (Solarpunk, Cyberpunk) --------------------------------
+   A looping clip over its own first frame. The veil keeps text on the glass
+   surfaces readable whatever the scene is doing underneath. */
+:is(.scene-poster, .scene-video) {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.scene-video {
+  opacity: 0;
+  transition: opacity 700ms ease-out;
+}
+.scene-video.is-ready {
+  opacity: 1;
+}
+.scene-veil {
+  position: absolute;
+  inset: 0;
+}
+/* The sky stays crisp; the busy foreground behind the composer is softened. */
+.scene-veil-meadow {
+  background: linear-gradient(180deg, oklch(0.98 0.02 230 / 0.04) 0%, oklch(0.98 0.03 95 / 0.18) 45%, oklch(0.98 0.03 95 / 0.5) 100%);
+}
+.scene-veil-grid {
+  background: radial-gradient(ellipse at 50% 45%, oklch(0.1 0.04 285 / 0.28), oklch(0.1 0.04 285 / 0.08) 75%);
+}
+
 /* --- Matrix ------------------------------------------------------------- */
 .matrix-rain {
   display: block;
@@ -102,9 +131,9 @@
   pointer-events: none;
   background: repeating-linear-gradient(to bottom, transparent 0 2px, oklch(0 0 0 / 0.14) 2px 3px);
 }
-:root[data-bubbles="terminal"] .message:not(.from-you):not(.handoff) .message-body {
-  padding-left: 12px;
-  border-left: 2px solid var(--ink-4);
+:root[data-bubbles="terminal"] .message.from-bot:not(.handoff) .message-body {
+  border-left: 2px solid var(--ink-3);
+  border-radius: 3px;
 }
 :root[data-bubbles="terminal"] .message.from-you .message-body {
   position: relative;
@@ -124,89 +153,6 @@
 :root[data-backdrop="meadow"] body {
   background: linear-gradient(180deg, oklch(0.9 0.06 230) 0%, oklch(0.95 0.04 205) 38%, oklch(0.975 0.03 95) 78%);
 }
-.meadow-sun {
-  position: absolute;
-  top: -120px;
-  right: 8%;
-  width: 360px;
-  height: 360px;
-  border-radius: 50%;
-  background: radial-gradient(circle, oklch(0.97 0.1 95) 0 22%, oklch(0.94 0.12 90 / 0.55) 30%, oklch(0.95 0.08 90 / 0) 68%);
-}
-.meadow-cloud {
-  position: absolute;
-  width: 220px;
-  fill: oklch(1 0 0 / 0.85);
-  animation: cloud-drift 140s linear infinite;
-}
-.cloud-a {
-  top: 70px;
-  animation-delay: -30s;
-}
-.cloud-b {
-  top: 150px;
-  width: 170px;
-  animation-duration: 190s;
-  animation-delay: -110s;
-}
-.cloud-c {
-  top: 36px;
-  width: 140px;
-  animation-duration: 230s;
-  animation-delay: -60s;
-}
-@keyframes cloud-drift {
-  from {
-    transform: translateX(-260px);
-  }
-  to {
-    transform: translateX(calc(100vw + 60px));
-  }
-}
-.meadow-scene {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  width: 100%;
-  height: 46vh;
-  min-height: 260px;
-}
-.meadow-blades {
-  animation: spin 9s linear infinite;
-}
-.meadow-robot {
-  animation: robot-bob 3.2s ease-in-out infinite;
-}
-.meadow-robot + .meadow-robot {
-  animation-delay: -1.4s;
-}
-.meadow-drone {
-  animation: drone-float 7s ease-in-out infinite;
-}
-.meadow-water {
-  animation: water 1.6s ease-in-out infinite;
-}
-@keyframes spin {
-  to {
-    rotate: 360deg;
-  }
-}
-@keyframes robot-bob {
-  50% {
-    translate: 0 -3px;
-  }
-}
-@keyframes drone-float {
-  50% {
-    translate: 40px -14px;
-  }
-}
-@keyframes water {
-  50% {
-    opacity: 0.2;
-  }
-}
 :root[data-chrome="glass"] {
   --radius: 14px;
 }
@@ -223,8 +169,6 @@
 }
 :root[data-bubbles="leaf"] .message:not(.from-you):not(.handoff) .message-body {
   padding: 10px 15px;
-  background: var(--card);
-  border: 1px solid var(--rule);
   border-radius: 4px 18px 18px 18px;
   box-shadow: 0 8px 20px -16px oklch(0.4 0.07 150 / 0.55);
 }
@@ -238,44 +182,6 @@
     radial-gradient(ellipse at 15% 0%, oklch(0.42 0.2 320 / 0.35), transparent 55%),
     radial-gradient(ellipse at 90% 5%, oklch(0.55 0.15 205 / 0.28), transparent 50%),
     linear-gradient(180deg, oklch(0.12 0.04 280), oklch(0.17 0.07 300));
-}
-.neon-skyline {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 30vh;
-  width: 100%;
-  height: 34vh;
-  opacity: 0.9;
-}
-.neon-horizon {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 30vh;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--neon-2), var(--neon-1), var(--neon-2), transparent);
-  box-shadow: 0 0 24px 4px oklch(0.7 0.27 340 / 0.5);
-}
-.neon-floor {
-  position: absolute;
-  left: -50%;
-  right: -50%;
-  bottom: 0;
-  height: 30vh;
-  transform: perspective(360px) rotateX(58deg);
-  transform-origin: top;
-  background-image:
-    linear-gradient(oklch(0.7 0.27 340 / 0.55) 1.5px, transparent 1.5px),
-    linear-gradient(90deg, oklch(0.86 0.15 200 / 0.4) 1.5px, transparent 1.5px);
-  background-size: 56px 56px;
-  mask-image: linear-gradient(to bottom, black, transparent 95%);
-  animation: grid-roll 3.5s linear infinite;
-}
-@keyframes grid-roll {
-  to {
-    background-position: 0 56px, 0 0;
-  }
 }
 @property --neon-angle {
   syntax: "<angle>";
@@ -323,9 +229,11 @@
   color: var(--ink);
   border: 1px solid oklch(0.86 0.15 200 / 0.45);
   border-radius: 4px;
+  /* Scanlines and glow over the bot's solid bubble tint. */
   background:
     repeating-linear-gradient(to bottom, oklch(0.86 0.15 200 / 0.07) 0 1px, transparent 1px 3px),
-    linear-gradient(135deg, oklch(0.86 0.15 200 / 0.13), oklch(0.7 0.27 340 / 0.07));
+    linear-gradient(135deg, oklch(0.86 0.15 200 / 0.13), oklch(0.7 0.27 340 / 0.07)),
+    var(--bubble-bg, var(--card));
   box-shadow: 0 0 24px -10px var(--neon-1), inset 0 0 22px -14px var(--neon-1);
   animation: holo-in 520ms var(--ease-out) both;
 }
@@ -525,34 +433,10 @@
   writing-mode: vertical-rl;
 }
 .theme-preview[data-backdrop="meadow"] {
-  background: linear-gradient(180deg, oklch(0.9 0.06 230), oklch(0.975 0.03 95));
-}
-.theme-preview[data-backdrop="meadow"] .theme-preview-main::before {
-  content: "";
-  position: absolute;
-  left: -10%;
-  right: -10%;
-  bottom: -40px;
-  height: 70px;
-  border-radius: 50%;
-  background: oklch(0.78 0.11 140 / 0.7);
-}
-.theme-preview[data-backdrop="meadow"] .theme-preview-main::after {
-  content: "";
-  position: absolute;
-  top: 8px;
-  right: 10px;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: oklch(0.93 0.13 95);
-  box-shadow: 0 0 14px oklch(0.94 0.12 90);
+  background: url("./media/solarpunk.jpg") center 70% / cover;
 }
 .theme-preview[data-backdrop="grid"] {
-  background:
-    linear-gradient(oklch(0.7 0.27 340 / 0.25) 1px, transparent 1px) 0 0 / 14px 14px,
-    linear-gradient(90deg, oklch(0.86 0.15 200 / 0.2) 1px, transparent 1px) 0 0 / 14px 14px,
-    var(--paper);
+  background: url("./media/cyberpunk.jpg") center / cover;
 }
 .theme-preview[data-backdrop="grid"] .theme-preview-composer {
   border-color: var(--neon-2);

@@ -10,11 +10,11 @@ import {
 test("saved legacy avatars migrate to the approved models and Pulse palette", () => {
   assert.deepEqual(
     parseAvatarConfig('{"color":"lavender","shape":"bubble","face":"oval"}'),
-    { version: 2, color: "violet", shape: "orbit", face: "open" },
+    { version: 2, color: "violet", shape: "orbit", face: "open", bubble: "auto" },
   );
   assert.deepEqual(
     parseAvatarConfig('{"color":"blue","shape":"square","face":"led"}'),
-    { version: 2, color: "cobalt", shape: "tinker", face: "focused" },
+    { version: 2, color: "cobalt", shape: "tinker", face: "focused", bubble: "auto" },
   );
   for (const shape of ["scout", "orbit", "tinker"]) {
     const saved = stringifyAvatarConfig({
@@ -27,6 +27,7 @@ test("saved legacy avatars migrate to the approved models and Pulse palette", ()
       color: "citron",
       shape,
       face: "bright",
+      bubble: "auto",
     });
   }
 });

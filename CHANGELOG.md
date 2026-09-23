@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.11] - 2026-09-23
+
+### Added
+- **Every bot reply has its own bubble.** Bot messages sit on a solid, rounded bubble instead of blending into the page or the animated backgrounds.
+- **Choose each bot's bubble color** in the bot editor, under Chat bubble.
+  - **Match robot** (the default) or one of nine tints: Plain, Sky, Mint, Sage, Sand, Peach, Rose, Lilac, Slate.
+  - A sample bubble previews the choice in the current theme.
+  - Each theme picks the shade: a pale tint in light themes and a deep one in dark themes, so the text stays readable either way.
+
+### Changed
+- **Larger bots again, about 20% bigger:**
+  - sidebar: 60px
+  - chat: 64px
+  - team roster: 88px
+  - org chart cards: 80px (the cards are wider, so roles no longer get cut off)
+  - agent panel: 108px
+  - approval cards and the working indicator: 52px
+- **Solarpunk and Cyberpunk have living, detailed backgrounds.** The flat drawings are replaced with looping scenes:
+  - **Solarpunk:** a sunlit valley with orchards, terraced gardens, wheat, a river, wind turbines, and robots tending the crops.
+  - **Cyberpunk:** a rainy neon megacity at night with holograms and flying cars.
+
+  Both were made with Higgsfield. The theme cards in Settings show the same scenes. Turning off animations (in Settings or in Windows) shows a still frame instead, and the video pauses while the window is hidden.
+- **Check for updates is back at the top of Settings,** above Appearance.
+
+### Technical
+- **Bubble colors:**
+  - `src/lib/bubbles.js` holds the palette. A bot's choice is stored as `bubble` in its avatar JSON, so no schema change was needed.
+  - `parseAvatarConfig` keeps the key, and `"auto"` is the default.
+  - Messages get `from-bot` plus `--bubble-h`/`--bubble-k` custom properties.
+  - `style.css` sets the shade per `data-scheme`, which `applyTheme` now writes.
+  - The Matrix, Solarpunk, and Cyberpunk bubble presets layer over the tint.
+  - `tests/bubbles.test.mjs` checks every tint in every theme: ink ≥ 7:1, ink-2 and links ≥ 4.5:1.
+- **Video backdrops:** `VideoScene` in `ThemeBackdrop.jsx` plays `src/themes/media/{solarpunk,cyberpunk}.webm` (VP9, 1080p, no audio) over its first-frame JPEG, with a veil (`.scene-veil-*`) that keeps text on the glass surfaces readable.
+- **Seamless loops:** each clip is animated from one keyframe back to the same keyframe, and the encode crossfades its last second into its first. `scripts/make-scene-loop.sh` reproduces the encode.
+- **Glass levels retuned for the busier scenes:**
+  - Solarpunk's side panels are more opaque (`glass-2` 0.8).
+  - Cyberpunk's main surface is lighter (`glass` 0.5), so the city shows through.
+- **Old scenes removed:** the SVG `Meadow`/`NeonCity` scenes and their CSS are gone. That removes a second `@keyframes robot-bob` in `themes.css` that collided with the avatar animation of the same name in `style.css`.
+
 ## [0.3.10] - 2026-09-23
 
 

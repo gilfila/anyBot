@@ -31,6 +31,8 @@ export function applyTheme(theme, root = document.documentElement) {
   if (theme.id !== "paper") for (const [key, value] of Object.entries(theme.tokens)) root.style.setProperty(`--${key}`, value);
   root.style.setProperty("--font-ui", theme.font);
   root.style.colorScheme = theme.scheme;
+  // Scheme-dependent shades (chat bubbles) key off this.
+  root.dataset.scheme = theme.scheme;
   root.dataset.theme = theme.id;
   root.dataset.backdrop = theme.decor.backdrop || "none";
   root.dataset.chrome = theme.decor.chrome || "none";

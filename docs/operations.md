@@ -45,10 +45,10 @@ Updates come from a separate public repository that holds binaries only:
 
 | Repository | Visibility | Contents |
 |---|---|---|
-| `gilfila/anyBot` | Private | Source code |
+| `gilfila/anyBot` | Public | Source code |
 | `gilfila/anyBot-updates` | Public | Installers and update metadata only |
 
-This keeps the source private without embedding tokens or credentials in the app.
+The feed repository holds nothing but release files, and the app reads it anonymously, so no tokens or credentials are embedded in the app.
 
 The default feed is:
 
