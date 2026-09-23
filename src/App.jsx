@@ -152,6 +152,16 @@ import { MessageContent } from "./components/MessageContent.jsx";
 import { ContextRail } from "./components/ContextRail.jsx";
 import { HtmlPreviewModal } from "./components/HtmlPreviewModal.jsx";
 import { ProjectSettingsForm } from "./components/ProjectSettingsForm.jsx";
+import { VoiceSettings } from "./components/VoiceSettings.jsx";
+import { createListener, createSpeaker, voiceError } from "./lib/voice.js";
+import { toSpeech } from "./lib/speech.js";
+
+const voicePhaseLabel = {
+  listening: "Listening",
+  transcribing: "Hearing you",
+  thinking: "Working",
+  speaking: "Speaking",
+};
 
 export function App() {
   const harnessName = (id) =>
@@ -167,8 +177,12 @@ export function App() {
     [recipients, setRecipients] = useState([]);
   const [sidebarSearch, setSidebarSearch] = useState("");
   const [dictating, setDictating] = useState(false),
-    [voiceAgent, setVoiceAgent] = useState(null);
-  const recognition = useRef(null);
+    [voiceAgent, setVoiceAgent] = useState(null),
+    [voicePhase, setVoicePhase] = useState(null),
+    [voiceSettings, setVoiceSettings] = useState(null);
+  const listener = useRef(null),
+    speaker = useRef(null),
+    voiceSession = useRef(0);
   const [showArchived, setShowArchived] = useState(false);
   const [lastSeenMessages, setLastSeenMessages] = useState(() => {
     try {
@@ -355,66 +369,156 @@ export function App() {
     });
     if (result) setDraft("");
   }
-  function startDictation(onText) {
-    const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Speech) {
-      setError("Dictation is unavailable in this build. Install the Flow companion or enable microphone speech recognition.");
+  async function loadVoiceSettings() {
+    try {
+      const next = await window.anybot?.voice?.settings();
+      if (next) setVoiceSettings(next);
+      return next || null;
+    } catch {
+      return null;
+    }
+  }
+  useEffect(() => {
+    loadVoiceSettings();
+  }, []);
+  // Every start/stop bumps the session so callbacks from a stopped listener
+  // or an abandoned voice turn can tell they are stale.
+  function stopVoice() {
+    voiceSession.current += 1;
+    listener.current?.stop();
+    speaker.current?.cancel();
+    listener.current = speaker.current = null;
+    setDictating(false);
+    setVoiceAgent(null);
+    setVoicePhase(null);
+  }
+  useEffect(() => stopVoice, []);
+  useEffect(() => {
+    if (listener.current) stopVoice();
+  }, [conversationId]);
+  async function startDictation() {
+    if (dictating) {
+      stopVoice();
       return;
     }
-    if (recognition.current) {
-      recognition.current.stop();
-      recognition.current = null;
-      setDictating(false);
-      return;
-    }
-    const next = new Speech();
-    next.continuous = true;
-    next.interimResults = false;
-    next.lang = navigator.language || "en-US";
-    next.onresult = (event) => {
-      const text = [...event.results]
-        .slice(event.resultIndex)
-        .filter((result) => result.isFinal)
-        .map((result) => result[0].transcript.trim())
-        .filter(Boolean)
-        .join(" ");
-      if (text) onText(text);
-    };
-    next.onerror = (event) => {
-      if (event.error !== "aborted") setError(`Dictation stopped: ${event.error}`);
-    };
-    next.onend = () => {
-      recognition.current = null;
-      setDictating(false);
-    };
-    recognition.current = next;
+    stopVoice();
+    const session = voiceSession.current;
+    const live = () => voiceSession.current === session;
+    const settings = (await loadVoiceSettings()) || {};
+    if (!live()) return;
+    const next = createListener({
+      provider: settings.stt || "system",
+      onText: (text) => {
+        if (live())
+          setDraft((current) => `${current}${current && !current.endsWith(" ") ? " " : ""}${text}`);
+      },
+      onError: (message) => live() && setError(message),
+      onEnd: () => live() && stopVoice(),
+    });
+    listener.current = next;
     setDictating(true);
-    next.start();
+    setError("");
+    try {
+      await next.start();
+    } catch (e) {
+      if (live()) {
+        setError(voiceError(e));
+        stopVoice();
+      }
+    }
+  }
+  // One spoken turn: send the transcript, acknowledge, wait for the run to
+  // finish however long it takes, and return a speakable summary.
+  async function voiceTurn(convId, employee, text, say, live) {
+    const result = await act("messages.send", {
+      conversation: convId,
+      body: text,
+      recipients: [employee.id],
+      requestId: crypto.randomUUID(),
+    });
+    if (!result || !live()) return null;
+    const sent = result.messages.findLast(
+      (m) => m.conversation === convId && m.author === "human" && m.body === text,
+    );
+    if (!sent) return null;
+    await say("On it.");
+    const started = Date.now();
+    const limit = ((employee.timeoutMinutes || 10) + 2) * 60000;
+    let nextCue = 45000;
+    while (live()) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const snapshot = dataRef.current;
+      const run = snapshot.runs.find((r) => r.message === sent.id && r.employee === employee.id && !r.parent);
+      if (run && !["queued", "running", "cancelling"].includes(run.status)) {
+        if (run.status !== "succeeded") return `${employee.name} couldn't finish that. The run ${run.status}.`;
+        const after = snapshot.messages.findIndex((m) => m.id === sent.id);
+        const reply = snapshot.messages
+          .slice(after + 1)
+          .findLast((m) => m.conversation === convId && m.author === employee.id);
+        return reply ? toSpeech(reply.body) || "Done. The details are in the chat." : "Done.";
+      }
+      const elapsed = Date.now() - started;
+      if (elapsed > limit) return "This is taking a while. The answer will be in the chat.";
+      if (elapsed > nextCue) {
+        nextCue += 90000;
+        await say("Still working on it.");
+      }
+    }
+    return null;
   }
   async function startVoiceChat() {
     if (!conversation || conversation.members.length !== 1) return;
     const employee = data.employees.find((item) => item.id === conversation.members[0]);
     if (!employee) return;
-    setVoiceAgent(employee);
-    startDictation(async (text) => {
-      const before = new Set(dataRef.current.messages.filter((message) => message.conversation === conversationId).map((message) => message.id));
-      await act("messages.send", {
-        conversation: conversationId,
-        body: text,
-        recipients: [employee.id],
-        requestId: crypto.randomUUID(),
-      });
-      for (let attempt = 0; attempt < 30; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        const snapshot = await window.anybot.request("snapshot");
-        setData(snapshot);
-        const reply = snapshot.messages.find((message) => message.conversation === conversationId && message.author === employee.id && !before.has(message.id));
-        if (reply) {
-          window.speechSynthesis?.speak(new SpeechSynthesisUtterance(reply.body));
-          break;
+    stopVoice();
+    const session = voiceSession.current;
+    const live = () => voiceSession.current === session;
+    const settings = (await loadVoiceSettings()) || {};
+    if (!live()) return;
+    const convId = conversation.id;
+    const talk = createSpeaker({ provider: settings.tts || "system", onError: (m) => live() && setError(m) });
+    const say = async (text) => {
+      if (!live() || !text) return;
+      setVoicePhase("speaking");
+      await talk.speak(text, employee.id);
+      if (live()) setVoicePhase("thinking");
+    };
+    const next = createListener({
+      provider: settings.stt || "system",
+      onState: (phase) => live() && setVoicePhase(phase),
+      onError: (message) => live() && setError(message),
+      onEnd: () => live() && stopVoice(),
+      onText: async (text) => {
+        if (!live()) return;
+        // The microphone stays off while the bot works and talks, so it never
+        // hears its own reply.
+        next.pause();
+        setVoicePhase("thinking");
+        try {
+          await say(await voiceTurn(convId, employee, text, say, live));
+        } catch (e) {
+          if (live()) setError(voiceError(e));
+        } finally {
+          if (live()) {
+            setVoicePhase("listening");
+            next.resume();
+          }
         }
-      }
+      },
     });
+    listener.current = next;
+    speaker.current = talk;
+    setVoiceAgent(employee);
+    setVoicePhase("listening");
+    setError("");
+    try {
+      await next.start();
+    } catch (e) {
+      if (live()) {
+        setError(voiceError(e));
+        stopVoice();
+      }
+    }
   }
   async function directChat(employee) {
     const existing = data.conversations.find(
@@ -1024,16 +1128,10 @@ export function App() {
                     className={voiceAgent ? "secondary voice-active" : "secondary"}
                     aria-label={voiceAgent ? "Stop voice chat" : "Voice chat"}
                     title={voiceAgent ? "Stop voice chat" : "Voice chat"}
-                    onClick={() => {
-                      if (voiceAgent) {
-                        recognition.current?.stop();
-                        window.speechSynthesis?.cancel();
-                        setVoiceAgent(null);
-                      } else startVoiceChat();
-                    }}
+                    onClick={() => (voiceAgent ? stopVoice() : startVoiceChat())}
                   >
                     <Volume2 size={15} />
-                    {voiceAgent ? "Stop voice chat" : "Voice chat"}
+                    {voiceAgent ? `${voicePhaseLabel[voicePhase] || "Listening"} · Stop` : "Voice chat"}
                   </button>
                 )}
               </div>
@@ -1202,8 +1300,9 @@ export function App() {
                       type="button"
                       className={dictating ? "dictation active" : "dictation"}
                       aria-label={dictating ? "Stop dictation" : "Dictate message"}
-                      title="Dictate with Flow-compatible speech input"
-                      onClick={() => startDictation((text) => setDraft((current) => `${current}${current && !current.endsWith(" ") ? " " : ""}${text}`))}
+                      title={dictating ? "Stop dictation" : "Dictate a message"}
+                      disabled={Boolean(voiceAgent)}
+                      onClick={startDictation}
                     >
                       <Mic size={17} />
                     </button>
@@ -1671,6 +1770,11 @@ export function App() {
               </div>
               <Folder size={22} />
             </div>
+            <VoiceSettings
+              settings={voiceSettings}
+              employees={activeEmployees}
+              onChange={setVoiceSettings}
+            />
             <MobileAccess />
           </div>
         )}

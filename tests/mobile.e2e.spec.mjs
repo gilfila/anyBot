@@ -179,7 +179,8 @@ test("one-to-one voice chat sends a transcript and speaks the employee reply", a
   await expect(page.getByRole("heading", { name: "Voice check" })).toBeVisible();
   await page.getByRole("button", { name: "Start voice chat", exact: true }).click();
   await expect(page.getByText("Mobile test response — safe <script>text</script>.", { exact: true })).toBeVisible();
+  // The spoken reply is a cleaned-up summary: markup is never read aloud.
   await expect.poll(() => page.evaluate(() => window.__spoken)).toContain(
-    "Mobile test response — safe <script>text</script>.",
+    "Mobile test response — safe text.",
   );
 });

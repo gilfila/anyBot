@@ -24,7 +24,22 @@ Electron 44 main process (`desktop/main.cjs`) + sandboxed React 19 renderer (`sr
 - Do not change updater install behavior (`quitAndInstall(true, true)`, NSIS oneClick/perMachine=false) without testing a real update from the previous release.
 
 ## Last turn / Pending (2026-09-23)
-**Grok Bot gap review + voice plan** in `docs/grokbot-parity.md` (docs only, no code or version change). Key facts for the next agent: Electron's `webkitSpeechRecognition` fails with `network` (needs Google keys), so desktop Dictate and Voice chat don't actually work. The mobile e2e test mocks SpeechRecognition, which hides this. Voice chat also gives up after 24 s, echoes TTS back into the mic, and reads raw markdown aloud. TTS via SAPI works. `permissionMode: "ask"` silently denies tools in headless runs because there is no approval UI. Grok Bot itself has no live voice mode. The plan is phased (Phase 0 fixes, whisper.cpp STT, then a front-desk voice agent) and is waiting on owner decisions (local vs cloud voice, scope).
+**Grok Bot gap review + voice (0.2.27)** on branch `claude/anybot-grokbot-feature-review-99tws5`. `docs/grokbot-parity.md` has the gap table and the voice plan. The owner chose option B (voice receptionist): local by default, an optional cloud key, and ElevenLabs voices. Shipped in 0.2.27:
+- `desktop/voice.cjs`: settings plus the ElevenLabs connector. The key is encrypted with safeStorage and never returned to the renderer. Exposed over the `anybot:voice` IPC channel (its own allowlist, `VOICE_METHODS`), with `window.anybot.voice.*` in preload.
+- `src/lib/voice.js`: `createListener` (ElevenLabs = MediaRecorder + energy VAD; system = SpeechRecognition) and `createSpeaker`.
+- `src/lib/speech.js`: `toSpeech` / `speechChunks`, unit tested.
+- `src/components/VoiceSettings.jsx`.
+- The App voice chat now waits for the run to finish (no 24 s cap) and pauses the mic while speaking.
+- Main-process permission handler: only the app page may use the mic. CSP adds `media-src 'self' blob:`.
+
+Verified with `npm test` (142, 0 fail), the mobile Playwright suite (set `PLAYWRIGHT_BROWSER_PATH=/opt/pw-browsers/chromium` in cloud sessions), a desktop Playwright run with a fake-mic WAV and a mocked bridge (full voice loop), and real Electron under xvfb (bridge present, audio granted, video denied). Not verified: real ElevenLabs calls (no key here) and a Windows mic.
+
+Facts for the next agent:
+- Electron's `webkitSpeechRecognition` fails with `network`, so desktop listening needs ElevenLabs until local Whisper lands.
+- `permissionMode: "ask"` silently denies tools in headless runs because there is no approval UI.
+- Grok Bot has no live voice mode.
+
+**Next:** whisper.cpp local STT → receptionist (Haiku 4.5 / Ollama) → mobile native STT. Tag and upload 0.2.27 to `anyBot-updates` after merge.
 
 ## Previous turn (2026-09-22)
 **Full review + Studio paper redesign (0.2.26)** on branch `claude/review-bugfix-ui-refresh`. Fixed: `runs.dismiss` missing from IPC allowlist; update chrome flicker after actions; "Check now" wiping a downloaded update; unread-dot logic; blocked external links; broken HTML hand-off to the rail browser; `.user` CSS collision with `.message.user`; both CI workflows failing on every push (electron-builder auto-publish, setup-android package list). Security: same-origin sandboxed preview iframe could reach `window.anybot.runCommand`; markdown rendered raw employee HTML. UI: token sweep to OKLCH, live team roster, first-run hire flow, chat bubbles, sidebar status lines. Verified with `npm test` (127), `test:runtime`, doctor, a mocked-bridge Playwright pass, and a real-Electron e2e with an isolated profile. See CHANGELOG 0.2.26.

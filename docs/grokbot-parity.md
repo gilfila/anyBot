@@ -72,6 +72,18 @@ so text-to-speech on desktop is fine. Recognition is the part that's broken.
 
 ## Voice agent plan
 
+**Decisions (owner, 2026-09-23):** go with option B, the voice receptionist.
+Local by default, with an optional API key for cloud. ElevenLabs for voices
+(the owner has a subscription). Delivery order:
+
+| PR | Scope | Status |
+| --- | --- | --- |
+| 0.2.27 | Phase 0 fixes, `toSpeech`, Settings → Voice, ElevenLabs connector (Scribe STT + TTS, per-bot voices, `safeStorage` key), mic permission policy | **Done** on `claude/anybot-grokbot-feature-review-99tws5` |
+| next | Local STT: whisper.cpp sidecar, plus a Piper local-voice option | Planned |
+| next+1 | Receptionist: coordinator voice session with tools; Claude Haiku 4.5 (API key) or a local model via Ollama; group-chat voice; barge-in | Planned |
+| later | Mobile native STT plugin, "call your team", voice approvals | Planned |
+
+
 Design principle: split **talking** from **working**. A fast voice layer handles
 the conversation, and employees keep doing the slow harness runs. The voice
 layer acknowledges straight away, dispatches work, and speaks a short summary

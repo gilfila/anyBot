@@ -8,11 +8,14 @@ const {
   Menu,
   nativeImage,
   shell,
+  session,
+  safeStorage,
 } = require("electron");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const fs = require("node:fs");
 const { pathToFileURL } = require("node:url");
+const { createVoiceService, handleVoice, VOICE_METHODS } = require("./voice.cjs");
 let window,
   worker,
   tray,
@@ -51,7 +54,7 @@ let updateCheckTimer = null;
 let autoUpdater = null;
 const pending = new Map();
 const readyWaiters = new Set();
-let mobileGateway, mobileUrl, mobileError;
+let mobileGateway, mobileUrl, mobileError, voice;
 const page = pathToFileURL(path.join(__dirname, "../dist/index.html")).href;
 const startupPath = () => path.join(app.getPath("userData"), "startup.json");
 function startupLogPath() {
@@ -609,6 +612,24 @@ else {
         return { revealed: true };
       }
       return withShellState(await request(method, payload));
+    });
+    voice = createVoiceService({ dir: app.getPath("userData"), safeStorage });
+    ipcMain.handle("anybot:voice", async (event, method, payload) => {
+      validateSender(event);
+      if (!VOICE_METHODS.has(method)) throw new Error("Operation not allowed");
+      return handleVoice(voice, method, payload);
+    });
+    // Electron grants every permission by default. Only the app page itself
+    // may use the microphone (audio only); remote pages in the rail browser
+    // get nothing.
+    session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
+      const appFrame = contents === window?.webContents && details.isMainFrame !== false && details.requestingUrl === page;
+      if (permission === "media") {
+        const types = details.mediaTypes || [];
+        callback(appFrame && types.length > 0 && types.every((type) => type === "audio"));
+        return;
+      }
+      callback(appFrame && (permission === "clipboard-sanitized-write" || permission === "fullscreen"));
     });
     ipcMain.handle("anybot:directory", async (event) => {
       validateSender(event);

@@ -18,6 +18,7 @@ import {
   WifiOff,
 } from "lucide-react";
 import { createClient } from "./client.mjs";
+import { speechChunks, toSpeech } from "../src/lib/speech.js";
 import { beginOidc, consumeOidcCallback } from "./oidc.mjs";
 import "./style.css";
 
@@ -49,7 +50,9 @@ function App() {
   const refreshLock = useRef(null);
   const generation = useRef(0),
     sending = useRef(false),
-    recognition = useRef(null);
+    recognition = useRef(null),
+    // Bumped on every voice start and on unmount so an old reply wait stops.
+    voiceTurn = useRef(0);
   const [dictating, setDictating] = useState(false);
   const [voiceChat, setVoiceChat] = useState(false);
   const draft = drafts[thread] || "";
@@ -239,6 +242,7 @@ function App() {
       setError("Voice chat is unavailable in this browser.");
       return;
     }
+    const turn = ++voiceTurn.current;
     const existing = new Set(detail?.messages.map((message) => message.id));
     const next = new SpeechRecognition();
     next.continuous = false;
@@ -253,15 +257,19 @@ function App() {
       if (!transcript) return;
       try {
         await send(null, transcript);
-        for (let attempt = 0; attempt < 30; attempt += 1) {
-          await new Promise((resolve) => setTimeout(resolve, 800));
+        // Harness runs take anywhere from seconds to many minutes; keep
+        // waiting (up to half an hour) rather than giving up after a few polls.
+        const deadline = Date.now() + 30 * 60 * 1000;
+        while (Date.now() < deadline && voiceTurn.current === turn) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
           const response = await client.request(`/conversations/${thread}`);
           const reply = response.messages.find(
             (message) => !existing.has(message.id) && message.author !== "human",
           );
           if (reply) {
             if (window.speechSynthesis)
-              window.speechSynthesis.speak(new SpeechSynthesisUtterance(reply.body));
+              for (const chunk of speechChunks(toSpeech(reply.body)))
+                window.speechSynthesis.speak(new SpeechSynthesisUtterance(chunk));
             setDetail(response);
             break;
           }
@@ -286,7 +294,13 @@ function App() {
       setError(e.message || "Voice chat could not start.");
     }
   }
-  useEffect(() => () => recognition.current?.stop(), []);
+  useEffect(
+    () => () => {
+      voiceTurn.current += 1;
+      recognition.current?.stop();
+    },
+    [],
+  );
   if (!client)
     return (
       <Connect

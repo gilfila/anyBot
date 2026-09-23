@@ -33,6 +33,17 @@ contextBridge.exposeInMainWorld("anybot", {
     });
   },
   openUrl: (url) => ipcRenderer.invoke("anybot:openUrl", url),
+  // Voice settings and the optional ElevenLabs connector. The API key goes in
+  // through setKey and never comes back out.
+  voice: {
+    settings: () => ipcRenderer.invoke("anybot:voice", "voice.settings"),
+    save: (settings) => ipcRenderer.invoke("anybot:voice", "voice.save", settings),
+    setKey: (key) => ipcRenderer.invoke("anybot:voice", "voice.setKey", { key }),
+    clearKey: () => ipcRenderer.invoke("anybot:voice", "voice.clearKey"),
+    voices: () => ipcRenderer.invoke("anybot:voice", "voice.voices"),
+    speak: (text, employeeId) => ipcRenderer.invoke("anybot:voice", "voice.speak", { text, employeeId }),
+    transcribe: (audio, mime) => ipcRenderer.invoke("anybot:voice", "voice.transcribe", { audio, mime }),
+  },
   
   // Update-specific API with restricted methods for security
   update: {
