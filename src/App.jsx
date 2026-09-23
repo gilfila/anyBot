@@ -159,6 +159,7 @@ import { ProjectBoard } from "./components/board/ProjectBoard.jsx";
 import { TaskPeek } from "./components/board/TaskPeek.jsx";
 import { ProjectDoc } from "./components/doc/ProjectDoc.jsx";
 import { OrgPage } from "./components/org/OrgPage.jsx";
+import { DiagnosticsPanel } from "./components/DiagnosticsPanel.jsx";
 import { statusLabel } from "./components/board/meta.js";
 
 // A task being started posts its brief into the project chat. Render it as a
@@ -708,6 +709,11 @@ export function App() {
           <button className="plain" onClick={() => setView("settings")}>
             <Monitor size={16} />
             Runtime & privacy
+            {data.diagnostics?.unseen > 0 && (
+              <span className="nav-count" title="New problems in Diagnostics">
+                {data.diagnostics.unseen}
+              </span>
+            )}
             <ChevronRight size={14} />
           </button>
         </div>
@@ -1711,6 +1717,11 @@ export function App() {
                 <ChevronRight size={16} />
               </button>
             </div>
+            <DiagnosticsPanel
+              data={data}
+              onEditEmployee={(employee) => setModal({ type: "employee", preset: employee, editing: true })}
+              onOpenHarnesses={() => setView("harnesses")}
+            />
             <h2 className="settings-section-title">Runtime & Privacy</h2>
             <div className="settings-card">
               <div>

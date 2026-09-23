@@ -1,4 +1,5 @@
 import { Coordinator } from "./coordinator.mjs";
+import { isUnexpected } from "./diagnostics.mjs";
 
 const port = process.parentPort;
 if (!port)
@@ -6,6 +7,7 @@ if (!port)
 const coordinator = new Coordinator({ directory: process.argv[2] });
 let ready = false,
   changedTimer;
+coordinator.on("diagnostic", (entry) => port.postMessage({ type: "diagnostic", entry }));
 coordinator.on("changed", () => {
   if (!ready || changedTimer) return;
   changedTimer = setTimeout(() => {
@@ -31,6 +33,18 @@ port.on("message", async ({ data }) => {
       result: await coordinator.command(data.method, data.payload),
     });
   } catch (error) {
+    if (isUnexpected(error))
+      port.postMessage({
+        type: "diagnostic",
+        entry: {
+          level: "error",
+          source: "runtime",
+          code: "command.failed",
+          message: `${data.method}: ${error.message}`,
+          detail: error.stack,
+          context: { method: data.method },
+        },
+      });
     port.postMessage({ id: data.id, error: String(error.message) });
   }
 });
