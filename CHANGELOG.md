@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-09-23
+
+### Added
+- PR-driven Windows release workflow with version validation, packaged dependency/UI verification, exact-source provenance, and an installer-only public asset allowlist. Merging to main publishes after verification once the scoped GitHub App and Actions billing are configured.
+- Direct installer download page and safeguards against reused versions, mismatched source tags, incomplete uploads, and update-feed downgrades.
+
 ## [0.3.4] - 2026-09-23
 
 ### Added
