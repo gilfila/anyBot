@@ -89,8 +89,8 @@
   --muted: var(--ink-3);
   --surface: var(--card);
   --line: var(--rule);
-
-  font-family:
+  /* Themes (src/themes/themes.js) override these tokens on <html>. */
+  --font-ui:
     "Segoe UI Variable Text",
     "Segoe UI",
     Inter,
@@ -98,6 +98,8 @@
     BlinkMacSystemFont,
     system-ui,
     sans-serif;
+
+  font-family: var(--font-ui);
   color: var(--ink);
   background: var(--paper);
   color-scheme: light;
@@ -5182,4 +5184,15 @@ dialog {
 }
 .message.from-you .md-table th {
   background: oklch(1 0 0 / 0.08);
+}
+
+/* Popup menus rendered at the top of the page (FloatingMenu), so a menu in
+   a scrolling list is never clipped and never stretches the list. */
+.floating-menu {
+  position: fixed;
+  z-index: 1000;
+}
+.floating-menu.bot-row-menu {
+  position: fixed;
+  right: auto;
 }

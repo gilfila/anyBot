@@ -158,8 +158,11 @@ import { ProjectSettingsForm } from "./components/ProjectSettingsForm.jsx";
 import { ProjectBoard } from "./components/board/ProjectBoard.jsx";
 import { TaskPeek } from "./components/board/TaskPeek.jsx";
 import { ProjectDoc } from "./components/doc/ProjectDoc.jsx";
-import { OrgPage } from "./components/org/OrgPage.jsx";
+// The Organization page (org chart, knowledge graph, d3) loads on first visit.
+const OrgPage = React.lazy(() => import("./components/org/OrgPage.jsx").then((m) => ({ default: m.OrgPage })));
 import { DiagnosticsPanel } from "./components/DiagnosticsPanel.jsx";
+import { FloatingMenu } from "./components/FloatingMenu.jsx";
+import { AppearancePanel } from "./components/theme/AppearancePanel.jsx";
 import { statusLabel } from "./components/board/meta.js";
 
 // A task being started posts its brief into the project chat. Render it as a
@@ -214,6 +217,7 @@ export function App() {
     } catch { return {}; }
   });
   const [openBotMenu, setOpenBotMenu] = useState(null);
+  const botMenuAnchor = useRef(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(() => {
     try {
@@ -612,6 +616,7 @@ export function App() {
                   aria-haspopup="menu"
                   onClick={(e) => {
                     e.stopPropagation();
+                    botMenuAnchor.current = e.currentTarget;
                     setOpenBotMenu(isMenuOpen ? null : employee.id);
                   }}
                   onKeyDown={(e) => {
@@ -621,10 +626,11 @@ export function App() {
                   <MoreHorizontal size={14} />
                 </button>
                 {isMenuOpen && (
-                  <div
+                  <FloatingMenu
                     className="bot-row-menu"
-                    role="menu"
-                    onClick={(e) => e.stopPropagation()}
+                    anchor={botMenuAnchor.current}
+                    label={`Actions for ${employee.name}`}
+                    onClose={() => setOpenBotMenu(null)}
                   >
                     <button
                       role="menuitem"
@@ -647,7 +653,7 @@ export function App() {
                       <Trash2 size={14} />
                       Delete
                     </button>
-                  </div>
+                  </FloatingMenu>
                 )}
               </div>
             );
@@ -1672,6 +1678,7 @@ export function App() {
                 </div>
               </div>
             )}
+            <AppearancePanel />
             <div className="settings-card">
               <div>
                 <h3>Check for updates</h3>
@@ -1839,14 +1846,16 @@ export function App() {
           </div>
         )}
         {view === "org" && (
-          <OrgPage
-            data={data}
-            act={act}
-            tab={orgTab}
-            onTab={setOrgTab}
-            onMessage={(employee) => directChat(employee)}
-            onEdit={(employee) => setModal({ type: "employee", preset: employee, editing: true })}
-          />
+          <React.Suspense fallback={null}>
+            <OrgPage
+              data={data}
+              act={act}
+              tab={orgTab}
+              onTab={setOrgTab}
+              onMessage={(employee) => directChat(employee)}
+              onEdit={(employee) => setModal({ type: "employee", preset: employee, editing: true })}
+            />
+          </React.Suspense>
         )}
         {view === "routines" && (
           <div className="page">
