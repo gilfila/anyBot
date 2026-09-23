@@ -559,11 +559,13 @@ export class Coordinator extends EventEmitter {
         ? `\n\nChecklist:\n${task.checklist.map((item) => `- [${item.done ? "x" : " "}] ${item.text}`).join("\n")}`
         : "";
       const brief = `Task ${task.id.slice(0, 8)}: ${task.title}${task.description ? `\n\n${task.description}` : ""}${checklist}`;
+      // Log the start before queueing runs: settleTask counts the round as
+      // runs created at or after this entry.
+      const count = task.assignees.length;
+      this.board.activity(task.id, author, "started", `Started with ${count} assignee${count === 1 ? "" : "s"}`);
       const message = this.addMessage(task.conversation, author, "task", brief.slice(0, 24000));
       for (const employee of task.assignees)
         this.addRun(task.conversation, employee, message, null, null, 0, task.id);
-      const count = task.assignees.length;
-      this.board.activity(task.id, author, "started", `Started with ${count} assignee${count === 1 ? "" : "s"}`);
       this.store.event("task.started", { task: task.id, author });
     });
   }
