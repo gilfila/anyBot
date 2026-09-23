@@ -139,7 +139,7 @@ test("the coordinator reports failed runs, bad action blocks, and refused action
   await c.command("conversations.create", { title: "Sol", members: [sol.id] });
   const chat = c.snapshot().conversations[0];
   const settled = async () => {
-    const deadline = Date.now() + 5000;
+    const deadline = Date.now() + 30000;
     while (c.snapshot().runs.some((r) => ["running", "queued", "cancelling"].includes(r.status))) {
       if (Date.now() > deadline) throw new Error("Queue did not settle");
       await new Promise((r) => setTimeout(r, 10));

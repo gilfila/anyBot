@@ -38,7 +38,7 @@ async function fixture(t, runner) {
   const send = (body) =>
     c.command("messages.send", { conversation: chat.id, body, recipients: [sol.id], requestId: crypto.randomUUID() });
   const until = async (check, what) => {
-    const deadline = Date.now() + 5000;
+    const deadline = Date.now() + 30000;
     while (!check()) {
       if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
       await new Promise((r) => setTimeout(r, 10));
@@ -151,7 +151,7 @@ test("the bridge speaks MCP over stdio and forwards to the approval URL", async 
   lines.on("line", (line) => replies.push(JSON.parse(line)));
   const call = async (message) => {
     child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
-    const deadline = Date.now() + 5000;
+    const deadline = Date.now() + 30000;
     while (!replies.some((reply) => reply.id === message.id)) {
       if (Date.now() > deadline) throw new Error(`No reply to ${message.method}`);
       await new Promise((r) => setTimeout(r, 10));

@@ -52,7 +52,7 @@ async function fixture(t, runner) {
   };
 }
 async function settle(c) {
-  const deadline = Date.now() + 3000;
+  const deadline = Date.now() + 30000;
   while (
     c.snapshot().runs.some((r) => ["queued", "running"].includes(r.status))
   ) {

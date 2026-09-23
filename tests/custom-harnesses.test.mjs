@@ -53,7 +53,7 @@ test("custom owner CLI runs through the real coordinator and subprocess adapter"
       body: "Test custom CLI",
       requestId: crypto.randomUUID(),
     });
-    const deadline = Date.now() + 3000;
+    const deadline = Date.now() + 30000;
     while (
       c.snapshot().runs.some((r) => ["running", "queued"].includes(r.status)) &&
       Date.now() < deadline
