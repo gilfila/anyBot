@@ -1,6 +1,6 @@
 {
   "name": "anybot-desktop",
-"version": "0.2.26",
+"version": "0.2.27",
   "private": true,
   "description": "A local workspace for your team of AI employees",
   "author": "anyBot contributors",
@@ -63,7 +63,8 @@
       "runtime/**/*",
       "server/**/*",
       "games/**/*",
-      "package.json"
+      "package.json",
+      "!**/node_modules/@capacitor/**"
     ],
     "directories": {
       "output": "release"

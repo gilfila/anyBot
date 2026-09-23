@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.2.27] - 2026-09-22
+
+### Fixed
+- **Updates from 0.2.25 failed to install** (installer exit code 2, app did not relaunch). 0.2.25 bundled `@capacitor/android` with its Gradle build output under `resources\app.asar.unpacked`, at install paths up to 258 characters. Before installing, NSIS runs the old uninstaller, which moves every file into `%TEMP%\nsXXXX.tmp\old-install\` for rollback; that pushed those paths past Windows' 260-character limit, the move failed, and the update rolled back. The installer now removes that folder in place (`build/installer.nsh`, `customInit`) before the old uninstaller runs. Verified by updating a real broken 0.2.25 install with the updater's own arguments (`--updated /S --force-run`): exit 0, app relaunched, data intact.
+- The desktop package no longer includes mobile-only `@capacitor` modules, so a local Android build can't leak into the installer again. Guarded by `tests/packaging.test.mjs`.
+
 ## [0.2.26] - 2026-09-22
 
 ### Changed
