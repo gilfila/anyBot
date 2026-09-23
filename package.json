@@ -1,9 +1,9 @@
 {
   "name": "anybot-desktop",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "private": true,
   "description": "A local workspace for your team of AI employees",
-  "author": "anyBot contributors",
+  "author": "Any Bot contributors",
   "type": "module",
   "main": "desktop/main.cjs",
   "engines": {
@@ -29,11 +29,13 @@
     "mobile:sync": "npm run mobile:web && npx cap sync",
     "mobile:build": "node scripts/mobile-build.mjs",
     "mobile:dev": "npm run mobile:sync && npx cap open android",
-    "package": "npm run build && node scripts/package-electron.mjs --win nsis --config.electronDist=./node_modules/electron/dist --config.win.signAndEditExecutable=false",
-    "package:portable": "npm run build && node scripts/package-electron.mjs --win portable --config.electronDist=./node_modules/electron/dist --config.win.signAndEditExecutable=false",
+    "package": "npm run build && node scripts/package-electron.mjs --win nsis --config.electronDist=./node_modules/electron/dist --config.win.signExecutable=false",
+    "package:portable": "npm run build && node scripts/package-electron.mjs --win portable --config.electronDist=./node_modules/electron/dist --config.win.signExecutable=false",
     "release:manifest": "node scripts/release-manifest.mjs",
     "doctor": "node scripts/doctor.mjs",
-    "package:dir": "npm run build && node scripts/package-electron.mjs --dir --config.electronDist=./node_modules/electron/dist --config.win.signAndEditExecutable=false"
+    "package:dir": "npm run build && node scripts/package-electron.mjs --dir --config.electronDist=./node_modules/electron/dist --config.win.signExecutable=false",
+    "brand:export": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/export-brand.ps1",
+    "brand:verify": "node scripts/verify-brand-package.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",
@@ -61,7 +63,7 @@
   },
   "build": {
     "appId": "dev.anybot.desktop",
-    "productName": "anyBot",
+    "productName": "Any Bot",
     "asar": true,
     "asarUnpack": [
       "runtime/approval-mcp.mjs"
@@ -73,7 +75,10 @@
       "server/**/*",
       "games/**/*",
       "package.json",
-      "!**/node_modules/@capacitor/**"
+      "!**/node_modules/@capacitor/**",
+      "assets/brand/scout-16.png",
+      "assets/brand/scout-32.png",
+      "assets/brand/scout-256.png"
     ],
     "directories": {
       "output": "release"
@@ -92,18 +97,28 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "executableName": "anyBot",
+      "icon": "assets/brand/app.ico",
+      "signExecutable": false
     },
     "nsis": {
       "oneClick": true,
       "perMachine": false,
       "allowElevation": false,
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "artifactName": "anyBot-Setup-${version}.${ext}",
+      "shortcutName": "Any Bot",
+      "uninstallDisplayName": "Any Bot",
+      "installerIcon": "assets/brand/app.ico",
+      "uninstallerIcon": "assets/brand/app.ico"
     },
     "publish": {
       "provider": "github",
       "owner": "gilfila",
       "repo": "anyBot-updates"
+    },
+    "portable": {
+      "artifactName": "anyBot ${version}.${ext}"
     }
   }
 }

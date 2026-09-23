@@ -1,10 +1,10 @@
-// Approval bridge between a harness and the anyBot coordinator.
+// Approval bridge between a harness and the Any Bot coordinator.
 //
 // Claude Code runs headless (-p), so it can't show a permission dialog.
 // With --permission-prompts host and --permission-prompt-tool, it asks this
 // MCP server instead. The server forwards each request to the coordinator
 // over loopback HTTP with the run's token and waits for the owner's answer
-// in the anyBot chat. Node built-ins only: this file runs outside the app
+// in the Any Bot chat. Node built-ins only: this file runs outside the app
 // bundle (unpacked from app.asar) under ELECTRON_RUN_AS_NODE.
 import { request } from "node:http";
 import { createInterface } from "node:readline";
@@ -40,12 +40,12 @@ function ask(body) {
             if (answer.behavior === "allow") resolve({ behavior: "allow", updatedInput: body.input });
             else resolve({ behavior: "deny", message: String(answer.message || "The owner declined this action.") });
           } catch {
-            resolve({ behavior: "deny", message: "anyBot could not read the approval answer." });
+            resolve({ behavior: "deny", message: "Any Bot could not read the approval answer." });
           }
         });
       },
     );
-    req.on("error", () => resolve({ behavior: "deny", message: "anyBot's approval service is not reachable." }));
+    req.on("error", () => resolve({ behavior: "deny", message: "Any Bot's approval service is not reachable." }));
     req.end(payload);
   });
 }
@@ -76,7 +76,7 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
         tools: [
           {
             name: TOOL,
-            description: "Asks the anyBot owner to approve a tool call. Used by the harness, not by the assistant.",
+            description: "Asks the Any Bot owner to approve a tool call. Used by the harness, not by the assistant.",
             inputSchema: {
               type: "object",
               properties: { tool_name: { type: "string" }, input: { type: "object" }, tool_use_id: { type: "string" } },

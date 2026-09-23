@@ -26,7 +26,7 @@ export class Store {
     ) {
       this.db.close();
       throw new Error(
-        "Unsupported workspace schema. Use the matching anyBot version.",
+        "Unsupported workspace schema. Use the matching Any Bot version.",
       );
     }
     this.db

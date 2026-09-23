@@ -13,6 +13,8 @@ const {
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const fs = require("node:fs");
+const { DISPLAY_NAME, BRAND_DIR, applyBrand, trayIcon } = require("./brand.cjs");
+applyBrand(app);
 const { pathToFileURL } = require("node:url");
 const { DiagnosticsLog, checkPendingUpdate, rememberPendingUpdate } = require("./diagnostics.cjs");
 let diagnostics = null;
@@ -91,8 +93,8 @@ function reportStartupFailure(label, error) {
     detail,
   });
   const message = `${label}: ${detail}\n\nSee ${startupLogPath()} for details.`;
-  if (app.isReady()) dialog.showErrorBox("anyBot could not start", message);
-  else app.once("ready", () => dialog.showErrorBox("anyBot could not start", message));
+  if (app.isReady()) dialog.showErrorBox("Any Bot could not start", message);
+  else app.once("ready", () => dialog.showErrorBox("Any Bot could not start", message));
 }
 process.on("uncaughtException", (error) => reportStartupFailure("Unhandled exception", error));
 process.on("unhandledRejection", (error) => reportStartupFailure("Unhandled promise rejection", error));
@@ -124,7 +126,7 @@ function ensureWritableUserData() {
         // explicitly marked emergency mode for ACL-corrupted hosts.
       }
     }
-    throw new Error("No writable anyBot user-data directory is available.");
+    throw new Error("No writable Any Bot user-data directory is available.");
   }
 }
 function loadStartupPreference() {
@@ -819,23 +821,11 @@ else {
       });
     });
     startUpdateChecker();
-    const pixels = Buffer.alloc(16 * 16 * 4);
-    for (let y = 0; y < 16; y++)
-      for (let x = 0; x < 16; x++) {
-        const p = (y * 16 + x) * 4;
-        const lit = x > 3 && x < 12 && y > 3 && y < 12;
-        pixels[p] = lit ? 211 : 28;
-        pixels[p + 1] = lit ? 239 : 30;
-        pixels[p + 2] = lit ? 154 : 28;
-        pixels[p + 3] = 255;
-      }
-    tray = new Tray(
-      nativeImage.createFromBitmap(pixels, { width: 16, height: 16 }),
-    );
-    tray.setToolTip("anyBot — your team is available");
+    tray = new Tray(trayIcon(nativeImage));
+    tray.setToolTip("Any Bot — your team is available");
     tray.setContextMenu(
       Menu.buildFromTemplate([
-        { label: "Open anyBot", click: showWindow },
+        { label: "Open Any Bot", click: showWindow },
         {
           label: "Pause new work",
           click: () => request("runtime.pause").catch(() => {}),
@@ -901,7 +891,7 @@ function startWorker() {
   worker = utilityProcess.fork(
     path.join(__dirname, "../runtime/worker.mjs"),
     [app.getPath("userData")],
-    { serviceName: "anyBot coordinator", stdio: "pipe" },
+    { serviceName: "Any Bot coordinator", stdio: "pipe" },
   );
   worker.stderr?.on("data", (chunk) => {
     const text = String(chunk);
@@ -927,7 +917,7 @@ function startWorker() {
       // isn't in front; clicking the notification brings it back.
       if ((!window || !window.isFocused()) && Notification.isSupported()) {
         const notice = new Notification({
-          title: String(message.notice?.title || "anyBot").slice(0, 120),
+          title: String(message.notice?.title || "Any Bot").slice(0, 120),
           body: String(message.notice?.body || "").slice(0, 240),
         });
         notice.on("click", () => showWindow());
@@ -967,7 +957,7 @@ function startWorker() {
     if (!quitting && restarts++ < 3) setTimeout(startWorker, 1000 * restarts);
     else if (!quitting)
       dialog.showErrorBox(
-        "anyBot runtime stopped",
+        "Any Bot runtime stopped",
         "The coordinator failed repeatedly. Restart the application to retry. Your saved conversations are retained.",
       );
   });
@@ -984,7 +974,8 @@ function showWindow(rendererSandbox = app.isPackaged) {
     minWidth: 1000,
     minHeight: 680,
     backgroundColor: "#111411",
-    title: "anyBot",
+    title: DISPLAY_NAME,
+    icon: path.join(BRAND_DIR, 'scout-256.png'),
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),

@@ -5,7 +5,7 @@ import "./diagnostics.css";
 
 const ACTION_LABELS = { employee: "Edit bot", harnesses: "Open harnesses", update: "Check for updates" };
 
-// Settings → Diagnostics: problems anyBot recorded on this computer, grouped
+// Settings → Diagnostics: problems Any Bot recorded on this computer, grouped
 // by kind, with a plain-language next step for each.
 export function DiagnosticsPanel({ data, onEditEmployee, onOpenHarnesses }) {
   const [list, setList] = useState({ groups: [], version: "" });
@@ -64,7 +64,7 @@ export function DiagnosticsPanel({ data, onEditEmployee, onOpenHarnesses }) {
       <div className="diagnostics-head">
         <div>
           <p>
-            Problems anyBot noticed on this computer: harness errors, bot updates it couldn't apply, update and install
+            Problems Any Bot noticed on this computer: harness errors, bot updates it couldn't apply, update and install
             failures, and crashes. It keeps error details only, never your conversations, and nothing leaves this machine.
           </p>
         </div>

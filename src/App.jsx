@@ -139,6 +139,7 @@ function UpdateButton({ update, onAction, onDismiss }) {
   );
 }
 import { Avatar } from "./components/Avatar.jsx";
+import { BrandMark } from "./components/BrandMark.jsx";
 import { RobotAvatar, AvatarActivityContext } from "./components/RobotAvatar.jsx";
 import { employeeAvatarStates } from "./lib/avatar-config.js";
 import { WorkingIndicator } from "./components/WorkingIndicator.jsx";
@@ -538,10 +539,8 @@ export function App() {
     <div className="app-shell">
       <aside className={`sidebar ${leftSidebarOpen ? "" : "collapsed"}`}>
         <div className="brand">
-          <span className="brand-mark">
-            <Bot size={22} />
-          </span>
-          anyBot<span className="alpha">LOCAL</span>
+          <BrandMark />
+          <span className="brand-name">Any Bot</span><span className="alpha">LOCAL</span>
         </div>
         <label className="sidebar-search">
           <Search size={15} />
@@ -1540,7 +1539,7 @@ export function App() {
                 )}
                 <p>
                   Custom CLIs can be registered in harnesses.json in your app
-                  data directory. Restart anyBot after changing this
+                  data directory. Restart Any Bot after changing this
                   owner-controlled file. Custom launchers run with your local
                   account permissions.
                 </p>
@@ -1590,7 +1589,7 @@ export function App() {
                   ) : data.update.state === "downloaded" ? (
                     <>
                       <strong>Update ready: v{data.update.version}</strong>
-                      <p>The update has been downloaded. Restart anyBot to apply.</p>
+                      <p>The update has been downloaded. Restart Any Bot to apply.</p>
                     </>
                   ) : data.update.state === "error" ? (
                     <>
@@ -1690,7 +1689,7 @@ export function App() {
               <div>
                 <h3>Check for updates</h3>
                 <p>
-                  Manually check for new versions of anyBot.
+                  Manually check for new versions of Any Bot.
                   {!data.update?.feedConfigured && (
                     <span className="update-feed-note">
                       {" "}Update feed not configured. Set ANYBOT_UPDATE_FEED_URL to enable automatic updates.
@@ -1782,7 +1781,7 @@ export function App() {
               <div>
                 <h3>Launch at login</h3>
                 <p>
-                  Start anyBot with Windows so scheduled work and long-running
+                  Start Any Bot with Windows so scheduled work and long-running
                   employees remain available after you sign in. The setting is
                   opt-in and can be changed at any time.
                 </p>
@@ -1810,7 +1809,7 @@ export function App() {
             </div>
             <div className="settings-card">
               <div>
-                <h3>Quit anyBot</h3>
+                <h3>Quit Any Bot</h3>
                 <p>Stop the local runtime and exit the desktop app.</p>
               </div>
               <button className="danger" onClick={() => act("app.quit")}>
@@ -1843,7 +1842,7 @@ export function App() {
                 <code className="path">{data.runtime.directory}</code>
                 {data.runtime.userDataFallback && (
                   <p role="alert" className="banner error">
-                    The normal profile directory is not writable. anyBot is using an emergency temporary profile; repair the Windows profile permissions before relying on saved work.
+                    The normal profile directory is not writable. Any Bot is using an emergency temporary profile; repair the Windows profile permissions before relying on saved work.
                   </p>
                 )}
               </div>
@@ -1931,7 +1930,7 @@ export function App() {
               <Monitor size={20} />
               <div>
                 <strong>
-                  Your computer must be awake and anyBot must be running.
+                  Your computer must be awake and Any Bot must be running.
                 </strong>
                 <p>
                   Missed occurrences are skipped. A routine will not overlap its

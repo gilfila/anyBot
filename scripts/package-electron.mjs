@@ -26,4 +26,13 @@ try {
   await writeFile(packagePath, originalPackage);
 }
 
+if (exitCode === 0 && process.argv.slice(2).includes("nsis")) {
+  exitCode = await new Promise((resolve, reject) => {
+    const check = spawn(process.execPath, [join(root, "scripts/verify-brand-package.mjs")], {
+      cwd: root, stdio: "inherit", windowsHide: true,
+    });
+    check.once("error", reject);
+    check.once("exit", code => resolve(code ?? 1));
+  });
+}
 process.exitCode = exitCode;

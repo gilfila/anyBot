@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.9] - 2026-09-23
+
+### Changed
+- Unified Any Bot branding around the approved darker sage Scout helmet, with matching desktop, taskbar, tray, installer, app header, browser, and mobile launcher artwork.
+- Product display name is now **Any Bot**. Existing app IDs, executable/update filenames, installation identity and user profiles remain compatible.
+- Enabled Windows icon and executable metadata embedding while retaining unsigned builds. Added reproducible icon exports from one approved master.
+
 ## [0.3.8] - 2026-09-23
 
 ### Fixed

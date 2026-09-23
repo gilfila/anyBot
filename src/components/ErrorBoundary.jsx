@@ -34,7 +34,7 @@ export class ErrorBoundary extends React.Component {
           <AlertCircle size={22} />
           <h1>Something went wrong on this screen</h1>
           <p>
-            anyBot recorded the details under Settings → Diagnostics. Your bots, chats, and running work are unaffected.
+            Any Bot recorded the details under Settings → Diagnostics. Your bots, chats, and running work are unaffected.
           </p>
           <pre>{String(this.state.error?.message || this.state.error)}</pre>
           <div className="crash-actions">

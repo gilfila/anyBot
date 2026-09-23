@@ -1,6 +1,8 @@
-# anyBot
+# Any Bot
 
-anyBot is a local-first workspace for named AI employees. It combines a Grok-style team conversation UI with adapters for Claude Code, Codex CLI, Gemini CLI, Hermes, Cursor Agent CLI, and owner-configured harnesses. Employees can collaborate in a shared conversation, delegate bounded work to one another, preserve artifacts, run recurring routines, and remain available while the desktop runtime is available.
+Any Bot is a local-first workspace for named AI employees. It combines a Grok-style team conversation UI with adapters for Claude Code, Codex CLI, Gemini CLI, Hermes, Cursor Agent CLI, and owner-configured harnesses. Employees can collaborate in a shared conversation, delegate bounded work to one another, preserve artifacts, run recurring routines, and remain available while the desktop runtime is available.
+
+The shared [Sage Scout identity](assets/brand/README.md) supplies the app, installer, desktop/tray, browser and mobile icons. The product name is **Any Bot**; repository URLs and update filenames retain their existing spelling for compatibility.
 
 The current product is intentionally local-owner first. The Electron desktop app is the primary runtime; the mobile companion and headless server reuse the same coordinator and scoped HTTP gateway.
 

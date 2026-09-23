@@ -20,6 +20,7 @@ import {
 import { createClient } from "./client.mjs";
 import { beginOidc, consumeOidcCallback } from "./oidc.mjs";
 import "./style.css";
+import { BrandMark } from "../src/components/BrandMark.jsx";
 
 const blank = { employees: [], conversations: [], runs: [], runtime: {} };
 const active = (r) => ["running", "queued", "cancelling"].includes(r.status);
@@ -310,7 +311,7 @@ function App() {
             const entry = createClient(address);
             const session = await entry.request("/pair", {
               method: "POST",
-              body: { code, name: "anyBot mobile" },
+              body: { code, name: "Any Bot mobile" },
             });
             next = createClient(address, session.token);
           }
@@ -341,7 +342,7 @@ function App() {
             </button>
           ) : (
             <span className="brand">
-              <Bot /> anyBot
+              <BrandMark /> <span className="brand-name">Any Bot</span>
             </span>
           )}
           <small className={online ? "connection" : "connection offline"}>
@@ -827,7 +828,7 @@ function Connect({ onConnect, onOidcSignIn, error: externalError }) {
   return (
     <div className="connect">
       <div className="brand">
-        <Bot /> anyBot
+        <BrandMark /> <span className="brand-name">Any Bot</span>
       </div>
       <div className="connect-hero">
         <span className="hero-icon">
