@@ -5251,3 +5251,47 @@ dialog {
   gap: 5px;
   padding: 7px 12px;
 }
+
+/* Larger bot avatars (0.3.9): the 3D models read better with room. Sizes
+   are set per place on <RobotAvatar size>; these rules make room for them. */
+.bot-list {
+  max-height: 290px;
+}
+.bot-list .bot-row-main {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+.org-card {
+  min-height: 124px;
+}
+.org-card-top .robot-avatar,
+.agent-hero .robot-avatar {
+  width: auto;
+  height: auto;
+}
+
+/* Dialogs: the body scrolls; the heading (with its close button) and the
+   form's primary button stay pinned, so neither needs scrolling to reach. */
+dialog[open] {
+  padding: 0 27px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+dialog .modal-heading {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  margin: 0 -27px 12px;
+  padding: 22px 27px 12px;
+  background: var(--card);
+  box-shadow: 0 1px 0 var(--rule);
+}
+dialog > :last-child {
+  margin-bottom: 22px;
+}
+dialog .modal-form > .primary.full:last-child {
+  position: sticky;
+  bottom: 18px;
+  z-index: 3;
+  box-shadow: 0 0 0 18px var(--card);
+}

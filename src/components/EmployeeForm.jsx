@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { Check, Folder, Plus } from "lucide-react";
 import { names, customModelValue, avatarColors, avatarHeadStyles, avatarEyeStyles } from "../constants.js";
 import { RobotAvatarPreview, parseAvatarConfig, stringifyAvatarConfig } from "./RobotAvatar.jsx";
@@ -14,13 +14,15 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [], em
   const managerChoices = employees.filter(
     (e) => !e.archived && (!editing || (e.id !== preset?.id && !below(e.id, preset?.id))),
   );
-  const optionsFor = (harness) => {
-    const options = harnesses.find((item) => item.id === harness)?.modelOptions || [];
-    const safe = harness === "claude"
-      ? options.filter(({ value }) => ["fable", "sonnet", "opus"].includes(value))
-      : options;
-    return safe.map(({ value, label }) => [value, label]);
-  };
+  // Every model the harness reports, live: new models appear here the day
+  // the provider ships them (see discoverLiveModels in runtime/adapters.mjs).
+  const optionsFor = (harness) =>
+    (harnesses.find((item) => item.id === harness)?.modelOptions || []).map(({ value, label, description, disabled }) => [
+      value,
+      label,
+      description,
+      disabled,
+    ]);
   const initialChoices = optionsFor(preset?.harness || "claude");
   const initialKnown = initialChoices.some(
     ([value]) => value === preset?.model,
@@ -57,6 +59,22 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [], em
   const set = (key, value) =>
     setForm((current) => ({ ...current, [key]: value }));
   const modelChoices = optionsFor(form.harness);
+  // Refresh the model lists every time the editor opens.
+  const [models, setModels] = useState("checking");
+  useEffect(() => {
+    let live = true;
+    Promise.resolve(window.anybot && window.anybot.request("harnesses.models"))
+      .then(() => live && setModels("fresh"))
+      .catch(() => live && setModels("stale"));
+    return () => {
+      live = false;
+    };
+  }, []);
+  // A model typed as Custom earlier may now be on the list.
+  useEffect(() => {
+    if (form.modelChoice === customModelValue && modelChoices.some(([value, , , disabled]) => value === form.model && !disabled))
+      setForm((value) => ({ ...value, modelChoice: value.model }));
+  }, [modelChoices.map(([value]) => value).join()]);
   const handleSubmit = (e) => {
     e.preventDefault();
     const avatarConfig = stringifyAvatarConfig({
@@ -204,9 +222,9 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [], em
           }}
         >
           <option value="">Use the harness default</option>
-          {modelChoices.map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
+          {modelChoices.map(([value, label, description, disabled]) => (
+            <option key={value} value={value} disabled={disabled} title={description}>
+              {disabled && description ? `${label}: ${description}` : label}
             </option>
           ))}
           <option value={customModelValue}>Custom model…</option>
@@ -222,9 +240,10 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [], em
           />
         )}
         <span className="field-hint">
-          Claude aliases follow the installed CLI. Codex, Gemini, and Hermes choices
-          come from the owner-maintained models.json catalog; Custom model accepts a
-          current account-specific identifier when the catalog is empty or incomplete.
+          {models === "checking" ? "Checking the harnesses for new models… " : models === "fresh" ? "Up to date with each harness. " : ""}
+          This list comes live from Claude Code, Codex, and Hermes, plus the models in the installed Gemini CLI, so new
+          models appear as soon as they ship. Grayed-out models need a newer CLI. Custom model accepts any other
+          identifier.
         </span>
       </label>
       <label>

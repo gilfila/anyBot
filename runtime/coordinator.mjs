@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { mkdirSync, realpathSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Store, id, now } from "./store.mjs";
-import { harnesses, loadModelCatalog, probeAll, runHarness } from "./adapters.mjs";
+import { harnesses, loadModelCatalog, probeAll, probeModels, runHarness } from "./adapters.mjs";
 import { Routines } from "./routines.mjs";
 import { Artifacts } from "./artifacts.mjs";
 import { Board } from "./board.mjs";
@@ -33,7 +33,7 @@ const modelName = (value) => {
   if (value === undefined || value === "") return "";
   if (
     typeof value !== "string" ||
-    !/^[a-zA-Z0-9][a-zA-Z0-9_.:/+-]{0,119}$/.test(value)
+    !/^[a-zA-Z0-9][a-zA-Z0-9_.:/+[\]-]{0,119}$/.test(value)
   )
     throw new Error(
       "Model must be a model identifier, such as a provider alias or model name",
@@ -83,6 +83,7 @@ export class Coordinator extends EventEmitter {
     directory,
     runner,
     probe = probeAll,
+    probeModels: modelProbe = probeModels,
     concurrency = 2,
     clock = Date.now,
   }) {
@@ -123,6 +124,7 @@ export class Coordinator extends EventEmitter {
       ...(await probe(this.modelCatalog.models)),
       ...this.custom.adapters.map(customInstallation),
     ];
+    this.probeModels = modelProbe;
     this.concurrency = concurrency;
     this.active = new Map();
     this.installations = [];
@@ -145,6 +147,15 @@ export class Coordinator extends EventEmitter {
   }
   notify() {
     this.emit("changed");
+  }
+  // The bot editor asks for fresh model lists each time it opens: the
+  // harnesses' own caches move as providers ship models.
+  async refreshModels() {
+    this.modelCatalog = loadModelCatalog(this.directory);
+    const lists = await this.probeModels(this.modelCatalog.models);
+    this.installations = this.installations.map((installation) =>
+      lists[installation.id] ? { ...installation, modelOptions: lists[installation.id] } : installation,
+    );
   }
   // Problems for the desktop diagnostics log (desktop/diagnostics.cjs). The
   // worker forwards them to the main process; headless hosts may ignore them.
@@ -216,6 +227,9 @@ export class Coordinator extends EventEmitter {
         return this.artifacts.resolve(payload);
       case "harnesses.probe":
         this.installations = await this.probe();
+        break;
+      case "harnesses.models":
+        await this.refreshModels();
         break;
       case "employees.create":
         this.createEmployee(payload);

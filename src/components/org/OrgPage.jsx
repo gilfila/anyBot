@@ -73,7 +73,7 @@ function OrgCard({ node, employee, stats, working, selected, onSelect }) {
       ) : (
         <>
           <div className="org-card-top">
-            <RobotAvatar employee={employee} working={working} />
+            <RobotAvatar size={64} employee={employee} working={working} />
             <div className="org-card-text">
               <strong>{employee.name}</strong>
               <span>{employee.role}</span>
@@ -257,7 +257,7 @@ function AgentPanel({ employee, data, reports, act, onClose, onMessage, onEdit, 
       </header>
       <div className="task-peek-body">
         <div className="agent-hero">
-          <RobotAvatar employee={employee} working={running.length > 0} />
+          <RobotAvatar size={88} employee={employee} working={running.length > 0} />
           <div>
             <h2>{employee.name}</h2>
             <p>{employee.role}</p>
