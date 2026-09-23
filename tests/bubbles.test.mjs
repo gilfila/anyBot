@@ -20,8 +20,13 @@ test("every bubble tint keeps bot text readable in every theme", () => {
 });
 
 test("the CSS shades mirror the palette module", async () => {
-  const css = await readFile(new URL("../src/style.css", import.meta.url), "utf8");
-  const block = (selector) => css.slice(css.indexOf(`${selector} {\n  --bubble-l`)).split("}")[0];
+  // Normalized: Windows checkouts (CI) have CRLF line endings.
+  const css = (await readFile(new URL("../src/style.css", import.meta.url), "utf8")).replace(/\r\n/g, "\n");
+  const block = (selector) => {
+    const start = css.indexOf(`${selector} {\n  --bubble-l`);
+    assert.ok(start >= 0, `${selector} bubble shades in style.css`);
+    return css.slice(start).split("}")[0];
+  };
   for (const [selector, shade] of [[":root", BUBBLE_SHADES.light], [':root[data-scheme="dark"]', BUBBLE_SHADES.dark]]) {
     const rules = block(selector);
     assert.match(rules, new RegExp(`--bubble-l: ${shade.l};`), selector);
