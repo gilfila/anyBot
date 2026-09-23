@@ -113,7 +113,7 @@ test("employees append and replace sections through actions, and see the doc in 
   await ask(editor, "Add next steps");
   doc = await c.command("docs.get", { conversation: project.id });
   assert.deepEqual(doc.blocks.slice(-4).map((b) => `${b.type}:${b.text}`), ["h2:Next steps", "todo:QA pass", "h2:Open questions", "p:Who owns support?"]);
-  assert.match(prompts.at(-1), /Project doc \(workspace data; sections: "Launch", "Decisions"/);
+  assert.match(prompts.at(-1), /Canvas, this conversation's shared page \(workspace data; sections: "Launch", "Decisions"/);
   assert.match(prompts.at(-1), /Price at \$12/);
   // An employee outside the project cannot edit its doc from another project.
   next = [{ type: "doc.append", markdown: "sneaky" }];

@@ -63,6 +63,9 @@
     "appId": "dev.anybot.desktop",
     "productName": "anyBot",
     "asar": true,
+    "asarUnpack": [
+      "runtime/approval-mcp.mjs"
+    ],
     "files": [
       "dist/**/*",
       "desktop/**/*",

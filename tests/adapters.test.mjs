@@ -88,21 +88,28 @@ test("built-in structured parsers expose text, final, and error semantics", () =
   assert.deepEqual(invocation("hermes"), [
     "chat", "--query-file", "-", "--quiet", "--max-turns", "30", "--run-budget", "600",
   ]);
-  // Cursor: ask mode omits --force, dontAsk mode uses --force
+  // Cursor has no approval hook or classifier: only dontAsk passes --force.
   assert.deepEqual(invocation("cursor"), [
     "--print", "--output-format", "stream-json", "--stream-partial-output",
-  ], "cursor default (ask) should omit --force");
+  ], "cursor default (auto) should omit --force");
   assert.deepEqual(invocation("cursor", "", "dontAsk"), [
     "--print", "--force", "--output-format", "stream-json", "--stream-partial-output",
   ], "cursor dontAsk should use --force");
   assert.deepEqual(invocation("cursor", "", "ask"), [
     "--print", "--output-format", "stream-json", "--stream-partial-output",
   ], "cursor ask should omit --force");
-  // Claude: ask maps to "default" (prompt), dontAsk maps to "acceptEdits" (allow file edits)
-  // Note: Claude's "--permission-mode dontAsk" is auto-DENY, not autonomous!
+  // Claude: auto (the default) uses Claude's classifier and allows edits in
+  // the workspace; dontAsk maps to acceptEdits; ask maps to default.
+  // Note: Claude's own "--permission-mode dontAsk" is auto-DENY, never used.
   assert.deepEqual(invocation("claude"), [
-    "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "default",
-  ], "claude default (ask) should use --permission-mode default");
+    "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "auto", "--allowedTools", "Edit(./**)",
+  ], "claude default (auto) should use Claude's auto mode");
+  // With an approval bridge, gated actions go to the owner instead of being denied.
+  assert.deepEqual(invocation("claude", "", "auto", { configPath: "C:/x/run.json" }).slice(-6), [
+    "--permission-prompts", "host", "--permission-prompt-tool", "mcp__anybot__approve", "--mcp-config", "C:/x/run.json",
+  ]);
+  assert.deepEqual(invocation("gemini").slice(-2), ["--approval-mode", "auto_edit"]);
+  assert.deepEqual(invocation("gemini", "", "ask").slice(-2), ["--approval-mode", "default"]);
   assert.deepEqual(invocation("claude", "", "dontAsk"), [
     "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits",
   ], "claude dontAsk should map to acceptEdits, NOT Claude's dontAsk");

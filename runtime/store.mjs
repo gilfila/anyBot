@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 
 export const id = () => randomUUID();
 // Bump with each migration below. Newer workspaces are refused by older apps.
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 export const now = () => new Date().toISOString();
 
 export class Store {
@@ -314,6 +314,34 @@ export class Store {
         `);
         this.db
           .prepare("UPDATE metadata SET value='11' WHERE key='schema'")
+          .run();
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        this.db.close();
+        throw error;
+      }
+    }
+    const approvalsVersion = Number(
+      this.db.prepare("SELECT value FROM metadata WHERE key='schema'").get()
+        .value,
+    );
+    if (approvalsVersion < 12) {
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
+        this.db.exec(`
+          CREATE TABLE approvals (id TEXT PRIMARY KEY, run TEXT NOT NULL, conversation TEXT NOT NULL,
+            employee TEXT NOT NULL, tool TEXT NOT NULL, summary TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL CHECK (status IN ('pending','approved','denied','expired','cancelled')),
+            created TEXT NOT NULL, decided TEXT);
+          CREATE INDEX approvals_status ON approvals(status, created);
+        `);
+        // Headless runs can't show a permission prompt, so "ask" silently
+        // denied everything gated. Auto mode runs safe actions and routes
+        // risky ones to the owner.
+        this.db.exec("UPDATE employees SET permissionMode='auto' WHERE permissionMode='ask' OR permissionMode=''");
+        this.db
+          .prepare("UPDATE metadata SET value='12' WHERE key='schema'")
           .run();
         this.db.exec("COMMIT");
       } catch (error) {

@@ -89,8 +89,8 @@
   --muted: var(--ink-3);
   --surface: var(--card);
   --line: var(--rule);
-
-  font-family:
+  /* Themes (src/themes/themes.js) override these tokens on <html>. */
+  --font-ui:
     "Segoe UI Variable Text",
     "Segoe UI",
     Inter,
@@ -98,6 +98,8 @@
     BlinkMacSystemFont,
     system-ui,
     sans-serif;
+
+  font-family: var(--font-ui);
   color: var(--ink);
   background: var(--paper);
   color-scheme: light;
@@ -5144,4 +5146,152 @@ dialog {
     padding-right: 8px;
     gap: 5px;
   }
+}
+
+/* Markdown tables in chat messages */
+.md-table {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 8px 0;
+  border: 1px solid var(--rule-strong);
+  border-radius: 10px;
+}
+.md-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+.md-table th,
+.md-table td {
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--rule);
+  border-right: 1px solid var(--rule);
+}
+.md-table th {
+  font-weight: 650;
+  background: var(--paper-2);
+}
+.md-table tr:last-child td {
+  border-bottom: 0;
+}
+.md-table tr > *:last-child {
+  border-right: 0;
+}
+.message.from-you .md-table {
+  border-color: oklch(1 0 0 / 0.25);
+}
+.message.from-you .md-table th {
+  background: oklch(1 0 0 / 0.08);
+}
+
+/* Popup menus rendered at the top of the page (FloatingMenu), so a menu in
+   a scrolling list is never clipped and never stretches the list. */
+.floating-menu {
+  position: fixed;
+  z-index: 1000;
+}
+.floating-menu.bot-row-menu {
+  position: fixed;
+  right: auto;
+}
+
+/* Approvals: a bot is paused until the owner answers. Vermilion marks what
+   needs the owner's eye. */
+.approval-bar {
+  display: grid;
+  gap: 8px;
+  max-width: 820px;
+  width: calc(100% - 56px);
+  margin: 0 auto 10px;
+}
+.approval {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--card);
+  border: 1.5px solid var(--accent);
+  border-radius: 12px;
+  box-shadow: 0 0 0 4px var(--accent-wash);
+}
+.approval-icon {
+  color: var(--accent-ink);
+}
+.approval .robot-avatar.small {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+}
+.approval-text {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.approval-text strong {
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.approval-text code {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.approval-actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.approval-actions .primary,
+.approval-actions .secondary {
+  gap: 5px;
+  padding: 7px 12px;
+}
+
+/* Larger bot avatars (0.3.9): the 3D models read better with room. Sizes
+   are set per place on <RobotAvatar size>; these rules make room for them. */
+.bot-list {
+  max-height: 290px;
+}
+.bot-list .bot-row-main {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+.org-card {
+  min-height: 124px;
+}
+.org-card-top .robot-avatar,
+.agent-hero .robot-avatar {
+  width: auto;
+  height: auto;
+}
+
+/* Dialogs: the body scrolls; the heading (with its close button) and the
+   form's primary button stay pinned, so neither needs scrolling to reach. */
+dialog[open] {
+  padding: 0 27px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+dialog .modal-heading {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  margin: 0 -27px 12px;
+  padding: 22px 27px 12px;
+  background: var(--card);
+  box-shadow: 0 1px 0 var(--rule);
+}
+dialog > :last-child {
+  margin-bottom: 22px;
+}
+dialog .modal-form > .primary.full:last-child {
+  position: sticky;
+  bottom: 18px;
+  z-index: 3;
+  box-shadow: 0 0 0 18px var(--card);
 }

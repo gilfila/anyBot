@@ -1,0 +1,635 @@
+/* ==========================================================================
+   Theme decorations. Colors come from tokens (src/themes/themes.js sets them
+   on <html>); this file only reacts to the decoration presets on <html>:
+   data-backdrop, data-chrome, data-bubbles, and data-motion.
+   ========================================================================== */
+.app-shell {
+  position: relative;
+  z-index: 1;
+}
+.theme-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Surfaces turn to glass so the backdrop shows through. */
+:root:is([data-backdrop="rain"], [data-backdrop="meadow"], [data-backdrop="grid"]) main {
+  background: var(--glass);
+}
+:root:is([data-backdrop="rain"], [data-backdrop="meadow"], [data-backdrop="grid"]) :is(.sidebar, .context-rail) {
+  background: var(--glass-2);
+}
+:root:is([data-backdrop="rain"], [data-backdrop="meadow"], [data-backdrop="grid"]) :is(.chat-main, .project-tabs, .chat-heading, .page, .messages, .project-doc, .project-board, .org-page, .org-main, .kg-main) {
+  background: transparent;
+}
+
+/* Motion off (owner setting or OS preference): freeze every decoration. */
+:root[data-motion="off"] :is(.theme-backdrop, .theme-backdrop *, .message-body, .composer, .theme-card, .org-card, .canvas-strip),
+:root[data-motion="off"] :is(.message-body, .composer)::before {
+  animation: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.theme-backdrop, .theme-backdrop *, .message-body, .composer, .theme-card, .org-card, .canvas-strip) {
+    animation: none !important;
+  }
+}
+
+/* --- Matrix ------------------------------------------------------------- */
+.matrix-rain {
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0.85;
+}
+:root[data-backdrop="rain"] body {
+  background: var(--paper);
+}
+:root[data-chrome="terminal"] {
+  --radius: 3px;
+  --radius-sm: 2px;
+  caret-color: var(--accent);
+}
+:root[data-chrome="terminal"]
+  :is(
+    .primary,
+    .secondary,
+    .danger,
+    .composer,
+    .segmented,
+    .segmented button,
+    .kg-chip,
+    .canvas-strip,
+    .canvas-files li,
+    .canvas-link-card a,
+    .canvas-table-scroll,
+    .md-table,
+    .doc-task,
+    .doc-file,
+    .org-card,
+    .task-card,
+    .board-column,
+    .bot-row,
+    .bot-row-main,
+    nav button,
+    .theme-card,
+    .code-block,
+    .settings-nav-item,
+    input,
+    textarea,
+    select
+  ) {
+  border-radius: 3px;
+}
+:root[data-chrome="terminal"] :is(h1, h2, .brand, .kg-label) {
+  text-shadow: 0 0 10px oklch(0.9 0.17 145 / 0.35);
+}
+:root[data-chrome="terminal"] .composer {
+  border-color: var(--rule-strong);
+  box-shadow: 0 0 22px -10px var(--accent);
+}
+:root[data-chrome="terminal"] .composer:focus-within {
+  box-shadow: 0 0 0 1px var(--accent), 0 0 26px -8px var(--accent);
+}
+/* Faint CRT scanlines across the whole window. */
+:root[data-chrome="terminal"] body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: repeating-linear-gradient(to bottom, transparent 0 2px, oklch(0 0 0 / 0.14) 2px 3px);
+}
+:root[data-bubbles="terminal"] .message:not(.from-you):not(.handoff) .message-body {
+  padding-left: 12px;
+  border-left: 2px solid var(--ink-4);
+}
+:root[data-bubbles="terminal"] .message.from-you .message-body {
+  position: relative;
+  padding-left: 28px;
+  border-radius: 3px;
+}
+/* A shell prompt in front of what you typed. */
+:root[data-bubbles="terminal"] .message.from-you .message-body::before {
+  content: ">";
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  font-weight: 700;
+}
+
+/* --- Solarpunk ---------------------------------------------------------- */
+:root[data-backdrop="meadow"] body {
+  background: linear-gradient(180deg, oklch(0.9 0.06 230) 0%, oklch(0.95 0.04 205) 38%, oklch(0.975 0.03 95) 78%);
+}
+.meadow-sun {
+  position: absolute;
+  top: -120px;
+  right: 8%;
+  width: 360px;
+  height: 360px;
+  border-radius: 50%;
+  background: radial-gradient(circle, oklch(0.97 0.1 95) 0 22%, oklch(0.94 0.12 90 / 0.55) 30%, oklch(0.95 0.08 90 / 0) 68%);
+}
+.meadow-cloud {
+  position: absolute;
+  width: 220px;
+  fill: oklch(1 0 0 / 0.85);
+  animation: cloud-drift 140s linear infinite;
+}
+.cloud-a {
+  top: 70px;
+  animation-delay: -30s;
+}
+.cloud-b {
+  top: 150px;
+  width: 170px;
+  animation-duration: 190s;
+  animation-delay: -110s;
+}
+.cloud-c {
+  top: 36px;
+  width: 140px;
+  animation-duration: 230s;
+  animation-delay: -60s;
+}
+@keyframes cloud-drift {
+  from {
+    transform: translateX(-260px);
+  }
+  to {
+    transform: translateX(calc(100vw + 60px));
+  }
+}
+.meadow-scene {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 46vh;
+  min-height: 260px;
+}
+.meadow-blades {
+  animation: spin 9s linear infinite;
+}
+.meadow-robot {
+  animation: robot-bob 3.2s ease-in-out infinite;
+}
+.meadow-robot + .meadow-robot {
+  animation-delay: -1.4s;
+}
+.meadow-drone {
+  animation: drone-float 7s ease-in-out infinite;
+}
+.meadow-water {
+  animation: water 1.6s ease-in-out infinite;
+}
+@keyframes spin {
+  to {
+    rotate: 360deg;
+  }
+}
+@keyframes robot-bob {
+  50% {
+    translate: 0 -3px;
+  }
+}
+@keyframes drone-float {
+  50% {
+    translate: 40px -14px;
+  }
+}
+@keyframes water {
+  50% {
+    opacity: 0.2;
+  }
+}
+:root[data-chrome="glass"] {
+  --radius: 14px;
+}
+:root[data-chrome="glass"] :is(.primary, .secondary, .danger) {
+  border-radius: 999px;
+}
+:root[data-chrome="glass"] .composer {
+  border-color: var(--ok);
+  border-radius: 22px;
+  box-shadow: 0 14px 34px -22px oklch(0.4 0.08 150 / 0.55);
+}
+:root[data-chrome="glass"] :is(.canvas-strip, .settings-card, .theme-card) {
+  box-shadow: 0 10px 28px -24px oklch(0.4 0.08 150 / 0.5);
+}
+:root[data-bubbles="leaf"] .message:not(.from-you):not(.handoff) .message-body {
+  padding: 10px 15px;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 4px 18px 18px 18px;
+  box-shadow: 0 8px 20px -16px oklch(0.4 0.07 150 / 0.55);
+}
+:root[data-bubbles="leaf"] .message.from-you .message-body {
+  border-radius: 18px 4px 18px 18px;
+}
+
+/* --- Cyberpunk ---------------------------------------------------------- */
+:root[data-backdrop="grid"] body {
+  background:
+    radial-gradient(ellipse at 15% 0%, oklch(0.42 0.2 320 / 0.35), transparent 55%),
+    radial-gradient(ellipse at 90% 5%, oklch(0.55 0.15 205 / 0.28), transparent 50%),
+    linear-gradient(180deg, oklch(0.12 0.04 280), oklch(0.17 0.07 300));
+}
+.neon-skyline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 30vh;
+  width: 100%;
+  height: 34vh;
+  opacity: 0.9;
+}
+.neon-horizon {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 30vh;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--neon-2), var(--neon-1), var(--neon-2), transparent);
+  box-shadow: 0 0 24px 4px oklch(0.7 0.27 340 / 0.5);
+}
+.neon-floor {
+  position: absolute;
+  left: -50%;
+  right: -50%;
+  bottom: 0;
+  height: 30vh;
+  transform: perspective(360px) rotateX(58deg);
+  transform-origin: top;
+  background-image:
+    linear-gradient(oklch(0.7 0.27 340 / 0.55) 1.5px, transparent 1.5px),
+    linear-gradient(90deg, oklch(0.86 0.15 200 / 0.4) 1.5px, transparent 1.5px);
+  background-size: 56px 56px;
+  mask-image: linear-gradient(to bottom, black, transparent 95%);
+  animation: grid-roll 3.5s linear infinite;
+}
+@keyframes grid-roll {
+  to {
+    background-position: 0 56px, 0 0;
+  }
+}
+@property --neon-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+@keyframes neon-spin {
+  to {
+    --neon-angle: 360deg;
+  }
+}
+/* Animated neon border: a spinning conic gradient behind the padding box. */
+:root[data-chrome="neon"] :is(.composer, .theme-card.is-selected, .org-card.is-selected, .canvas-strip) {
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(var(--card), var(--card)) padding-box,
+    conic-gradient(from var(--neon-angle), var(--neon-1), var(--neon-2), var(--neon-3), var(--neon-1)) border-box;
+  animation: neon-spin 6s linear infinite;
+}
+:root[data-chrome="neon"] .composer {
+  box-shadow: 0 0 26px -8px var(--neon-2);
+}
+:root[data-chrome="neon"] .primary {
+  background: var(--accent);
+  color: var(--paper);
+  box-shadow: 0 0 18px -4px var(--accent);
+}
+:root[data-chrome="neon"] .primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+:root[data-chrome="neon"] :is(h1, .brand) {
+  text-shadow: 0 0 14px oklch(0.7 0.27 340 / 0.55), 0 0 2px oklch(0.86 0.15 200 / 0.6);
+}
+:root[data-chrome="neon"] .project-tabs button.active::after {
+  background: linear-gradient(90deg, var(--neon-1), var(--neon-2));
+  box-shadow: 0 0 10px var(--neon-2);
+}
+:root[data-chrome="neon"] :is(.bot-row.selected, nav button.selected) {
+  box-shadow: inset 2px 0 0 var(--neon-1), 0 0 18px -10px var(--neon-1);
+}
+:root[data-bubbles="hologram"] .message:not(.from-you):not(.handoff) .message-body,
+:root[data-bubbles="hologram"] .message.from-you .message-body {
+  position: relative;
+  padding: 12px 16px;
+  color: var(--ink);
+  border: 1px solid oklch(0.86 0.15 200 / 0.45);
+  border-radius: 4px;
+  background:
+    repeating-linear-gradient(to bottom, oklch(0.86 0.15 200 / 0.07) 0 1px, transparent 1px 3px),
+    linear-gradient(135deg, oklch(0.86 0.15 200 / 0.13), oklch(0.7 0.27 340 / 0.07));
+  box-shadow: 0 0 24px -10px var(--neon-1), inset 0 0 22px -14px var(--neon-1);
+  animation: holo-in 520ms var(--ease-out) both;
+}
+:root[data-bubbles="hologram"] .message.from-you .message-body {
+  border-color: oklch(0.7 0.27 340 / 0.55);
+  background:
+    repeating-linear-gradient(to bottom, oklch(0.7 0.27 340 / 0.08) 0 1px, transparent 1px 3px),
+    linear-gradient(135deg, oklch(0.7 0.27 340 / 0.3), oklch(0.55 0.2 300 / 0.25));
+  box-shadow: 0 0 24px -10px var(--neon-2), inset 0 0 22px -14px var(--neon-2);
+}
+/* Corner brackets, like a projected panel. */
+:root[data-bubbles="hologram"] .message .message-body::before,
+:root[data-bubbles="hologram"] .message .message-body::after {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  pointer-events: none;
+}
+:root[data-bubbles="hologram"] .message .message-body::before {
+  top: -1px;
+  left: -1px;
+  border-top: 2px solid var(--neon-1);
+  border-left: 2px solid var(--neon-1);
+}
+:root[data-bubbles="hologram"] .message .message-body::after {
+  right: -1px;
+  bottom: -1px;
+  border-right: 2px solid var(--neon-1);
+  border-bottom: 2px solid var(--neon-1);
+}
+:root[data-bubbles="hologram"] .message.handoff .message-body::before,
+:root[data-bubbles="hologram"] .message.handoff .message-body::after {
+  display: none;
+}
+@keyframes holo-in {
+  0% {
+    opacity: 0;
+    filter: blur(3px) brightness(1.8);
+    transform: translateY(5px) scaleY(0.96);
+  }
+  55% {
+    opacity: 0.9;
+  }
+  65% {
+    opacity: 0.45;
+  }
+  100% {
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
+}
+
+/* --- Settings → Appearance --------------------------------------------- */
+.appearance {
+  margin-bottom: 8px;
+}
+.appearance > p {
+  max-width: 640px;
+  margin-bottom: 14px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 14px;
+}
+.theme-card {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  text-align: left;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  transition: border-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
+}
+.theme-card:hover {
+  border-color: var(--rule-strong);
+}
+.theme-card.is-selected {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 1px var(--ink);
+}
+.theme-card-text {
+  display: grid;
+  gap: 2px;
+  padding: 0 4px 4px;
+}
+.theme-card-text strong {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 14px;
+}
+.theme-card-text small {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--ink-3);
+}
+.theme-card-check {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: var(--paper);
+  background: var(--ink);
+}
+/* The preview renders in the card's own theme (its tokens are set inline). */
+.theme-preview {
+  position: relative;
+  height: 118px;
+  display: grid;
+  grid-template-columns: 30% 1fr;
+  overflow: hidden;
+  font-family: var(--font-ui);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 9px;
+}
+.theme-preview-side {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  padding: 10px 8px;
+  background: var(--paper-2);
+  border-right: 1px solid var(--rule);
+}
+.theme-preview-side i {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--ink-4);
+}
+.theme-preview-side i:first-child {
+  width: 70%;
+  background: var(--ink);
+}
+.theme-preview-main {
+  position: relative;
+  display: grid;
+  align-content: end;
+  gap: 6px;
+  padding: 10px;
+}
+.theme-preview-bot {
+  justify-self: start;
+  max-width: 80%;
+  padding: 4px 8px;
+  font-size: 10px;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+}
+.theme-preview-you {
+  justify-self: end;
+  padding: 4px 8px;
+  font-size: 10px;
+  color: var(--paper);
+  background: var(--ink);
+  border-radius: 8px;
+}
+.theme-preview-composer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 18px;
+  padding: 0 4px;
+  background: var(--card);
+  border: 1px solid var(--ink-3);
+  border-radius: 6px;
+}
+.theme-preview-composer i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.theme-preview[data-backdrop="rain"] .theme-preview-main::before {
+  content: "ｱ7ﾊ ﾓ3ｷ 0ﾘ ｻ9ﾇ ｶ1ﾃ";
+  position: absolute;
+  inset: 0;
+  padding: 2px 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 12px;
+  letter-spacing: 6px;
+  color: var(--ink-4);
+  opacity: 0.5;
+  writing-mode: vertical-rl;
+}
+.theme-preview[data-backdrop="meadow"] {
+  background: linear-gradient(180deg, oklch(0.9 0.06 230), oklch(0.975 0.03 95));
+}
+.theme-preview[data-backdrop="meadow"] .theme-preview-main::before {
+  content: "";
+  position: absolute;
+  left: -10%;
+  right: -10%;
+  bottom: -40px;
+  height: 70px;
+  border-radius: 50%;
+  background: oklch(0.78 0.11 140 / 0.7);
+}
+.theme-preview[data-backdrop="meadow"] .theme-preview-main::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: oklch(0.93 0.13 95);
+  box-shadow: 0 0 14px oklch(0.94 0.12 90);
+}
+.theme-preview[data-backdrop="grid"] {
+  background:
+    linear-gradient(oklch(0.7 0.27 340 / 0.25) 1px, transparent 1px) 0 0 / 14px 14px,
+    linear-gradient(90deg, oklch(0.86 0.15 200 / 0.2) 1px, transparent 1px) 0 0 / 14px 14px,
+    var(--paper);
+}
+.theme-preview[data-backdrop="grid"] .theme-preview-composer {
+  border-color: var(--neon-2);
+  box-shadow: 0 0 10px -2px var(--neon-2);
+}
+.theme-preview[data-backdrop="grid"] .theme-preview-bot {
+  border-color: oklch(0.86 0.15 200 / 0.6);
+  box-shadow: 0 0 10px -4px var(--neon-1);
+}
+.theme-preview :is(.theme-preview-bot, .theme-preview-you) {
+  position: relative;
+  z-index: 1;
+}
+.appearance-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+}
+.appearance-options strong {
+  display: block;
+  font-size: 14px;
+  color: var(--ink);
+}
+.appearance-options small {
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.appearance-custom {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 14px 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  border: 1px dashed var(--rule-strong);
+  border-radius: 12px;
+}
+.appearance-custom strong {
+  color: var(--ink);
+}
+.appearance-custom svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--ink-3);
+}
+.switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 22px;
+  padding: 0;
+  border-radius: 999px;
+  background: var(--rule-strong);
+  transition: background-color 160ms var(--ease-out);
+}
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--card);
+  transition: transform 160ms var(--ease-out);
+}
+.switch[aria-checked="true"] {
+  background: var(--ink);
+}
+.switch[aria-checked="true"]::after {
+  transform: translateX(18px);
+}

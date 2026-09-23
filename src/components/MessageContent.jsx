@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { Code, FileText, ExternalLink, ChevronDown, ChevronUp, Eye } from "lucide-react";
-import { renderMarkdownInline } from "../lib/markdown.js";
+import { TABLE_ROW, TABLE_RULE, renderMarkdownInline, tableCells } from "../lib/markdown.js";
 
 const HTML_PATTERN = /^\s*<!doctype\s+html|^\s*<html[\s>]/i;
 const CODE_BLOCK_PATTERN = /```(\w*)\n([\s\S]*?)```/g;
@@ -134,6 +134,40 @@ function MarkdownText({ text }) {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+
+    if (TABLE_ROW.test(line) && TABLE_RULE.test(lines[i + 1] || "")) {
+      flush();
+      const [head, ...body] = [tableCells(line), ...(() => {
+        const rows = [];
+        i += 2;
+        while (i < lines.length && TABLE_ROW.test(lines[i])) rows.push(tableCells(lines[i++]));
+        i -= 1;
+        return rows;
+      })()];
+      elements.push(
+        <div className="md-table" key={`table-${i}`}>
+          <table>
+            <thead>
+              <tr>
+                {head.map((cell, c) => (
+                  <th key={c} dangerouslySetInnerHTML={inline(cell)} />
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {body.map((row, r) => (
+                <tr key={r}>
+                  {head.map((_, c) => (
+                    <td key={c} dangerouslySetInnerHTML={inline(row[c] || "")} />
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>,
+      );
+      continue;
+    }
 
     const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
     if (headingMatch) {

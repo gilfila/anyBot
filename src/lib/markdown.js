@@ -9,6 +9,27 @@ const SAFE_LINK_PATTERN = /^(https?:|mailto:)/i;
 const BARE_URL_PATTERN = /\bhttps?:\/\/(?:(?!&quot;|&#39;|&lt;|&gt;)[^\s<])+/g;
 const TRAILING_URL_PUNCTUATION = /[.,:;!?)\]]+$/;
 
+// GFM tables: a header row of pipes, a --- rule, then body rows. The
+// runtime keeps its own copy in runtime/docs.mjs (it can't import src/).
+export const TABLE_ROW = /^\s*\|.*\|\s*$/;
+export const TABLE_RULE = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+export function tableCells(line) {
+  const cells = [];
+  let cell = "";
+  const body = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] === "\\" && body[i + 1] === "|") {
+      cell += "|";
+      i += 1;
+    } else if (body[i] === "|") {
+      cells.push(cell.trim());
+      cell = "";
+    } else cell += body[i];
+  }
+  cells.push(cell.trim());
+  return cells;
+}
+
 export function escapeHtml(text) {
   return text
     .replace(/&/g, "&amp;")
@@ -25,7 +46,26 @@ export function escapeHtml(text) {
 // Doc pages link tasks, employees, and files with @[label](kind:id) tokens.
 const MENTION_PATTERN = /@\[([^\]\n]{1,80})\]\((task|agent|file):([A-Za-z0-9-]{6,64})\)/g;
 
-export function renderMarkdownInline(text, { mentions = false } = {}) {
+// A formatting bug must not blank a message: fall back to escaped text and
+// tell the host (main.jsx wires this to the diagnostics log).
+let renderErrorHandler = () => {};
+export function onRenderError(handler) {
+  renderErrorHandler = typeof handler === "function" ? handler : () => {};
+}
+export function renderMarkdownInline(text, options) {
+  try {
+    return renderInline(text, options);
+  } catch (error) {
+    try {
+      renderErrorHandler(error);
+    } catch {
+      // The fallback below still renders.
+    }
+    return escapeHtml(String(text ?? ""));
+  }
+}
+
+function renderInline(text, { mentions = false } = {}) {
   const parked = [];
   const park = (html) => `\u0000${parked.push(html) - 1}\u0000`;
   let result = escapeHtml(text);

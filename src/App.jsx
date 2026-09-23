@@ -142,6 +142,7 @@ import { Avatar } from "./components/Avatar.jsx";
 import { RobotAvatar, AvatarActivityContext } from "./components/RobotAvatar.jsx";
 import { employeeAvatarStates } from "./lib/avatar-config.js";
 import { WorkingIndicator } from "./components/WorkingIndicator.jsx";
+import { ApprovalBar } from "./components/ApprovalBar.jsx";
 import { Status } from "./components/Status.jsx";
 import { Empty } from "./components/Empty.jsx";
 import { Modal } from "./components/Modal.jsx";
@@ -158,7 +159,11 @@ import { ProjectSettingsForm } from "./components/ProjectSettingsForm.jsx";
 import { ProjectBoard } from "./components/board/ProjectBoard.jsx";
 import { TaskPeek } from "./components/board/TaskPeek.jsx";
 import { ProjectDoc } from "./components/doc/ProjectDoc.jsx";
-import { OrgPage } from "./components/org/OrgPage.jsx";
+// The Organization page (org chart, knowledge graph, d3) loads on first visit.
+const OrgPage = React.lazy(() => import("./components/org/OrgPage.jsx").then((m) => ({ default: m.OrgPage })));
+import { DiagnosticsPanel } from "./components/DiagnosticsPanel.jsx";
+import { FloatingMenu } from "./components/FloatingMenu.jsx";
+import { AppearancePanel } from "./components/theme/AppearancePanel.jsx";
 import { statusLabel } from "./components/board/meta.js";
 
 // A task being started posts its brief into the project chat. Render it as a
@@ -213,6 +218,7 @@ export function App() {
     } catch { return {}; }
   });
   const [openBotMenu, setOpenBotMenu] = useState(null);
+  const botMenuAnchor = useRef(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(() => {
     try {
@@ -586,6 +592,7 @@ export function App() {
             const unread = botConv && hasUnreadMessages(botConv.id);
             const isMenuOpen = openBotMenu === employee.id;
             const run = currentRun(employee.id);
+            const waiting = (data.approvals || []).some((a) => a.status === "pending" && a.employee === employee.id);
             return (
               <div
                 key={employee.id}
@@ -595,11 +602,11 @@ export function App() {
                   className="bot-row-main"
                   onClick={() => directChat(employee)}
                 >
-                  <RobotAvatar small employee={employee} working={run?.status === "running"} />
+                  <RobotAvatar size={50} employee={employee} working={run?.status === "running"} />
                   <span className="bot-row-text">
                     <span className="bot-row-name">{employee.name}</span>
-                    <small className={run?.status === "running" ? "live" : ""}>
-                      {run ? (run.status === "running" ? "Working…" : "Queued") : employee.role}
+                    <small className={waiting || run?.status === "running" ? "live" : ""}>
+                      {waiting ? "Needs your approval" : run ? (run.status === "running" ? "Working…" : "Queued") : employee.role}
                     </small>
                   </span>
                   {unread && <i className="unread-dot" aria-label="Unread messages" />}
@@ -611,6 +618,7 @@ export function App() {
                   aria-haspopup="menu"
                   onClick={(e) => {
                     e.stopPropagation();
+                    botMenuAnchor.current = e.currentTarget;
                     setOpenBotMenu(isMenuOpen ? null : employee.id);
                   }}
                   onKeyDown={(e) => {
@@ -620,10 +628,11 @@ export function App() {
                   <MoreHorizontal size={14} />
                 </button>
                 {isMenuOpen && (
-                  <div
+                  <FloatingMenu
                     className="bot-row-menu"
-                    role="menu"
-                    onClick={(e) => e.stopPropagation()}
+                    anchor={botMenuAnchor.current}
+                    label={`Actions for ${employee.name}`}
+                    onClose={() => setOpenBotMenu(null)}
                   >
                     <button
                       role="menuitem"
@@ -646,7 +655,7 @@ export function App() {
                       <Trash2 size={14} />
                       Delete
                     </button>
-                  </div>
+                  </FloatingMenu>
                 )}
               </div>
             );
@@ -708,6 +717,11 @@ export function App() {
           <button className="plain" onClick={() => setView("settings")}>
             <Monitor size={16} />
             Runtime & privacy
+            {data.diagnostics?.unseen > 0 && (
+              <span className="nav-count" title="New problems in Diagnostics">
+                {data.diagnostics.unseen}
+              </span>
+            )}
             <ChevronRight size={14} />
           </button>
         </div>
@@ -874,7 +888,7 @@ export function App() {
                           className={`roster-row${working ? " is-working" : ""}${e.archived ? " is-archived" : ""}`}
                           key={e.id}
                         >
-                          <RobotAvatar employee={e} working={working} />
+                          <RobotAvatar size={72} employee={e} working={working} />
                           <div className="roster-who">
                             <h3>{e.name}</h3>
                             <span className="role">{e.role}</span>
@@ -1008,7 +1022,7 @@ export function App() {
                       key={p.harness}
                       onClick={() => setModal({ type: "employee", preset: p })}
                     >
-                      <RobotAvatar employee={p} />
+                      <RobotAvatar size={64} employee={p} />
                       <span className="template-text">
                         <strong>{p.role}</strong>
                         <small>{p.summary}</small>
@@ -1097,8 +1111,8 @@ export function App() {
                   </button>
                 )}
               </div>
-              {isProject && (
-                <div className="project-tabs" role="tablist" aria-label="Project views">
+              {conversation && (
+                <div className="project-tabs" role="tablist" aria-label="Conversation views">
                   <button
                     role="tab"
                     aria-selected={projectTab === "chat"}
@@ -1108,28 +1122,30 @@ export function App() {
                     <MessageSquare size={15} />
                     Chat
                   </button>
+                  {isProject && (
+                    <button
+                      role="tab"
+                      aria-selected={projectTab === "board"}
+                      className={projectTab === "board" ? "active" : ""}
+                      onClick={() => setProjectTab("board")}
+                    >
+                      <Columns3 size={15} />
+                      Board
+                      {openTaskCount > 0 && <span className="project-tab-count">{openTaskCount}</span>}
+                    </button>
+                  )}
                   <button
                     role="tab"
-                    aria-selected={projectTab === "board"}
-                    className={projectTab === "board" ? "active" : ""}
-                    onClick={() => setProjectTab("board")}
-                  >
-                    <Columns3 size={15} />
-                    Board
-                    {openTaskCount > 0 && <span className="project-tab-count">{openTaskCount}</span>}
-                  </button>
-                  <button
-                    role="tab"
-                    aria-selected={projectTab === "doc"}
-                    className={projectTab === "doc" ? "active" : ""}
-                    onClick={() => setProjectTab("doc")}
+                    aria-selected={projectTab === "canvas"}
+                    className={projectTab === "canvas" ? "active" : ""}
+                    onClick={() => setProjectTab("canvas")}
                   >
                     <FileText size={15} />
-                    Doc
+                    Canvas
                   </button>
                 </div>
               )}
-              {isProject && projectTab === "doc" ? (
+              {conversation && projectTab === "canvas" ? (
                 <ProjectDoc
                   conversation={conversation}
                   data={data}
@@ -1139,6 +1155,7 @@ export function App() {
                     setRightSidebarOpen(true);
                   }}
                   onOpenArtifact={openArtifact}
+                  onRevealArtifact={revealArtifact}
                 />
               ) : isProject && projectTab === "board" ? (
                 <ProjectBoard
@@ -1188,7 +1205,7 @@ export function App() {
                       <Avatar small employee={{ name: "Y" }} />
                     ) : m.author === "system" ? null : (
                       <RobotAvatar
-                        small
+                        size={52}
                         employee={data.employees.find((e) => e.id === m.author)}
                       />
                     )}
@@ -1225,7 +1242,7 @@ export function App() {
                 {activeRuns.map((r) => (
                   <div className="message live-run" key={r.id}>
                     <RobotAvatar
-                      small
+                      size={52}
                       employee={data.employees.find((e) => e.id === r.employee)}
                       working
                     />
@@ -1277,6 +1294,11 @@ export function App() {
                   ))}
                 <div ref={end} />
               </div>
+              <ApprovalBar
+                approvals={(data.approvals || []).filter((a) => a.conversation === conversationId)}
+                employees={data.employees}
+                onDecide={(id, decision) => act("approvals.decide", { id, decision })}
+              />
               <WorkingIndicator
                 runs={activeRuns}
                 employees={data.employees}
@@ -1363,7 +1385,7 @@ export function App() {
               />
             ) : (
             <ContextRail
-              open={rightSidebarOpen && !(isProject && projectTab !== "chat")}
+              open={rightSidebarOpen && projectTab === "chat"}
               conversation={conversation}
               employees={data.employees}
               activeRuns={activeRuns}
@@ -1371,6 +1393,14 @@ export function App() {
               conversationId={conversationId}
               harnessName={harnessName}
               onOpenArtifact={openArtifact}
+              onRevealArtifact={revealArtifact}
+              data={data}
+              act={act}
+              onOpenTask={(taskId) => {
+                setProjectTab(isProject ? "board" : "chat");
+                setSelectedTask(taskId);
+              }}
+              onExpandCanvas={() => setProjectTab("canvas")}
               activeToolsTab={activeToolsPanel}
               onToolsTabChange={setActiveToolsPanel}
               browserUrl={browserUrl}
@@ -1419,7 +1449,7 @@ export function App() {
                 {[...data.runs].reverse().map((r) => (
                   <article className="run-row" key={r.id}>
                     <RobotAvatar
-                      small
+                      size={44}
                       employee={data.employees.find((e) => e.id === r.employee)}
                       working={r.status === "running"}
                     />
@@ -1655,6 +1685,7 @@ export function App() {
                 </div>
               </div>
             )}
+            <AppearancePanel />
             <div className="settings-card">
               <div>
                 <h3>Check for updates</h3>
@@ -1711,6 +1742,11 @@ export function App() {
                 <ChevronRight size={16} />
               </button>
             </div>
+            <DiagnosticsPanel
+              data={data}
+              onEditEmployee={(employee) => setModal({ type: "employee", preset: employee, editing: true })}
+              onOpenHarnesses={() => setView("harnesses")}
+            />
             <h2 className="settings-section-title">Runtime & Privacy</h2>
             <div className="settings-card">
               <div>
@@ -1817,14 +1853,16 @@ export function App() {
           </div>
         )}
         {view === "org" && (
-          <OrgPage
-            data={data}
-            act={act}
-            tab={orgTab}
-            onTab={setOrgTab}
-            onMessage={(employee) => directChat(employee)}
-            onEdit={(employee) => setModal({ type: "employee", preset: employee, editing: true })}
-          />
+          <React.Suspense fallback={null}>
+            <OrgPage
+              data={data}
+              act={act}
+              tab={orgTab}
+              onTab={setOrgTab}
+              onMessage={(employee) => directChat(employee)}
+              onEdit={(employee) => setModal({ type: "employee", preset: employee, editing: true })}
+            />
+          </React.Suspense>
         )}
         {view === "routines" && (
           <div className="page">
@@ -2040,7 +2078,7 @@ export function App() {
         >
           <div className="delete-confirm-content">
             <div className="delete-confirm-avatar">
-              <RobotAvatar employee={deleteConfirm} />
+              <RobotAvatar size={88} employee={deleteConfirm} />
             </div>
             <p>
               Are you sure you want to delete <strong>{deleteConfirm.name}</strong>?

@@ -55,7 +55,107 @@ export const harnesses = [
   },
 ];
 
-const modelId = /^[a-zA-Z0-9][a-zA-Z0-9_.:/+-]{0,119}$/;
+// Brackets allow context variants such as claude-fable-5-1[1m]; models are
+// passed as a single argv entry, never through a shell.
+const modelId = /^[a-zA-Z0-9][a-zA-Z0-9_.:/+[\]-]{0,119}$/;
+// Live model lists. Each CLI keeps its own, refreshed whenever it talks to
+// its provider, so reading them picks up new models the day they ship,
+// without an anyBot update:
+// - Claude Code: ~/.claude.json additionalModelOptionsCache (server-provided;
+//   entries that need a newer CLI come back disabled with the reason).
+// - Codex: models_cache.json in CODEX_HOME.
+// - Gemini: model ids in the installed CLI bundle (follows CLI updates).
+// - Hermes: its provider's catalog; the openai-codex provider uses Codex's.
+const homeOf = (env) => env.USERPROFILE || env.HOME || "";
+const readJson = async (file) => JSON.parse(await readFile(file, "utf8"));
+const clipText = (value, max) => (typeof value === "string" && value.trim() ? value.trim().slice(0, max) : undefined);
+
+async function codexModels(env) {
+  const document = await readJson(join(env.CODEX_HOME || join(homeOf(env), ".codex"), "models_cache.json"));
+  return (Array.isArray(document.models) ? document.models : [])
+    .filter((model) => typeof model?.slug === "string" && (model.visibility ?? "list") === "list")
+    .sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99))
+    .map((model) => ({
+      value: model.slug,
+      label: clipText(model.display_name, 80) || model.slug,
+      description: clipText(model.description, 160),
+    }));
+}
+
+const geminiScans = new Map();
+async function geminiModels(executable) {
+  const entry = executable?.prefix?.find((part) => /gemini-cli[\\/]bundle[\\/][^\\/]+\.js$/i.test(part));
+  if (!entry) return [];
+  const bundle = dirname(entry);
+  const stamp = statSync(entry).mtimeMs;
+  if (geminiScans.get(bundle)?.stamp === stamp) return geminiScans.get(bundle).models;
+  const counts = new Map();
+  for (const file of (await readdir(bundle)).filter((name) => name.endsWith(".js")).slice(0, 80)) {
+    const text = await readFile(join(bundle, file), "utf8");
+    for (const match of text.matchAll(/["'](gemini-\d+(?:\.\d+)?-(?:pro|flash|flash-lite)(?:-preview)?)["']/g))
+      counts.set(match[1], (counts.get(match[1]) || 0) + 1);
+  }
+  const version = (id) => Number(id.match(/gemini-(\d+(?:\.\d+)?)/)[1]);
+  const models = [...counts.keys()]
+    .sort((a, b) => version(b) - version(a) || counts.get(b) - counts.get(a))
+    .slice(0, 12)
+    .map((value) => ({ value, label: `${value} (installed CLI)` }));
+  geminiScans.set(bundle, { stamp, models });
+  return models;
+}
+
+async function hermesModels(env) {
+  const roots = [env.LOCALAPPDATA && join(env.LOCALAPPDATA, "hermes"), join(homeOf(env), ".hermes")].filter(Boolean);
+  for (const base of roots) {
+    let config;
+    try {
+      config = (await readFile(join(base, "config.yaml"), "utf8")).replace(/\r\n?/g, "\n");
+    } catch {
+      continue;
+    }
+    const provider = config.match(/^model:\s*\n(?:\s+.*\n)*?\s+provider:\s*["']?([\w.-]+)/m)?.[1];
+    if (!provider) return [];
+    if (provider === "openai-codex") return codexModels(env);
+    const catalog = await readJson(join(base, "cache", "model_catalog.json")).catch(() => null);
+    return (catalog?.providers?.[provider]?.models || [])
+      .filter((model) => typeof model?.id === "string")
+      .slice(0, 24)
+      .map((model) => ({ value: model.id, label: model.id, description: clipText(model.description, 160) }));
+  }
+  return [];
+}
+
+export async function discoverLiveModels(harnessId, { env = process.env, executable = null } = {}) {
+  try {
+    if (harnessId === "claude") {
+      const document = await readJson(join(homeOf(env), ".claude.json"));
+      return (Array.isArray(document.additionalModelOptionsCache) ? document.additionalModelOptionsCache : [])
+        .filter((model) => typeof model?.value === "string" && modelId.test(model.value))
+        .map((model) => ({
+          value: model.value,
+          label: clipText(model.label, 80) || model.value,
+          description: clipText(model.description, 160),
+          ...(model.disabled === true ? { disabled: true } : {}),
+        }));
+    }
+    if (harnessId === "codex") return await codexModels(env);
+    if (harnessId === "gemini") return await geminiModels(executable);
+    if (harnessId === "hermes") return await hermesModels(env);
+  } catch {
+    // A missing or unreadable cache just means fewer suggestions.
+  }
+  return [];
+}
+
+// Owner catalog first, then live lists, then what the CLI or its config
+// reports; one entry per model id.
+export function mergeModelOptions(...lists) {
+  const seen = new Map();
+  for (const option of lists.flat())
+    if (option?.value && modelId.test(option.value) && !seen.has(option.value)) seen.set(option.value, option);
+  return [...seen.values()].slice(0, 32);
+}
+
 
 /** Read an owner-maintained model catalog without baking provider IDs into a release. */
 export function loadModelCatalog(directory) {
@@ -177,9 +277,10 @@ export async function discoverConfigurationWarnings(harness, env = process.env) 
 }
 
 async function discoverModelOptions(harness, executable) {
+  const live = await discoverLiveModels(harness.id, { executable });
   if (harness.id !== "claude") {
     const configured = await discoverConfiguredModels(harness);
-    return configured.length ? configured : harness.modelOptions || [];
+    return mergeModelOptions(live, configured, harness.modelOptions || []);
   }
   return new Promise((resolve) => {
     const child = spawn(executable.file, [...executable.prefix, "--help"], {
@@ -194,7 +295,7 @@ async function discoverModelOptions(harness, executable) {
       } catch {
         /* already exited */
       }
-      resolve(harness.modelOptions || []);
+      resolve(mergeModelOptions(live, harness.modelOptions || []));
     }, 3500);
     child.stdout.on("data", (chunk) => {
       output += chunk.toString();
@@ -204,19 +305,15 @@ async function discoverModelOptions(harness, executable) {
     });
     child.once("error", () => {
       clearTimeout(timer);
-      resolve(harness.modelOptions || []);
+      resolve(mergeModelOptions(live, harness.modelOptions || []));
     });
     child.once("close", () => {
       clearTimeout(timer);
-      const aliases = parseClaudeAliases(output);
-      resolve(
-        aliases.length
-          ? aliases.map((value) => ({
-              value,
-              label: `${value[0].toUpperCase()}${value.slice(1)} (installed alias)`,
-            }))
-          : harness.modelOptions || [],
-      );
+      const aliases = parseClaudeAliases(output).map((value) => ({
+        value,
+        label: `${value[0].toUpperCase()}${value.slice(1)} (latest)`,
+      }));
+      resolve(mergeModelOptions(live, aliases, harness.modelOptions || []));
     });
   });
 }
@@ -308,23 +405,32 @@ export function childEnvironment(env = process.env) {
   );
 }
 
-export function invocation(harness, model = "", permissionMode = "ask") {
-  if (model) return [...invocation(harness, "", permissionMode), "--model", model];
+export function invocation(harness, model = "", permissionMode = "auto", approvals = undefined) {
+  if (model) return [...invocation(harness, "", permissionMode, approvals), "--model", model];
   switch (harness) {
-    case "claude":
-      // Claude Code permission modes:
-      // - "default": prompts for dangerous operations (our "ask")
-      // - "acceptEdits": allows file edits without prompting, still prompts for bash (our "dontAsk"/autonomous)
-      // - "dontAsk": auto-DENIES non-allowlisted tools (dangerous, not autonomous!)
-      // - "bypassPermissions": allows all operations without prompting (not used here)
-      return [
-        "-p",
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--permission-mode",
-        permissionMode === "ask" ? "default" : "acceptEdits",
-      ];
+    case "claude": {
+      // anyBot modes → Claude Code permission modes:
+      // - auto: "auto" (a classifier runs safe actions, flags risky ones) plus
+      //   file edits inside the workspace allowed outright.
+      // - dontAsk: "acceptEdits" (edits run; commands and the rest are gated).
+      // - ask: "default" (everything gated).
+      // Headless runs can't show prompts, so gated actions go to the owner
+      // through the approval bridge (runtime/approvals.mjs); without it they
+      // would be denied silently.
+      const mode = permissionMode === "ask" ? "default" : permissionMode === "dontAsk" ? "acceptEdits" : "auto";
+      const args = ["-p", "--output-format", "stream-json", "--verbose", "--permission-mode", mode];
+      if (mode === "auto") args.push("--allowedTools", "Edit(./**)");
+      if (approvals?.configPath)
+        args.push(
+          "--permission-prompts",
+          "host",
+          "--permission-prompt-tool",
+          "mcp__anybot__approve",
+          "--mcp-config",
+          approvals.configPath,
+        );
+      return args;
+    }
     case "codex":
       return [
         "exec",
@@ -335,7 +441,8 @@ export function invocation(harness, model = "", permissionMode = "ask") {
         "-",
       ];
     case "gemini":
-      return ["--output-format", "stream-json", "--approval-mode", "default"];
+      // No approval hook: auto and dontAsk let Gemini edit files; commands stay blocked.
+      return ["--output-format", "stream-json", "--approval-mode", permissionMode === "ask" ? "default" : "auto_edit"];
     case "hermes":
       return [
         "chat",
@@ -348,7 +455,8 @@ export function invocation(harness, model = "", permissionMode = "ask") {
         "600",
       ];
     case "cursor":
-      return permissionMode === "ask"
+      // No approval hook and no classifier: only dontAsk passes --force.
+      return permissionMode !== "dontAsk"
         ? [
             "--print",
             "--output-format",
@@ -497,6 +605,21 @@ async function cursorLauncherWarning(executable) {
   });
 }
 
+// Just the model lists, for the bot editor to refresh whenever it opens.
+export async function probeModels(modelCatalog = {}) {
+  const result = {};
+  await Promise.all(
+    harnesses.map(async (h) => {
+      const configured = modelCatalog[h.id] || [];
+      const executable = await resolveExecutable(h.command);
+      result[h.id] = executable
+        ? mergeModelOptions(configured, await discoverModelOptions(h, executable))
+        : mergeModelOptions(configured, h.modelOptions || []);
+    }),
+  );
+  return result;
+}
+
 export async function probeAll(modelCatalog = {}) {
   return Promise.all(
     harnesses.map(async (h) => {
@@ -511,9 +634,7 @@ export async function probeAll(modelCatalog = {}) {
           detail: "Not found on PATH or supported installation locations.",
           warnings,
         };
-      const modelOptions = configured.length
-        ? configured
-        : await discoverModelOptions(h, executable);
+      const modelOptions = mergeModelOptions(configured, await discoverModelOptions(h, executable));
       if (h.id === "cursor") {
         const warning = await cursorLauncherWarning(executable);
         if (warning) warnings.push(warning);
@@ -533,7 +654,7 @@ export async function probeAll(modelCatalog = {}) {
 }
 
 export async function runHarness(
-  { harness, model, workspace, prompt, signal, onText, timeoutMs = 600000, permissionMode = "ask" },
+  { harness, model, workspace, prompt, signal, onText, timeoutMs = 600000, permissionMode = "auto", approvals },
   { resolve = resolveExecutable, args, outputFormat } = {},
 ) {
   const executable = await resolve(harness);
@@ -544,7 +665,7 @@ export async function runHarness(
   if (signal.aborted) throw new Error("Run cancelled");
   const child = spawn(
     executable.file,
-    [...executable.prefix, ...(args ?? invocation(harness, model, permissionMode))],
+    [...executable.prefix, ...(args ?? invocation(harness, model, permissionMode, approvals))],
     {
       cwd: workspace,
       env: childEnvironment(),
