@@ -3,7 +3,17 @@ import { Check, Folder, Plus } from "lucide-react";
 import { names, customModelValue, avatarColors, avatarHeadStyles, avatarEyeStyles } from "../constants.js";
 import { RobotAvatarPreview, parseAvatarConfig, stringifyAvatarConfig } from "./RobotAvatar.jsx";
 
-export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [] }) {
+export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [], employees = [] }) {
+  // An employee cannot report to itself or to anyone already below it.
+  const managerOf = (id) => employees.find((e) => e.id === id)?.manager || "";
+  const below = (candidate, root) => {
+    for (let current = managerOf(candidate), hops = 0; current && hops < 50; current = managerOf(current), hops++)
+      if (current === root) return true;
+    return false;
+  };
+  const managerChoices = employees.filter(
+    (e) => !e.archived && (!editing || (e.id !== preset?.id && !below(e.id, preset?.id))),
+  );
   const optionsFor = (harness) => {
     const options = harnesses.find((item) => item.id === harness)?.modelOptions || [];
     const safe = harness === "claude"
@@ -41,6 +51,7 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [] }) 
     avatarColor: initialAvatar.color,
     avatarShape: initialAvatar.shape,
     avatarFace: initialAvatar.face,
+    manager: preset?.manager || "",
   });
   const set = (key, value) =>
     setForm((current) => ({ ...current, [key]: value }));
@@ -88,6 +99,21 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [] }) 
           />
         </label>
       </div>
+      <label>
+        Reports to
+        <select value={form.manager} onChange={(e) => set("manager", e.target.value)}>
+          <option value="">You (the owner)</option>
+          {managerChoices.map((e) => (
+            <option key={e.id} value={e.id}>
+              {e.name} · {e.role}
+            </option>
+          ))}
+        </select>
+        <span className="field-hint">
+          Managers can delegate to their reports from any conversation, review their tasks, and get their
+          reports when work finishes.
+        </span>
+      </label>
       <div className="avatar-customization">
         <div className="avatar-preview-section">
           <RobotAvatarPreview

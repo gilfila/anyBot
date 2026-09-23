@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-23
+
+### Added
+- **Chain of command.** Every bot can report to another bot or to you ("Reports to" on the employee form, or drag it on the new org chart). Reporting loops are rejected.
+  - Managers can delegate to anyone below them from **any** conversation, including a direct chat where peer delegation is off. The report runs as a guest in the manager's conversation.
+  - Delegating sideways or upward still needs a shared project with delegation enabled.
+- **Manager reviews:** a task's reviewer defaults to the lead assignee's manager, even when that manager isn't in the project. When a card reaches Review, a review run is queued for the reviewer. The reviewer answers with a `review` action: approving finishes the task, and requesting changes sends it back to the lead with the comment and re-runs the lead. Tasks get at most three review rounds; after that you decide.
+- **Roll-up reports:** when a bot finishes task or delegated work, a report goes to its manager. The summary is the bot's own `report` action, or else the start of its reply. Managers read unread reports at the start of their next run. Reports addressed to you collect in **Organization → Reports**, with an unread badge in the sidebar.
+- **Memory:** bots save durable facts with `memory.save` and remove their own with `memory.forget`. Memories are scoped:
+  - private: visible to the bot, its managers, and you
+  - team: visible to every bot
+  - project: visible in that project only
+
+  Each run recalls pinned memories plus the most relevant ones, ranked by SQLite FTS5 `bm25`. You can add, pin, and delete memories from a bot's panel.
+- **Organization page** (new sidebar item):
+  - **Org chart:** a tidy tree with you at the root. Each card shows live status and done/open counts, and you drag a card onto another to re-parent it.
+  - **Agent panel:** manager, direct reports, current work, recent finished work and reports, and editable memory.
+  - **Reports feed:** filter "To you" or "Whole org", with mark-all-read.
+
+### Technical
+- Schema v10: `employees.manager`, `memories` with an FTS5 index (`memories_fts`), and `reports`. New `runtime/org.mjs` and `runtime/memory.mjs`. Actions add `memory.save`, `memory.forget`, `report`, and `review`.
+- New IPC methods: `employees.setManager`, `org.get`, `reports.markRead`, `memory.list|create|update|delete`. The allowlist test now scans every renderer module (`act`, `request`, `call`).
+- New renderer dependency: `d3-hierarchy`. Tests: `tests/org.test.mjs`.
+
 ## [0.3.1] - 2026-09-23
 
 ### Added

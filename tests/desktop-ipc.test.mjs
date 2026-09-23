@@ -17,12 +17,16 @@ test("every coordinator method the desktop renderer calls is reachable over IPC"
   const allowed = new Set([...allowlist[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]));
   const handled = new Set([...main.matchAll(/method === "([^"]+)"/g)].map((m) => m[1]));
 
-  const sources = await Promise.all(
-    ["src/App.jsx", "src/components/MobileAccess.jsx", "src/components/ContextRail.jsx"].map(read),
-  );
+  // Every renderer module: act("x"), request("x"), and window.anybot.request("x").
+  const { readdir } = await import("node:fs/promises");
+  const files = (await readdir(path.join(root, "src"), { recursive: true }))
+    .filter((file) => /\.(jsx?|mjs)$/.test(file))
+    .map((file) => path.join("src", file));
+  assert.ok(files.length > 10, "found renderer sources");
+  const sources = await Promise.all(files.map(read));
   const called = new Set();
   for (const source of sources) {
-    for (const match of source.matchAll(/\b(?:act|request)\(\s*"([a-z]+\.[A-Za-z.]+)"/g)) called.add(match[1]);
+    for (const match of source.matchAll(/\b(?:act|request|call)\(\s*"([a-z]+\.[A-Za-z.]+)"/g)) called.add(match[1]);
     for (const match of source.matchAll(/act\(\s*[^,)]*\?\s*"([a-z]+\.[A-Za-z]+)"\s*:\s*"([a-z]+\.[A-Za-z]+)"/g)) {
       called.add(match[1]);
       called.add(match[2]);

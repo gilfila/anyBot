@@ -43,8 +43,25 @@ const parse = (task) =>
 // Project task board. Owner commands and agent action blocks share these
 // validators; agent-specific permission rules live in applyAgentAction.
 export class Board {
-  constructor(store) {
+  // `org` (optional) supplies the chain of command: reviewers may come from
+  // the lead's management chain, and default to the lead's agent manager.
+  // `onMove(task, from, to, author, run)` lets the coordinator react to
+  // status changes (review runs).
+  constructor(store, org = null) {
     this.store = store;
+    this.org = org;
+    this.onMove = null;
+  }
+  validReviewer(conversation, reviewer, assignees) {
+    if (!reviewer) return "";
+    const lead = assignees[0];
+    if (this.members(conversation).includes(reviewer)) return reviewer;
+    if (this.org && lead && this.org.chain(lead).includes(reviewer)) return reviewer;
+    throw new Error("Reviewer must be in this project or manage the lead assignee");
+  }
+  defaultReviewer(assignees) {
+    const lead = assignees[0];
+    return (lead && this.org?.manager(lead)) || "";
   }
   list() {
     return this.store
@@ -132,8 +149,11 @@ export class Board {
     const priority = payload.priority ?? "none";
     if (!PRIORITIES.includes(priority)) throw new Error("Unknown task priority");
     const assignees = this.validPeople(conversation, list(payload.assignees, "Assignees", 12, 100) ?? [], "Assignees");
-    const reviewer = str(payload.reviewer, "Reviewer", 100) ?? "";
-    if (reviewer) this.validPeople(conversation, [reviewer], "Reviewer");
+    const requested = str(payload.reviewer, "Reviewer", 100);
+    const reviewer =
+      requested === undefined
+        ? this.defaultReviewer(assignees)
+        : this.validReviewer(conversation, requested, assignees);
     let parent = null;
     if (payload.parent) parent = this.resolve(conversation, payload.parent);
     const taskId = id();
@@ -183,10 +203,13 @@ export class Board {
     if (labels) next.labels = JSON.stringify(labels);
     const assignees = list(payload.assignees, "Assignees", 12, 100);
     if (assignees) next.assignees = JSON.stringify(this.validPeople(task.conversation, assignees, "Assignees"));
+    const people = assignees || task.assignees;
     if (payload.reviewer !== undefined) {
-      const reviewer = str(payload.reviewer, "Reviewer", 100) ?? "";
-      if (reviewer) this.validPeople(task.conversation, [reviewer], "Reviewer");
-      next.reviewer = reviewer;
+      next.reviewer = this.validReviewer(task.conversation, str(payload.reviewer, "Reviewer", 100) ?? "", people);
+    } else if (assignees && !task.reviewer) {
+      // New lead with no reviewer yet: default to the lead's agent manager.
+      const reviewer = this.defaultReviewer(assignees);
+      if (reviewer) next.reviewer = reviewer;
     }
     const checklist = checklistFrom(payload.checklist);
     if (checklist) next.checklist = JSON.stringify(checklist);
@@ -230,6 +253,7 @@ export class Board {
     if (status !== task.status) {
       this.activity(task.id, author, "status", `${task.status} → ${status}`, run);
       this.store.event("task.moved", { task: task.id, from: task.status, to: status, author });
+      this.onMove?.(this.task(task.id), task.status, status, author, run);
     }
     return task.id;
   }
@@ -273,7 +297,10 @@ export class Board {
   applyAgentAction(action, run) {
     const agent = run.employee;
     const members = this.members(run.conversation);
-    if (!members.includes(agent)) throw new Error("Only project members can change this board");
+    // Creating and claiming need project membership; updates need to be an
+    // assignee or the reviewer (who may sit outside the project, above the lead).
+    if ((action.type === "task.create" || action.type === "task.claim") && !members.includes(agent))
+      throw new Error("Only project members can change this board");
     switch (action.type) {
       case "task.create": {
         const status = action.status ?? "backlog";

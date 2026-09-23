@@ -20,6 +20,7 @@ import {
   MessageSquare,
   Monitor,
   MoreHorizontal,
+  Network,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
@@ -156,6 +157,7 @@ import { ProjectSettingsForm } from "./components/ProjectSettingsForm.jsx";
 import { ProjectBoard } from "./components/board/ProjectBoard.jsx";
 import { TaskPeek } from "./components/board/TaskPeek.jsx";
 import { ProjectDoc } from "./components/doc/ProjectDoc.jsx";
+import { OrgPage } from "./components/org/OrgPage.jsx";
 import { statusLabel } from "./components/board/meta.js";
 
 // A task being started posts its brief into the project chat. Render it as a
@@ -230,6 +232,7 @@ export function App() {
   const [explorerPath, setExplorerPath] = useState('');
   const [projectTab, setProjectTab] = useState("chat");
   const [selectedTask, setSelectedTask] = useState(null);
+  const [orgTab, setOrgTab] = useState("chart");
   const end = useRef(null);
   // Voice replies are awaited inside long-lived callbacks; read live data.
   const dataRef = useRef(data);
@@ -560,6 +563,16 @@ export function App() {
             <Clock size={18} />
             Routines
           </button>
+          <button
+            className={view === "org" ? "selected" : ""}
+            onClick={() => setView("org")}
+          >
+            <Network size={18} />
+            Organization
+            {data.reportsUnread > 0 && (
+              <span className="nav-count" title="Unread reports">{data.reportsUnread}</span>
+            )}
+          </button>
         </nav>
         <div className="nav-label conversation-label">
           BOTS
@@ -753,6 +766,7 @@ export function App() {
                   team: "Your team",
                   work: "Activity",
                   routines: "Routines",
+                  org: "Organization",
                   harnesses: "Harnesses",
                   settings: "Settings",
                   chat: conversation?.title || "Conversation",
@@ -1800,6 +1814,16 @@ export function App() {
             <MobileAccess />
           </div>
         )}
+        {view === "org" && (
+          <OrgPage
+            data={data}
+            act={act}
+            tab={orgTab}
+            onTab={setOrgTab}
+            onMessage={(employee) => directChat(employee)}
+            onEdit={(employee) => setModal({ type: "employee", preset: employee, editing: true })}
+          />
+        )}
         {view === "routines" && (
           <div className="page">
             <PageTitle
@@ -1906,6 +1930,7 @@ export function App() {
           {modal.type === "employee" ? (
             <EmployeeForm
               harnesses={data.harnesses}
+              employees={data.employees}
               preset={modal.preset}
               editing={modal.editing}
               busy={busy}

@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 
 export const id = () => randomUUID();
 // Bump with each migration below. Newer workspaces are refused by older apps.
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 export const now = () => new Date().toISOString();
 
 export class Store {
@@ -251,6 +251,39 @@ export class Store {
         `);
         this.db
           .prepare("UPDATE metadata SET value='9' WHERE key='schema'")
+          .run();
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        this.db.close();
+        throw error;
+      }
+    }
+    const orgVersion = Number(
+      this.db.prepare("SELECT value FROM metadata WHERE key='schema'").get()
+        .value,
+    );
+    if (orgVersion < 10) {
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
+        this.db.exec(`
+          ALTER TABLE employees ADD COLUMN manager TEXT NOT NULL DEFAULT '';
+          CREATE TABLE memories (id TEXT PRIMARY KEY,
+            employee TEXT NOT NULL REFERENCES employees(id),
+            scope TEXT NOT NULL CHECK (scope IN ('private','team','project')),
+            conversation TEXT NOT NULL DEFAULT '', body TEXT NOT NULL,
+            tags TEXT NOT NULL DEFAULT '[]', pinned INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL, run TEXT, created TEXT NOT NULL, updated TEXT NOT NULL);
+          CREATE INDEX memory_employee ON memories(employee, updated);
+          CREATE VIRTUAL TABLE memories_fts USING fts5(body, tags, memory UNINDEXED);
+          CREATE TABLE reports (id TEXT PRIMARY KEY,
+            fromEmployee TEXT NOT NULL REFERENCES employees(id), toEmployee TEXT NOT NULL,
+            task TEXT, run TEXT, summary TEXT NOT NULL, read INTEGER NOT NULL DEFAULT 0,
+            created TEXT NOT NULL);
+          CREATE INDEX report_inbox ON reports(toEmployee, read, created);
+        `);
+        this.db
+          .prepare("UPDATE metadata SET value='10' WHERE key='schema'")
           .run();
         this.db.exec("COMMIT");
       } catch (error) {
