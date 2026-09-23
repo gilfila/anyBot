@@ -29,6 +29,7 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [], em
     parseAvatarConfig(preset?.avatar, preset?.name || "", preset?.harness || "claude"),
     [preset?.avatar, preset?.name, preset?.harness]
   );
+  const [avatarPose, setAvatarPose] = useState("idle");
   const [form, setForm] = useState({
     id: preset?.id,
     revision: preset?.revision,
@@ -114,63 +115,52 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [], em
           reports when work finishes.
         </span>
       </label>
-      <div className="avatar-customization">
-        <div className="avatar-preview-section">
-          <RobotAvatarPreview
-            color={form.avatarColor}
-            shape={form.avatarShape}
-            face={form.avatarFace}
-            size={80}
-          />
-          <div className="avatar-preview-label">Avatar Preview</div>
-        </div>
-        <div className="avatar-options">
-          <label>
-            Color
-            <div className="avatar-color-picker">
-              {avatarColors.map((color) => (
-                <button
-                  key={color.id}
-                  type="button"
-                  className={`avatar-color-swatch ${form.avatarColor === color.id ? "selected" : ""}`}
-                  style={{ background: color.fill, borderColor: color.stroke }}
-                  onClick={() => set("avatarColor", color.id)}
-                  title={color.name}
-                  aria-label={color.name}
-                />
-              ))}
+      <section className="avatar-studio" aria-label="Bot appearance">
+        <div className="avatar-studio-top">
+          <div className="avatar-studio-preview">
+            <RobotAvatarPreview color={form.avatarColor} shape={form.avatarShape}
+              face={form.avatarFace} size={156} animationState={avatarPose} />
+            <small>{avatarPose === "working" ? "Working with a holographic screen" : avatarPose === "unread" ? "Unread reply: facing you and waving" : "Ready at a 30° angle"}</small>
+          </div>
+          <div className="avatar-studio-options">
+            <div>
+              <span className="avatar-studio-label">Pulse color</span>
+              <div className="avatar-color-picker" role="group" aria-label="Bot color">
+                {avatarColors.map((color) => (
+                  <button key={color.id} type="button"
+                    className={`avatar-color-swatch ${form.avatarColor === color.id ? "selected" : ""}`}
+                    style={{ background: color.css }} onClick={() => set("avatarColor", color.id)}
+                    title={color.name} aria-label={color.name} aria-pressed={form.avatarColor === color.id} />
+                ))}
+              </div>
             </div>
-          </label>
-          <div className="avatar-selects">
-            <label>
-              Head Style
-              <select
-                value={form.avatarShape}
-                onChange={(e) => set("avatarShape", e.target.value)}
-              >
-                {avatarHeadStyles.map((style) => (
-                  <option key={style.id} value={style.id}>
-                    {style.name}
-                  </option>
-                ))}
+            <label>Expression
+              <select value={form.avatarFace} onChange={(e) => set("avatarFace", e.target.value)}>
+                {avatarEyeStyles.map((style) => <option key={style.id} value={style.id}>{style.name}</option>)}
               </select>
             </label>
-            <label>
-              Eye Style
-              <select
-                value={form.avatarFace}
-                onChange={(e) => set("avatarFace", e.target.value)}
-              >
-                {avatarEyeStyles.map((style) => (
-                  <option key={style.id} value={style.id}>
-                    {style.name}
-                  </option>
+            <div>
+              <span className="avatar-studio-label">Preview activity</span>
+              <div className="avatar-pose-tabs" role="group" aria-label="Preview bot activity">
+                {[["idle", "Idle"], ["working", "Working"], ["unread", "Unread"]].map(([state, label]) => (
+                  <button key={state} type="button" aria-pressed={avatarPose === state} onClick={() => setAvatarPose(state)}>{label}</button>
                 ))}
-              </select>
-            </label>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+        <div className="avatar-models" role="group" aria-label="Robot model">
+          {avatarHeadStyles.map((style) => (
+            <button key={style.id} type="button" className={`avatar-model ${form.avatarShape === style.id ? "selected" : ""}`}
+              aria-label={`Choose ${style.name}`} aria-pressed={form.avatarShape === style.id}
+              onClick={() => set("avatarShape", style.id)} title={style.description}>
+              <RobotAvatarPreview color={form.avatarColor} shape={style.id} face={form.avatarFace} size={72} />
+              <strong>{style.name}</strong>
+            </button>
+          ))}
+        </div>
+        <p className="avatar-studio-hint">Your bot turns to its screen while working, then faces you and waves until you read its reply.</p>
+      </section>
       <label>
         Harness
         <select

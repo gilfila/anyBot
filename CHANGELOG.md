@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-09-23
+
+### Added
+- Three sculpted bot avatars: Scout, Orbit, and Tinker, each available in cobalt, coral, citron, and violet. Customization includes live model, expression, and activity previews; existing avatar settings migrate automatically.
+- Bots rest at a 30-degree angle, turn toward a holographic screen while working, and face you with a hello wave when they have unread replies. Opening their conversation returns them to idle; active work takes precedence. Reduced-motion preferences are respected.
+
 ## [0.3.3] - 2026-09-23
 
 ### Added
