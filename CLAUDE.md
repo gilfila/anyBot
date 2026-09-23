@@ -31,15 +31,16 @@ Electron 44 main process (`desktop/main.cjs`) + sandboxed React 19 renderer (`sr
 - `src/components/VoiceSettings.jsx`.
 - The App voice chat now waits for the run to finish (no 24 s cap) and pauses the mic while speaking.
 - Main-process permission handler: only the app page may use the mic. CSP adds `media-src 'self' blob:`.
+- **Phone voice**: gateway `GET /v1/voice`, `POST /v1/voice/transcribe` (raw audio) and `POST /v1/voice/speak`, proxying the desktop voice service passed into `createMobileGateway({ voice })`. Contributor or operator devices only, 30 calls a minute, audited. `mobile/native-voice.mjs` uses the `@capgo/capacitor-speech-recognition` and `@capacitor-community/text-to-speech` plugins (the community speech plugin has no SPM support, and iOS uses SPM). `src/lib/voice-turn.js` `awaitReply` is shared by desktop and phone. Android and iOS microphone and speech permissions were added.
 
-Verified with `npm test` (142, 0 fail), the mobile Playwright suite (set `PLAYWRIGHT_BROWSER_PATH=/opt/pw-browsers/chromium` in cloud sessions), a desktop Playwright run with a fake-mic WAV and a mocked bridge (full voice loop), and real Electron under xvfb (bridge present, audio granted, video denied). Not verified: real ElevenLabs calls (no key here) and a Windows mic.
+Verified with `npm test` (148, 0 fail), the mobile Playwright suite (3 tests, including a fake-mic test through the real gateway; `playwright.mobile.config.mjs` generates the WAV; set `PLAYWRIGHT_BROWSER_PATH=/opt/pw-browsers/chromium` in cloud sessions), a desktop fake-mic run with a mocked bridge, and real Electron under xvfb (audio granted, video denied). Not verified: real ElevenLabs calls (no key here), a Windows mic, and the native plugins on a real phone (CI's mobile-build workflow compiles Android and the iOS simulator).
 
 Facts for the next agent:
 - Electron's `webkitSpeechRecognition` fails with `network`, so desktop listening needs ElevenLabs until local Whisper lands.
 - `permissionMode: "ask"` silently denies tools in headless runs because there is no approval UI.
 - Grok Bot has no live voice mode.
 
-**Next:** whisper.cpp local STT → receptionist (Haiku 4.5 / Ollama) → mobile native STT. Tag and upload 0.2.27 to `anyBot-updates` after merge.
+**Next:** a real-device phone check, then whisper.cpp local STT on the desktop, then the receptionist (Haiku 4.5 / Ollama). Tag and upload 0.2.27 to `anyBot-updates` after merge.
 
 ## Previous turn (2026-09-22)
 **Full review + Studio paper redesign (0.2.26)** on branch `claude/review-bugfix-ui-refresh`. Fixed: `runs.dismiss` missing from IPC allowlist; update chrome flicker after actions; "Check now" wiping a downloaded update; unread-dot logic; blocked external links; broken HTML hand-off to the rail browser; `.user` CSS collision with `.message.user`; both CI workflows failing on every push (electron-builder auto-publish, setup-android package list). Security: same-origin sandboxed preview iframe could reach `window.anybot.runCommand`; markdown rendered raw employee HTML. UI: token sweep to OKLCH, live team roster, first-run hire flow, chat bubbles, sidebar status lines. Verified with `npm test` (127), `test:runtime`, doctor, a mocked-bridge Playwright pass, and a real-Electron e2e with an isolated profile. See CHANGELOG 0.2.26.

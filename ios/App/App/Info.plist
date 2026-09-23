@@ -66,5 +66,9 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>anyBot uses the microphone for voice chat and dictation with your team.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>anyBot turns your speech into messages for your team.</string>
 </dict>
 </plist>

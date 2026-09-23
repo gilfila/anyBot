@@ -1,7 +1,9 @@
-// Renderer side of voice: a listener (microphone → text) and a speaker
-// (text → audio), each with a local "system" provider and an ElevenLabs
-// provider that goes through the main-process bridge. Both can be paused so
-// the microphone never hears the speaker.
+// Shared by the desktop renderer and the phone app: a listener (microphone →
+// text) and a speaker (text → audio), each with a local "system" provider and
+// an ElevenLabs provider. The ElevenLabs calls are injected: the desktop goes
+// through the main-process bridge, the phone through the desktop's gateway,
+// so the API key never lives in either UI. Both can be paused so the
+// microphone never hears the speaker.
 import { speechChunks } from "./speech.js";
 
 export const SYSTEM_STT_UNAVAILABLE =
@@ -118,9 +120,13 @@ function createRecorder({ onUtterance, onLevel, silenceMs = 1100, maxMs = 60000 
   };
 }
 
+const bridgeTranscribe = async (blob) =>
+  (await window.anybot.voice.transcribe(new Uint8Array(await blob.arrayBuffer()), blob.type)).text;
+const bridgeSynthesize = (text, employeeId) => window.anybot.voice.speak(text, employeeId);
+
 // Listener contract: start() → onText(text) for each utterance, pause/resume
 // around playback, stop() to end. onEnd fires if listening stops by itself.
-export function createListener({ provider, onText, onError, onEnd, onState }) {
+export function createListener({ provider, transcribe = bridgeTranscribe, onText, onError, onEnd, onState }) {
   if (provider === "elevenlabs") {
     let busy = false;
     const recorder = createRecorder({
@@ -128,8 +134,7 @@ export function createListener({ provider, onText, onError, onEnd, onState }) {
         busy = true;
         onState?.("transcribing");
         try {
-          const audio = new Uint8Array(await blob.arrayBuffer());
-          const { text } = await window.anybot.voice.transcribe(audio, blob.type);
+          const text = (await transcribe(blob))?.trim();
           if (text) await onText(text);
         } catch (error) {
           onError?.(voiceError(error));
@@ -212,11 +217,13 @@ export function createListener({ provider, onText, onError, onEnd, onState }) {
 }
 
 // Speaker contract: speak(text, employeeId) resolves when playback ends or is
-// cancelled. ElevenLabs failures fall back to the system voice once.
-export function createSpeaker({ provider, onError }) {
+// cancelled. ElevenLabs failures fall back to the local voice for that reply.
+// `local` replaces the browser speech engine (the phone uses its native TTS).
+export function createSpeaker({ provider, synthesize = bridgeSynthesize, local = null, onError }) {
   let audio = null, url = null, finish = null, cancelled = false;
 
   function system(text) {
+    if (local) return Promise.resolve(local.speak(text)).catch(() => {});
     const synth = window.speechSynthesis;
     if (!synth || !window.SpeechSynthesisUtterance) return Promise.resolve();
     return new Promise((resolve) => {
@@ -229,16 +236,27 @@ export function createSpeaker({ provider, onError }) {
           resolve();
           return;
         }
-        const utterance = new SpeechSynthesisUtterance(chunks[index++]);
-        utterance.onend = next;
-        utterance.onerror = next;
+        const chunk = chunks[index++];
+        const utterance = new SpeechSynthesisUtterance(chunk);
+        // Some engines never fire onend; don't let a lost event stall the
+        // conversation (about 150 words a minute, plus slack).
+        let done = false;
+        const advance = () => {
+          if (done) return;
+          done = true;
+          clearTimeout(guard);
+          next();
+        };
+        const guard = setTimeout(advance, 3000 + chunk.length * 90);
+        utterance.onend = advance;
+        utterance.onerror = advance;
         synth.speak(utterance);
       };
       next();
     });
   }
   async function cloud(text, employeeId) {
-    const { audio: bytes, mime } = await window.anybot.voice.speak(text, employeeId);
+    const { audio: bytes, mime } = await synthesize(text, employeeId);
     if (cancelled) return;
     url = URL.createObjectURL(new Blob([bytes], { type: mime }));
     audio = new Audio(url);
@@ -268,7 +286,8 @@ export function createSpeaker({ provider, onError }) {
     },
     cancel() {
       cancelled = true;
-      window.speechSynthesis?.cancel();
+      if (local) local.stop();
+      else window.speechSynthesis?.cancel();
       audio?.pause();
       if (url) URL.revokeObjectURL(url);
       finish?.();

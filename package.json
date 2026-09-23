@@ -1,6 +1,6 @@
 {
   "name": "anybot-desktop",
-"version": "0.2.27",
+  "version": "0.2.27",
   "private": true,
   "description": "A local workspace for your team of AI employees",
   "author": "anyBot contributors",
@@ -36,9 +36,11 @@
     "package:dir": "npm run build && node scripts/package-electron.mjs --dir --config.electronDist=./node_modules/electron/dist --config.win.signAndEditExecutable=false"
   },
   "dependencies": {
+    "@capacitor-community/text-to-speech": "^8.0.2",
     "@capacitor/android": "^8.5.2",
     "@capacitor/core": "^8.5.2",
     "@capacitor/ios": "^8.5.2",
+    "@capgo/capacitor-speech-recognition": "^8.3.2",
     "electron-updater": "^6.8.9",
     "lucide-react": "^1.47.0",
     "react": "^19.3.0",

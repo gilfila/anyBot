@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 - **Voice settings** (Settings → Voice) with an optional **ElevenLabs connection**: paste an API key to get Scribe transcription and ElevenLabs voices, pick a default voice and model (Flash v2.5 or Multilingual v2), give each bot its own voice, and preview them. The key is encrypted with Electron `safeStorage` (DPAPI on Windows), used only from the main process, and never returned to the renderer. Local system speech stays the default.
 - Voice chat and dictation record with a built-in voice-activity detector when ElevenLabs is connected, so they work in the desktop app, where Chromium's speech recognition cannot.
+- **Voice on the phone**: the phone follows the desktop's Voice settings. With ElevenLabs connected, the phone records audio and the desktop transcribes and speaks through new gateway endpoints (`GET /v1/voice`, `POST /v1/voice/transcribe`, `POST /v1/voice/speak`). The key stays on the desktop, and each bot keeps its voice. Access is limited to contributor or operator devices, at 30 calls a minute per device, and is audited. Without a key, the installed app uses the phone's own speech recognition and text-to-speech (`@capgo/capacitor-speech-recognition`, `@capacitor-community/text-to-speech`).
+- Phone voice chat is now a continuous conversation like the desktop: it listens, says "On it.", waits for the reply, speaks it, and listens again. Desktop and phone share the same reply-wait logic (`src/lib/voice-turn.js`).
 
 ### Fixed
 - **Voice chat gave up after 24 seconds**: it now waits for the bot's run to finish, however long it takes, says "On it." straight away, and gives a short "still working" cue on long runs. Failed runs are reported aloud. Mobile voice chat no longer times out after 24 seconds either.
@@ -18,6 +20,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Replies were read out as raw markdown**, including code blocks, tables and artifact manifests. Spoken replies are now a short cleaned-up summary (`src/lib/speech.js`) that points to the chat for details, and system voices speak in sentence-sized chunks so long replies aren't cut off.
 - The voice button could say "Stop voice chat" after listening had already ended. Voice now also stops cleanly when you switch conversations.
 - "System speech recognition isn't available" is now explained clearly (Chromium's recognizer returns `network` in Electron), rather than showing a bare error code.
+
+- **The phone apps never declared microphone access**, so voice couldn't work once installed. Added Android `RECORD_AUDIO` / `MODIFY_AUDIO_SETTINGS` and speech-service `<queries>`, and iOS microphone and speech-recognition usage descriptions.
 
 ### Security
 - Electron granted every permission request by default, so a remote page in the rail browser could use the microphone or camera. Only the app page may now use the microphone (audio only); other permissions are denied apart from clipboard write and fullscreen for the app page.

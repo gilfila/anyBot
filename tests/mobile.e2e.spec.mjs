@@ -6,6 +6,21 @@ import { join } from "node:path";
 import { Coordinator } from "../runtime/coordinator.mjs";
 import { createMobileGateway } from "../runtime/mobile-gateway.mjs";
 let vite, gateway, c, directory, origin;
+// Stand-in for the desktop voice service (desktop/voice.cjs). Tests flip
+// `cloud` to exercise the ElevenLabs-through-the-desktop path.
+const voice = {
+  cloud: false,
+  calls: [],
+  settings: () => ({ stt: "elevenlabs", tts: "elevenlabs", elevenlabs: { configured: voice.cloud } }),
+  transcribe: async ({ audio, mime }) => {
+    voice.calls.push(["transcribe", mime, audio.length]);
+    return { text: "Give me the next step." };
+  },
+  speak: async ({ text, employeeId }) => {
+    voice.calls.push(["speak", text, employeeId]);
+    return { audio: new Uint8Array([0]), mime: "audio/mpeg" };
+  },
+};
 test.beforeAll(async () => {
   directory = await mkdtemp(join(tmpdir(), "anybot-mobile-ui-"));
   c = new Coordinator({
@@ -28,6 +43,7 @@ test.beforeAll(async () => {
   });
   gateway = createMobileGateway({
     command: (...args) => c.command(...args),
+    voice,
     allowInsecureLoopback: true,
     origins: ["http://127.0.0.1:5174"],
     members: [
@@ -138,8 +154,12 @@ test("one-to-one voice chat sends a transcript and speaks the employee reply", a
   page,
 }) => {
   await page.addInitScript(() => {
+    let heard = false;
     class FakeRecognition {
       start() {
+        // Say one thing; later listening sessions stay silent.
+        if (heard) return;
+        heard = true;
         setTimeout(() => {
           this.onresult?.({
             resultIndex: 0,
@@ -165,7 +185,13 @@ test("one-to-one voice chat sends a transcript and speaks the employee reply", a
     });
     Object.defineProperty(window, "speechSynthesis", {
       configurable: true,
-      value: { speak: (utterance) => window.__spoken.push(utterance.text) },
+      value: {
+        speak: (utterance) => {
+          window.__spoken.push(utterance.text);
+          setTimeout(() => utterance.onend?.(), 10);
+        },
+        cancel: () => {},
+      },
     });
   });
   await page.goto("http://127.0.0.1:5174");
@@ -183,4 +209,39 @@ test("one-to-one voice chat sends a transcript and speaks the employee reply", a
   await expect.poll(() => page.evaluate(() => window.__spoken)).toContain(
     "Mobile test response — safe text.",
   );
+});
+
+test("with ElevenLabs on the desktop, the phone records audio and speaks in the bot's voice", async ({
+  page,
+}) => {
+  voice.cloud = true;
+  voice.calls.length = 0;
+  try {
+    await page.goto("http://127.0.0.1:5174");
+    await page.getByLabel("Workspace address").fill(origin);
+    await page.getByRole("textbox", { name: "Connection code", exact: true }).fill(gateway.createPairing().code);
+    await page.getByRole("button", { name: "Connect to my team" }).click();
+    await page.getByRole("button", { name: "New conversation", exact: true }).click();
+    await page.getByLabel("Conversation name").fill("Cloud voice");
+    await page.getByLabel("Morgan").check();
+    await page.getByRole("button", { name: "Create conversation" }).click();
+    await expect(page.getByRole("heading", { name: "Cloud voice" })).toBeVisible();
+    await page.getByRole("button", { name: "Start voice chat", exact: true }).click();
+    await expect.poll(() => voice.calls.filter(([kind]) => kind === "speak").map(([, text]) => text), { timeout: 20000 })
+      .toContain("Mobile test response — safe text.");
+    const [transcribe] = voice.calls;
+    expect(transcribe[0]).toBe("transcribe");
+    expect(transcribe[1]).toBe("audio/webm");
+    expect(transcribe[2]).toBeGreaterThan(1000);
+    const morgan = (await c.command("snapshot")).employees.find((e) => e.name === "Morgan").id;
+    expect(voice.calls.filter(([kind]) => kind === "speak")).toEqual([
+      ["speak", "On it.", morgan],
+      ["speak", "Mobile test response — safe text.", morgan],
+    ]);
+    await expect(page.getByText("Give me the next step.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Stop voice chat" }).click();
+    await expect(page.getByRole("button", { name: "Start voice chat", exact: true })).toBeVisible();
+  } finally {
+    voice.cloud = false;
+  }
 });

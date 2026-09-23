@@ -956,6 +956,9 @@ async function startMobileGateway() {
     membersPath: path.join(app.getPath("userData"), "mobile-members.json"),
     statePath: path.join(app.getPath("userData"), "mobile-membership.json"),
     auditPath: path.join(app.getPath("userData"), "mobile-audit.jsonl"),
+    // Paired phones use the desktop's voice settings; ElevenLabs calls (and
+    // the key) stay in this process.
+    voice,
   });
   await gateway.listen();
   mobileGateway = gateway;

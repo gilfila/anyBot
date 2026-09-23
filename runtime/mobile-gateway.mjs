@@ -7,11 +7,13 @@ import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 const hash = (value) => createHash("sha256").update(value).digest();
 const pick = (value, keys) =>
   Object.fromEntries(keys.map((key) => [key, value[key]]));
-const employeeKeys = ["id", "name", "role", "harness", "archived"];
+const employeeKeys = ["id", "name", "role", "harness", "archived", "timeoutMinutes"];
 const runKeys = [
   "id",
   "conversation",
   "employee",
+  "message",
+  "parent",
   "status",
   "output",
   "error",
@@ -19,6 +21,11 @@ const runKeys = [
   "started",
   "ended",
 ];
+// Audio a phone may upload for transcription. The desktop voice service makes
+// the ElevenLabs call, so the phone never holds the API key.
+const audioTypes = new Set(["audio/webm", "audio/ogg", "audio/wav", "audio/mpeg", "audio/mp4", "audio/aac"]);
+const maxAudioBytes = 10 * 1024 * 1024;
+const voiceCallsPerMinute = 30;
 const deviceRoles = new Set(["viewer", "contributor", "operator"]);
 const humanRoles = new Set(["owner", "member", "viewer"]);
 const memberIdPattern = /^[A-Za-z0-9][A-Za-z0-9_.:@+-]{0,159}$/;
@@ -54,6 +61,7 @@ export function createMobileGateway({
   identity = null,
   statePath = null,
   auditPath = null,
+  voice = null,
   clock = Date.now,
 }) {
   if (!tls && !(allowInsecureLoopback && host === "127.0.0.1"))
@@ -105,6 +113,7 @@ export function createMobileGateway({
   };
   const sessions = new Map(),
     attempts = new Map(),
+    voiceUse = new Map(),
     conversationAccess = new Map(),
     auditLog = [];
   const loadAudit = () => {
@@ -191,6 +200,39 @@ export function createMobileGateway({
       throw new Error("Invalid request");
     return value;
   }
+  async function audioBody(req) {
+    const type = String(req.headers["content-type"] || "").split(";")[0].trim();
+    if (!audioTypes.has(type)) throw Object.assign(new Error("Unsupported audio format"), { status: 415 });
+    const declared = Number(req.headers["content-length"] || 0);
+    if (declared > maxAudioBytes) throw Object.assign(new Error("Recording too long"), { status: 413 });
+    let bytes = 0;
+    const chunks = [];
+    for await (const chunk of req) {
+      bytes += chunk.length;
+      if (bytes > maxAudioBytes) throw Object.assign(new Error("Recording too long"), { status: 413 });
+      chunks.push(chunk);
+    }
+    if (!bytes) throw Object.assign(new Error("No audio was recorded"), { status: 400 });
+    return { audio: Buffer.concat(chunks), mime: type };
+  }
+  // Voice calls spend the owner's ElevenLabs credits; cap each device.
+  const voiceAllowed = (sessionId) => {
+    const now = clock();
+    const recent = (voiceUse.get(sessionId) || []).filter((at) => at > now - 60000);
+    if (recent.length >= voiceCallsPerMinute) return false;
+    recent.push(now);
+    voiceUse.set(sessionId, recent);
+    return true;
+  };
+  const voiceSettings = () => {
+    const settings = voice?.settings();
+    const cloud = Boolean(settings?.elevenlabs?.configured);
+    return {
+      cloud,
+      stt: cloud ? settings.stt : "system",
+      tts: cloud ? settings.tts : "system",
+    };
+  };
   const server = (tls ? https : http).createServer(
     tls || {},
     async (req, res) => {
@@ -316,6 +358,43 @@ export function createMobileGateway({
           return json(res, 403, { error: "Device role cannot send work" });
         if (req.method === "POST" && url.pathname.endsWith("/cancel") && !can("cancel"))
           return json(res, 403, { error: "Device role cannot cancel work" });
+        if (req.method === "GET" && url.pathname === "/v1/voice")
+          return json(res, 200, voiceSettings());
+        if (req.method === "POST" && (url.pathname === "/v1/voice/transcribe" || url.pathname === "/v1/voice/speak")) {
+          if (!can("write")) return json(res, 403, { error: "Device role cannot use voice" });
+          if (!voiceSettings().cloud)
+            return json(res, 409, { error: "Connect ElevenLabs in the desktop app's Voice settings first" });
+          if (!voiceAllowed(session.id))
+            return json(res, 429, { error: "Too many voice requests; wait a minute" });
+          const speak = url.pathname.endsWith("/speak");
+          let input;
+          try {
+            input = speak ? await body(req) : await audioBody(req);
+          } catch (error) {
+            return json(res, error.status || 400, { error: error.status ? error.message : "Invalid voice request" });
+          }
+          if ((!session.external && sessions.get(key) !== session) || session.expiresAt <= clock())
+            return json(res, 401, { error: "Session revoked" });
+          recordAudit({ actor: session.memberId, action: speak ? "voice.speak" : "voice.transcribe", resource: null, at: clock() });
+          try {
+            if (!speak) return json(res, 200, await voice.transcribe(input));
+            const result = await voice.speak({
+              text: typeof input.text === "string" ? input.text : "",
+              employeeId: typeof input.employeeId === "string" ? input.employeeId : "",
+            });
+            res.writeHead(200, {
+              "Content-Type": result.mime,
+              "Content-Length": result.audio.byteLength,
+              "Cache-Control": "no-store",
+              "X-Content-Type-Options": "nosniff",
+            });
+            return res.end(Buffer.from(result.audio));
+          } catch (error) {
+            // Voice service errors are written for people ("ElevenLabs
+            // rejected the API key") and carry no secrets.
+            return json(res, 502, { error: String(error.message).slice(0, 200) });
+          }
+        }
         const allowed = (conversation) => {
           const access = conversationAccess.get(conversation.id);
           if (access) return access.has(session.memberId);

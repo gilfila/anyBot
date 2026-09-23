@@ -8,7 +8,7 @@ import { Coordinator } from "../runtime/coordinator.mjs";
 import { createMobileGateway } from "../runtime/mobile-gateway.mjs";
 import { createJwtVerifier } from "../runtime/identity.mjs";
 
-async function fixture(t, members = [], statePath = null, auditPath = null, membersPath = null) {
+async function fixture(t, members = [], statePath = null, auditPath = null, membersPath = null, voice = null) {
   const directory = await mkdtemp(join(tmpdir(), "anybot-mobile-"));
   const c = new Coordinator({
     directory,
@@ -33,6 +33,7 @@ async function fixture(t, members = [], statePath = null, auditPath = null, memb
     membersPath,
     statePath,
     auditPath,
+    voice,
     clock: () => time,
   });
   const address = await gateway.listen(),
@@ -448,4 +449,84 @@ test("mobile messages are admitted once across retries and cancellation reaches 
       .status,
     404,
   );
+});
+
+// Phones reuse the desktop's ElevenLabs connection through the gateway; the
+// key stays in the desktop voice service and never appears in a response.
+function fakeVoice(configured = true) {
+  const calls = [];
+  return {
+    calls,
+    settings: () => ({ stt: "elevenlabs", tts: "elevenlabs", secret: "never", elevenlabs: { configured } }),
+    transcribe: async (input) => {
+      calls.push(["transcribe", input.mime, input.audio.length]);
+      return { text: "Plan the launch" };
+    },
+    speak: async (input) => {
+      calls.push(["speak", input.text, input.employeeId]);
+      if (input.text === "fail") throw new Error("ElevenLabs rate limit or quota reached.");
+      return { audio: new Uint8Array([7, 8, 9]), mime: "audio/mpeg" };
+    },
+  };
+}
+
+test("voice endpoints proxy the desktop voice service to contributor devices", async (t) => {
+  const voice = fakeVoice();
+  const f = await fixture(t, [], null, null, null, voice);
+  const { token } = await f.pair({ role: "contributor" });
+  const auth = { Authorization: `Bearer ${token}` };
+  const settings = await (await f.request("/voice", { headers: auth })).json();
+  assert.deepEqual(settings, { cloud: true, stt: "elevenlabs", tts: "elevenlabs" });
+
+  const heard = await f.request("/voice/transcribe", {
+    method: "POST",
+    headers: { ...auth, "Content-Type": "audio/webm;codecs=opus" },
+    body: new Uint8Array([1, 2, 3, 4]),
+  });
+  assert.equal(heard.status, 200);
+  assert.deepEqual(await heard.json(), { text: "Plan the launch" });
+  assert.deepEqual(voice.calls[0], ["transcribe", "audio/webm", 4]);
+
+  const spoken = await f.post("/voice/speak", { text: "Hello", employeeId: "e1" }, token);
+  assert.equal(spoken.status, 200);
+  assert.equal(spoken.headers.get("content-type"), "audio/mpeg");
+  assert.deepEqual([...new Uint8Array(await spoken.arrayBuffer())], [7, 8, 9]);
+
+  const failed = await f.post("/voice/speak", { text: "fail" }, token);
+  assert.equal(failed.status, 502);
+  assert.match((await failed.json()).error, /quota/);
+
+  const html = await f.request("/voice/transcribe", {
+    method: "POST",
+    headers: { ...auth, "Content-Type": "text/html" },
+    body: "<b>x</b>",
+  });
+  assert.equal(html.status, 415);
+  assert.ok(f.gateway.audit().some((entry) => entry.action === "voice.transcribe"));
+});
+
+test("voice endpoints refuse viewers, unconfigured desktops, and floods", async (t) => {
+  const f = await fixture(t, [], null, null, null, fakeVoice());
+  const viewer = await f.pair({ role: "viewer" });
+  const refused = await f.post("/voice/speak", { text: "Hi" }, viewer.token);
+  assert.equal(refused.status, 403);
+  // Viewers can still learn which voice path to use locally.
+  assert.equal((await f.request("/voice", { headers: { Authorization: `Bearer ${viewer.token}` } })).status, 200);
+
+  const { token } = await f.pair({ role: "contributor" });
+  let last;
+  for (let i = 0; i < 31; i += 1) last = await f.post("/voice/speak", { text: "Hi" }, token);
+  assert.equal(last.status, 429);
+  f.advance(61000);
+  assert.equal((await f.post("/voice/speak", { text: "Hi" }, token)).status, 200);
+
+  const off = await fixture(t, [], null, null, null, fakeVoice(false));
+  const phone = await off.pair({ role: "contributor" });
+  const settings = await (await off.request("/voice", { headers: { Authorization: `Bearer ${phone.token}` } })).json();
+  assert.deepEqual(settings, { cloud: false, stt: "system", tts: "system" });
+  assert.equal((await off.post("/voice/speak", { text: "Hi" }, phone.token)).status, 409);
+
+  const none = await fixture(t);
+  const bare = await none.pair({ role: "contributor" });
+  assert.equal((await none.post("/voice/speak", { text: "Hi" }, bare.token)).status, 409);
 });

@@ -154,7 +154,7 @@ import { HtmlPreviewModal } from "./components/HtmlPreviewModal.jsx";
 import { ProjectSettingsForm } from "./components/ProjectSettingsForm.jsx";
 import { VoiceSettings } from "./components/VoiceSettings.jsx";
 import { createListener, createSpeaker, voiceError } from "./lib/voice.js";
-import { toSpeech } from "./lib/speech.js";
+import { awaitReply } from "./lib/voice-turn.js";
 
 const voicePhaseLabel = {
   listening: "Listening",
@@ -427,9 +427,10 @@ export function App() {
       }
     }
   }
-  // One spoken turn: send the transcript, acknowledge, wait for the run to
-  // finish however long it takes, and return a speakable summary.
+  // One spoken turn: send the transcript, acknowledge, then wait for the run
+  // to finish however long it takes and return a speakable summary.
   async function voiceTurn(convId, employee, text, say, live) {
+    const before = new Set(dataRef.current.messages.filter((m) => m.conversation === convId).map((m) => m.id));
     const result = await act("messages.send", {
       conversation: convId,
       body: text,
@@ -437,34 +438,21 @@ export function App() {
       requestId: crypto.randomUUID(),
     });
     if (!result || !live()) return null;
-    const sent = result.messages.findLast(
-      (m) => m.conversation === convId && m.author === "human" && m.body === text,
-    );
-    if (!sent) return null;
     await say("On it.");
-    const started = Date.now();
-    const limit = ((employee.timeoutMinutes || 10) + 2) * 60000;
-    let nextCue = 45000;
-    while (live()) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      const snapshot = dataRef.current;
-      const run = snapshot.runs.find((r) => r.message === sent.id && r.employee === employee.id && !r.parent);
-      if (run && !["queued", "running", "cancelling"].includes(run.status)) {
-        if (run.status !== "succeeded") return `${employee.name} couldn't finish that. The run ${run.status}.`;
-        const after = snapshot.messages.findIndex((m) => m.id === sent.id);
-        const reply = snapshot.messages
-          .slice(after + 1)
-          .findLast((m) => m.conversation === convId && m.author === employee.id);
-        return reply ? toSpeech(reply.body) || "Done. The details are in the chat." : "Done.";
-      }
-      const elapsed = Date.now() - started;
-      if (elapsed > limit) return "This is taking a while. The answer will be in the chat.";
-      if (elapsed > nextCue) {
-        nextCue += 90000;
-        await say("Still working on it.");
-      }
-    }
-    return null;
+    return awaitReply({
+      load: () => {
+        const { messages, runs } = dataRef.current;
+        return {
+          messages: messages.filter((m) => m.conversation === convId),
+          runs: runs.filter((r) => r.conversation === convId),
+        };
+      },
+      body: text,
+      employee,
+      before,
+      live,
+      say,
+    });
   }
   async function startVoiceChat() {
     if (!conversation || conversation.members.length !== 1) return;

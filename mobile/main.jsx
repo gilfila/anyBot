@@ -18,7 +18,16 @@ import {
   WifiOff,
 } from "lucide-react";
 import { createClient } from "./client.mjs";
-import { speechChunks, toSpeech } from "../src/lib/speech.js";
+import { createListener, createSpeaker, voiceError } from "../src/lib/voice.js";
+import { awaitReply } from "../src/lib/voice-turn.js";
+import { createNativeListener, nativeSpeech, nativeVoiceAvailable } from "./native-voice.mjs";
+
+const voicePhaseLabel = {
+  listening: "Listening",
+  transcribing: "Hearing you",
+  thinking: "Working",
+  speaking: "Speaking",
+};
 import { beginOidc, consumeOidcCallback } from "./oidc.mjs";
 import "./style.css";
 
@@ -50,11 +59,14 @@ function App() {
   const refreshLock = useRef(null);
   const generation = useRef(0),
     sending = useRef(false),
-    recognition = useRef(null),
-    // Bumped on every voice start and on unmount so an old reply wait stops.
+    listener = useRef(null),
+    speaker = useRef(null),
+    // Bumped on every voice start/stop and on unmount so callbacks from an
+    // old listener or reply wait know they are stale.
     voiceTurn = useRef(0);
   const [dictating, setDictating] = useState(false);
   const [voiceChat, setVoiceChat] = useState(false);
+  const [voicePhase, setVoicePhase] = useState(null);
   const draft = drafts[thread] || "";
   const name = (id) =>
     data.employees.find((e) => e.id === id)?.name ||
@@ -183,124 +195,141 @@ function App() {
       setError(e.message);
     }
   }
-  function toggleDictation() {
-    if (recognition.current) {
-      recognition.current.stop();
-      return;
-    }
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setError("Dictation is unavailable in this browser.");
-      return;
-    }
-    const next = new SpeechRecognition();
-    next.continuous = true;
-    next.interimResults = false;
-    next.lang = navigator.language || "en-US";
-    next.onresult = (event) => {
-      const transcript = [...event.results]
-        .slice(event.resultIndex)
-        .filter((result) => result.isFinal)
-        .map((result) => result[0]?.transcript || "")
-        .join(" ")
-        .trim();
-      if (transcript)
-        setDrafts((draft) => ({
-          ...draft,
-          [thread]: `${draft[thread] || ""}${draft[thread] ? " " : ""}${transcript}`,
-        }));
-    };
-    next.onerror = (event) => {
-      if (event.error !== "aborted") setError(`Dictation failed: ${event.error}`);
-    };
-    next.onend = () => {
-      recognition.current = null;
-      setDictating(false);
-    };
+  // The phone follows the desktop's Voice settings. With ElevenLabs connected
+  // on the desktop, audio goes through the gateway (the key never leaves the
+  // desktop) and each bot keeps its voice. Otherwise the phone's own speech
+  // engine is used: native plugins in the app, the browser API on the web.
+  async function voiceConfig() {
     try {
-      next.start();
-      recognition.current = next;
-      setDictating(true);
-      setError("");
-    } catch (e) {
-      setError(e.message || "Dictation could not start.");
+      return await client.request("/voice");
+    } catch {
+      return { cloud: false, stt: "system", tts: "system" };
     }
   }
-  function startVoiceChat() {
+  function makeListener(config, handlers) {
+    if (config.cloud && config.stt === "elevenlabs" && navigator.mediaDevices?.getUserMedia && window.MediaRecorder)
+      return createListener({ provider: "elevenlabs", transcribe: (blob) => client.transcribe(blob), ...handlers });
+    if (nativeVoiceAvailable()) return createNativeListener(handlers);
+    return createListener({ provider: "system", ...handlers });
+  }
+  function stopVoice() {
+    voiceTurn.current += 1;
+    listener.current?.stop();
+    speaker.current?.cancel();
+    listener.current = speaker.current = null;
+    setDictating(false);
+    setVoiceChat(false);
+    setVoicePhase(null);
+  }
+  useEffect(() => {
+    if (listener.current) stopVoice();
+  }, [thread]);
+  useEffect(() => () => stopVoice(), []);
+  async function toggleDictation() {
+    if (dictating) {
+      stopVoice();
+      return;
+    }
+    stopVoice();
+    const turn = voiceTurn.current,
+      live = () => voiceTurn.current === turn,
+      target = thread;
+    const config = await voiceConfig();
+    if (!live()) return;
+    const next = makeListener(config, {
+      onText: (text) => {
+        if (live())
+          setDrafts((d) => ({ ...d, [target]: `${d[target] || ""}${d[target] ? " " : ""}${text}` }));
+      },
+      onError: (message) => live() && setError(message),
+      onEnd: () => live() && stopVoice(),
+    });
+    listener.current = next;
+    setDictating(true);
+    setError("");
+    try {
+      await next.start();
+    } catch (e) {
+      if (live()) {
+        setError(voiceError(e));
+        stopVoice();
+      }
+    }
+  }
+  async function startVoiceChat() {
     if (voiceChat) {
-      recognition.current?.stop();
+      stopVoice();
       return;
     }
     if (!conversation || conversation.members.length !== 1) {
       setError("Voice chat is available for one employee at a time.");
       return;
     }
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setError("Voice chat is unavailable in this browser.");
-      return;
-    }
-    const turn = ++voiceTurn.current;
-    const existing = new Set(detail?.messages.map((message) => message.id));
-    const next = new SpeechRecognition();
-    next.continuous = false;
-    next.interimResults = false;
-    next.lang = navigator.language || "en-US";
-    next.onresult = async (event) => {
-      const transcript = [...event.results]
-        .filter((result) => result.isFinal)
-        .map((result) => result[0]?.transcript || "")
-        .join(" ")
-        .trim();
-      if (!transcript) return;
-      try {
-        await send(null, transcript);
-        // Harness runs take anywhere from seconds to many minutes; keep
-        // waiting (up to half an hour) rather than giving up after a few polls.
-        const deadline = Date.now() + 30 * 60 * 1000;
-        while (Date.now() < deadline && voiceTurn.current === turn) {
-          await new Promise((resolve) => setTimeout(resolve, 1500));
-          const response = await client.request(`/conversations/${thread}`);
-          const reply = response.messages.find(
-            (message) => !existing.has(message.id) && message.author !== "human",
-          );
-          if (reply) {
-            if (window.speechSynthesis)
-              for (const chunk of speechChunks(toSpeech(reply.body)))
-                window.speechSynthesis.speak(new SpeechSynthesisUtterance(chunk));
-            setDetail(response);
-            break;
+    const employee = data.employees.find((e) => e.id === conversation.members[0]);
+    if (!employee) return;
+    stopVoice();
+    const turn = voiceTurn.current,
+      live = () => voiceTurn.current === turn,
+      convId = thread;
+    const config = await voiceConfig();
+    if (!live()) return;
+    const talk = createSpeaker({
+      provider: config.cloud && config.tts === "elevenlabs" ? "elevenlabs" : "system",
+      synthesize: (text, id) => client.speak(text, id),
+      local: nativeVoiceAvailable() ? nativeSpeech : null,
+      onError: (message) => live() && setError(message),
+    });
+    const say = async (text) => {
+      if (!live() || !text) return;
+      setVoicePhase("speaking");
+      await talk.speak(text, employee.id);
+      if (live()) setVoicePhase("thinking");
+    };
+    const load = () => client.request(`/conversations/${convId}`);
+    const next = makeListener(config, {
+      onState: (phase) => live() && setVoicePhase(phase),
+      onError: (message) => live() && setError(message),
+      onEnd: () => live() && stopVoice(),
+      onText: async (text) => {
+        if (!live()) return;
+        // The microphone stays off while the bot works and talks.
+        next.pause();
+        setVoicePhase("thinking");
+        try {
+          const before = new Set((await load()).messages.map((m) => m.id));
+          await client.request(`/conversations/${convId}/messages`, {
+            method: "POST",
+            body: { body: text, recipients: [employee.id], requestId: crypto.randomUUID() },
+          });
+          refresh();
+          await say("On it.");
+          const reply = await awaitReply({ load, body: text, employee, before, live, say });
+          refresh();
+          await say(reply);
+        } catch (e) {
+          if (live()) setError(voiceError(e));
+        } finally {
+          if (live()) {
+            setVoicePhase("listening");
+            next.resume();
           }
         }
-      } catch (e) {
-        setError(e.message);
-      }
-    };
-    next.onerror = (event) => {
-      if (event.error !== "aborted") setError(`Voice chat failed: ${event.error}`);
-    };
-    next.onend = () => {
-      recognition.current = null;
-      setVoiceChat(false);
-    };
+      },
+    });
+    listener.current = next;
+    speaker.current = talk;
+    setVoiceChat(true);
+    setVoicePhase("listening");
+    setError("");
     try {
-      next.start();
-      recognition.current = next;
-      setVoiceChat(true);
-      setError("");
+      await next.start();
     } catch (e) {
-      setError(e.message || "Voice chat could not start.");
+      if (live()) {
+        setError(voiceError(e));
+        stopVoice();
+      }
     }
   }
-  useEffect(
-    () => () => {
-      voiceTurn.current += 1;
-      recognition.current?.stop();
-    },
-    [],
-  );
   if (!client)
     return (
       <Connect
@@ -442,7 +471,7 @@ function App() {
                   aria-label={voiceChat ? "Stop voice chat" : "Start voice chat"}
                   onClick={startVoiceChat}
                 >
-                  <Volume2 size={16} /> {voiceChat ? "Listening" : "Voice chat"}
+                  <Volume2 size={16} /> {voiceChat ? voicePhaseLabel[voicePhase] || "Listening" : "Voice chat"}
                 </button>
               ) : null}
             </div>
@@ -560,7 +589,7 @@ function App() {
                   aria-label={dictating ? "Stop dictation" : "Dictate message"}
                   title={dictating ? "Stop dictation" : "Dictate message"}
                   onClick={toggleDictation}
-                  disabled={!!pending}
+                  disabled={!!pending || voiceChat}
                 >
                   <Mic size={18} />
                 </button>

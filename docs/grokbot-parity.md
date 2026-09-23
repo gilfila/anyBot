@@ -74,14 +74,14 @@ so text-to-speech on desktop is fine. Recognition is the part that's broken.
 
 **Decisions (owner, 2026-09-23):** go with option B, the voice receptionist.
 Local by default, with an optional API key for cloud. ElevenLabs for voices
-(the owner has a subscription). Delivery order:
+(the owner has a subscription). Both desktop and phone. Delivery order:
 
 | PR | Scope | Status |
 | --- | --- | --- |
-| 0.2.27 | Phase 0 fixes, `toSpeech`, Settings → Voice, ElevenLabs connector (Scribe STT + TTS, per-bot voices, `safeStorage` key), mic permission policy | **Done** on `claude/anybot-grokbot-feature-review-99tws5` |
+| 0.2.27 | Phase 0 fixes, `toSpeech`, Settings → Voice, ElevenLabs connector (Scribe STT + TTS, per-bot voices, `safeStorage` key), mic permission policy. **Phone**: the same loop, ElevenLabs through the desktop gateway, and native on-device speech when no key is set | **Done** on `claude/anybot-grokbot-feature-review-99tws5` (the phone still needs a real-device check) |
 | next | Local STT: whisper.cpp sidecar, plus a Piper local-voice option | Planned |
 | next+1 | Receptionist: coordinator voice session with tools; Claude Haiku 4.5 (API key) or a local model via Ollama; group-chat voice; barge-in | Planned |
-| later | Mobile native STT plugin, "call your team", voice approvals | Planned |
+| later | "Call your team" on the phone, voice approvals | Planned |
 
 
 Design principle: split **talking** from **working**. A fast voice layer handles
