@@ -8,6 +8,7 @@ import {
   Check,
   ChevronRight,
   CircleHelp,
+  Columns3,
   Clock,
   Cpu,
   Download,
@@ -152,6 +153,38 @@ import { MessageContent } from "./components/MessageContent.jsx";
 import { ContextRail } from "./components/ContextRail.jsx";
 import { HtmlPreviewModal } from "./components/HtmlPreviewModal.jsx";
 import { ProjectSettingsForm } from "./components/ProjectSettingsForm.jsx";
+import { ProjectBoard } from "./components/board/ProjectBoard.jsx";
+import { TaskPeek } from "./components/board/TaskPeek.jsx";
+import { statusLabel } from "./components/board/meta.js";
+
+// A task being started posts its brief into the project chat. Render it as a
+// compact card that links back to the board rather than a wall of text.
+function TaskStartMessage({ message, tasks, employees, onOpen }) {
+  const ref = message.body.match(/^Task ([0-9a-f]{8})/)?.[1];
+  const task = ref && tasks.find((item) => item.id.startsWith(ref));
+  const title = message.body.split("\n")[0].replace(/^Task [0-9a-f]{8}: /, "");
+  const people = (task?.assignees || []).map((id) => employees.find((e) => e.id === id)).filter(Boolean);
+  return (
+    <div className="message task-start">
+      <div className="task-start-card">
+        <Columns3 size={15} />
+        <div>
+          <span className="task-start-kicker">
+            {message.author === "system" ? "Autopilot started" : "You started"} · {time(message.created)}
+          </span>
+          <strong>{title}</strong>
+          {people.length > 0 && <span className="task-start-people">{people.map((p) => p.name).join(", ")}</span>}
+        </div>
+        {task && (
+          <button type="button" className="secondary" onClick={() => onOpen(task.id)}>
+            {statusLabel(task.status)}
+            <ChevronRight size={14} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function App() {
   const harnessName = (id) =>
@@ -194,6 +227,8 @@ export function App() {
   const [browserUrl, setBrowserUrl] = useState('');
   const [browserHtml, setBrowserHtml] = useState('');
   const [explorerPath, setExplorerPath] = useState('');
+  const [projectTab, setProjectTab] = useState("chat");
+  const [selectedTask, setSelectedTask] = useState(null);
   const end = useRef(null);
   // Voice replies are awaited inside long-lived callbacks; read live data.
   const dataRef = useRef(data);
@@ -298,6 +333,10 @@ export function App() {
   const activeRuns = runs.filter((r) =>
     ["queued", "running", "cancelling"].includes(r.status),
   );
+  const isProject = Boolean(conversation && conversation.members.length > 1);
+  const openTaskCount = (data.tasks || []).filter(
+    (task) => task.conversation === conversationId && task.status !== "done",
+  ).length;
   const activeRecipients = recipients.filter((id) =>
     conversation?.members.includes(id) &&
       data.employees.some((e) => e.id === id && !e.archived),
@@ -311,6 +350,10 @@ export function App() {
     );
     setView("chat");
     setDraft("");
+    if (c.id !== conversationId) {
+      setProjectTab("chat");
+      setSelectedTask(null);
+    }
     const convMessages = data.messages.filter((m) => m.conversation === c.id);
     const latestId = convMessages.length > 0 ? convMessages[convMessages.length - 1].id : null;
     if (latestId) {
@@ -1037,6 +1080,44 @@ export function App() {
                   </button>
                 )}
               </div>
+              {isProject && (
+                <div className="project-tabs" role="tablist" aria-label="Project views">
+                  <button
+                    role="tab"
+                    aria-selected={projectTab === "chat"}
+                    className={projectTab === "chat" ? "active" : ""}
+                    onClick={() => setProjectTab("chat")}
+                  >
+                    <MessageSquare size={15} />
+                    Chat
+                  </button>
+                  <button
+                    role="tab"
+                    aria-selected={projectTab === "board"}
+                    className={projectTab === "board" ? "active" : ""}
+                    onClick={() => setProjectTab("board")}
+                  >
+                    <Columns3 size={15} />
+                    Board
+                    {openTaskCount > 0 && <span className="project-tab-count">{openTaskCount}</span>}
+                  </button>
+                </div>
+              )}
+              {isProject && projectTab === "board" ? (
+                <ProjectBoard
+                  conversation={conversation}
+                  tasks={data.tasks}
+                  employees={data.employees}
+                  runs={data.runs}
+                  selectedId={selectedTask}
+                  onOpen={(taskId) => {
+                    setSelectedTask(taskId);
+                    setRightSidebarOpen(true);
+                  }}
+                  act={act}
+                />
+              ) : (
+              <>
               <div className="messages">
                 {!messages.length && (
                   <div className="chat-empty">
@@ -1050,7 +1131,18 @@ export function App() {
                     </p>
                   </div>
                 )}
-                {messages.map((m) => (
+                {messages.map((m) => m.kind === "task" ? (
+                  <TaskStartMessage
+                    key={m.id}
+                    message={m}
+                    tasks={data.tasks}
+                    employees={data.employees}
+                    onOpen={(taskId) => {
+                      setProjectTab("board");
+                      setSelectedTask(taskId);
+                    }}
+                  />
+                ) : (
                   <div
                     className={`message ${m.kind}${m.author === "human" ? " from-you" : m.author === "system" ? " from-system" : ""}`}
                     key={m.id}
@@ -1220,9 +1312,21 @@ export function App() {
               <div className="composer-note">
                 Local harnesses use your configured accounts and permissions.
               </div>
+              </>
+              )}
             </section>
+            {selectedTask && isProject && rightSidebarOpen && data.tasks.some((t) => t.id === selectedTask) ? (
+              <TaskPeek
+                taskId={selectedTask}
+                data={data}
+                conversation={conversation}
+                act={act}
+                onClose={() => setSelectedTask(null)}
+                onOpenArtifact={openArtifact}
+              />
+            ) : (
             <ContextRail
-              open={rightSidebarOpen}
+              open={rightSidebarOpen && !(isProject && projectTab === "board")}
               conversation={conversation}
               employees={data.employees}
               activeRuns={activeRuns}
@@ -1238,6 +1342,7 @@ export function App() {
               onBrowserNavigate={(url) => setBrowserUrl(url)}
               onExplorerSelect={(path) => setExplorerPath(path)}
             />
+            )}
           </div>
         )}
         {view === "work" && (

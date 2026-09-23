@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 export const id = () => randomUUID();
+// Bump with each migration below. Newer workspaces are refused by older apps.
+export const SCHEMA_VERSION = 8;
 export const now = () => new Date().toISOString();
 
 export class Store {
@@ -19,7 +21,7 @@ export class Store {
     );
     if (
       !Number.isInteger(storedVersion) ||
-      storedVersion > 7 ||
+      storedVersion > SCHEMA_VERSION ||
       storedVersion < 1
     ) {
       this.db.close();
@@ -187,6 +189,43 @@ export class Store {
         );
         this.db
           .prepare("UPDATE metadata SET value='7' WHERE key='schema'")
+          .run();
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        this.db.close();
+        throw error;
+      }
+    }
+    const boardVersion = Number(
+      this.db.prepare("SELECT value FROM metadata WHERE key='schema'").get()
+        .value,
+    );
+    if (boardVersion < 8) {
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
+        this.db.exec(`
+          CREATE TABLE tasks (id TEXT PRIMARY KEY,
+            conversation TEXT NOT NULL REFERENCES conversations(id),
+            title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL CHECK (status IN ('backlog','in_progress','review','done')),
+            priority TEXT NOT NULL DEFAULT 'none' CHECK (priority IN ('none','low','medium','high','urgent')),
+            due TEXT NOT NULL DEFAULT '', labels TEXT NOT NULL DEFAULT '[]',
+            assignees TEXT NOT NULL DEFAULT '[]', reviewer TEXT NOT NULL DEFAULT '',
+            checklist TEXT NOT NULL DEFAULT '[]', parent TEXT REFERENCES tasks(id),
+            sortKey REAL NOT NULL, createdBy TEXT NOT NULL,
+            created TEXT NOT NULL, updated TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1);
+          CREATE INDEX task_board ON tasks(conversation, status, sortKey);
+          CREATE TABLE task_activity (id TEXT PRIMARY KEY,
+            task TEXT NOT NULL REFERENCES tasks(id), author TEXT NOT NULL,
+            kind TEXT NOT NULL, body TEXT NOT NULL, run TEXT REFERENCES runs(id),
+            created TEXT NOT NULL);
+          CREATE INDEX task_activity_task ON task_activity(task, created);
+          ALTER TABLE runs ADD COLUMN task TEXT REFERENCES tasks(id);
+          ALTER TABLE conversations ADD COLUMN autopilot INTEGER NOT NULL DEFAULT 0;
+        `);
+        this.db
+          .prepare("UPDATE metadata SET value='8' WHERE key='schema'")
           .run();
         this.db.exec("COMMIT");
       } catch (error) {

@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-23
+
+### Added
+- **Project boards.** Every project (a conversation with more than one bot) gets **Chat** and **Board** tabs. The board has Backlog, In progress, Review, and Done columns with drag and drop (pointer and keyboard), a sortable **Table** view, filters (text, assignee, priority), and inline "New task" rows.
+- **Task side peek:** editable title, status, assignees (the first is the lead), reviewer, priority, due date, labels, description, and checklist, plus linked runs, returned files, and an activity timeline with comments. Buttons for Start, Stop work, Approve, and Request changes.
+- **Collaborative task runs:** Start queues one run per assignee. The lead and collaborators each get the task brief, checklist, co-assignees, and recent activity in their prompt, and delegated work inherits the task. When the work ends, a card still In progress moves to Review (if it has a reviewer) or Done (if every run succeeded); failures leave it In progress with a note.
+- **Agent board actions** (`anybot-actions` block, at most 20 per reply): `task.update` (status, progress note, checklist), `task.create` (Backlog only), and `task.claim` (unassigned Backlog tasks). The coordinator validates each one: only project members, only a task's assignees or reviewer, only the reviewer (or the owner) past Review, and only once collaborators finish when a lead asks to finish early. Results are posted as a notice, and the JSON block is hidden from the chat.
+- **Autopilot** per project (off by default) starts an idle assignee's highest-priority Backlog task.
+- Task starts appear in the chat as a compact card linking to the board.
+
+### Technical
+- Schema v8: `tasks`, `task_activity`, `runs.task`, and `conversations.autopilot`. `SCHEMA_VERSION` is now a single constant in `runtime/store.mjs`.
+- New `runtime/board.mjs` (task data, fractional sort keys, permission rules) and `runtime/actions.mjs` (action-block parser and prompt guide).
+- New IPC methods: `tasks.get|create|update|move|delete|comment|start|stop|review` and `conversations.setAutopilot`.
+- New renderer dependency: `@dnd-kit/core`/`sortable`/`utilities`.
+- Tests: `tests/board.test.mjs` and `tests/actions.test.mjs`.
+
 ## [0.2.27] - 2026-09-22
 
 ### Fixed

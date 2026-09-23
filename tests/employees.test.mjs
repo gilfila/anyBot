@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Coordinator } from "../runtime/coordinator.mjs";
-import { Store } from "../runtime/store.mjs";
+import { SCHEMA_VERSION, Store } from "../runtime/store.mjs";
 import { invocation } from "../runtime/adapters.mjs";
 
 async function fixture(t) {
@@ -200,7 +200,7 @@ test("schema one employee records migrate without losing fields", async (t) => {
   assert.equal(employee.avatar, "");
   assert.equal(
     store.one("SELECT value FROM metadata WHERE key='schema'").value,
-    "7",
+    String(SCHEMA_VERSION),
   );
   store.close();
 });
