@@ -76,7 +76,9 @@ Every project has a task board with four columns: **Backlog**, **In progress**, 
 
 ### Share a Canvas
 
-Every conversation has a **Canvas**: a shared page like a Slack canvas. You and your bots write it together.
+Open a PR with a new stable version and changelog entry. The **Release Windows** workflow verifies the app and packages the installer; merging to main publishes the verified installer, blockmap, and update metadata to the public feed. Source code and build provenance stay private. No local packaging or release upload is needed.
+
+See [Automated releases](docs/releasing.md) for the one-time GitHub App/billing setup, required PR check, and recovery rules. Until that setup is complete, the publisher fails closed. Share the [direct installer download page](https://github.com/gilfila/anyBot-updates#readme) with users; GitHub's own release page always displays automatic archives of the public README repository.
 
 - **What it holds:** text, lists, to-dos, callouts, tables, link cards, and live task cards.
 - **Collected for you:** every file the bots produced and every link shared in the chat, in one place.

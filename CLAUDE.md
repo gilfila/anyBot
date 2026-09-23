@@ -8,8 +8,8 @@ Electron 44 main process (`desktop/main.cjs`) + sandboxed React 19 renderer (`sr
 
 ## Run / Build / Test
 - `npm start` (builds renderer, opens Electron). `npm run build` for the renderer only.
-- `npm test` (node:test, ~200 tests), `npm run test:runtime` (Electron utility-process smoke), `npm run doctor`, `npm run verify:local` (all gates).
-- `npm run package` builds `release/anyBot-Setup-X.Y.Z.exe` + `latest.yml` + blockmap. Releases are uploaded to `gilfila/anyBot-updates` by hand; CI builds with `--publish never`.
+- `npm test` (node:test, ~127 tests), `npm run test:runtime` (Electron utility-process smoke), `npm run doctor`, `npm run verify:local` (all gates).
+- `npm run package` builds `release/anyBot-Setup-X.Y.Z.exe` + `latest.yml` + blockmap. `.github/workflows/release.yml` validates PRs and publishes verified Windows assets after merge to main. Do not manually build/upload releases. One-time activation and recovery: `docs/releasing.md`.
 
 ## Structure
 - `desktop/main.cjs`: window, tray, IPC, updater state machine. Renderer-callable coordinator methods must be in the `methods` allowlist (enforced by `tests/desktop-ipc.test.mjs`).

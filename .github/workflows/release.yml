@@ -1,0 +1,87 @@
+name: Release Windows
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'main' }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Verify release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Verify version and changelog
+        run: node scripts/check-release-version.mjs
+        env:
+          RELEASE_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      - run: npm ci
+      - run: npm test
+      - run: npm run test:runtime
+      - run: npm run mobile:sync
+      - run: npm run package -- --publish never
+      - run: node scripts/verify-release-package.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-windows-release
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            release/anyBot-Setup-*.exe
+            release/anyBot-Setup-*.exe.blockmap
+            release/latest.yml
+            release/private-release-audit.json
+
+  publish:
+    name: Publish verified installer
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: verified-windows-release
+          path: release
+      - name: Check one-time publishing setup
+        env:
+          CLIENT_ID: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+        run: |
+          test -n "$CLIENT_ID" && test -n "$PRIVATE_KEY" || { echo 'Configure the scoped release GitHub App: docs/releasing.md'; exit 1; }
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: release-token
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: gilfila
+          repositories: anyBot-updates
+          permission-contents: write
+      - name: Publish allowlisted assets and verify live feed
+        run: node scripts/publish-release.mjs
+        env:
+          SOURCE_TOKEN: ${{ github.token }}
+          RELEASE_TOKEN: ${{ steps.release-token.outputs.token }}

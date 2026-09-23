@@ -100,43 +100,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [0.3.6] - 2026-09-23
 
-### Changed
-- **The Doc page is now the Canvas**, and it works like a Slack canvas: one shared, semi-structured page per conversation that you and your bots both write. Every conversation has one, one-bot chats included: the tabs are **Chat · Board · Canvas** in projects and **Chat · Canvas** in direct chats.
-- **Canvas beside the chat:** the chat side panel's **Deliverables** tab is now **Canvas**. It shows the same editable canvas next to the conversation, with **Open full canvas** to expand it.
-
 ### Added
-- **Files & outputs** at the top of every canvas: every file the bots returned in the conversation, with who made it, size, and age. Click a file to open it, show it in its folder, or add it to the page.
-- **Links from the chat:** every link shared in the conversation, newest first, one per address. Click to open, or add it to the page as a link card.
-- **Tables:** `/table`, editable in place.
-  - Tab and Shift+Tab move between cells, and Enter moves down, adding a row at the end.
-  - A toolbar adds and deletes rows and columns.
-  - Cells render links, bold, and code.
-- **Link cards:** `/link`, or any line in a bot's canvas update that is only a link.
-- **Starter templates** for an empty canvas: Project brief, Meeting notes, and Tracker.
-- **Markdown tables from bots:** they become canvas tables in `doc.append` and `doc.section`, and they now render as real tables in chat messages instead of raw pipes.
-
-### Technical
-- Canvas blocks add `table` (`rows`, at most 100 × 12, cells up to 500 characters) and `link` (http(s) `url` only). `markdownToBlocks` and `blocksToMarkdown` round-trip GFM tables, including escaped pipes.
-- Doc actions now work in any conversation whose members include the bot. Prompts and the action guide call it "the canvas".
-- New `src/components/doc/CanvasParts.jsx` and `canvas.css`. Tests: `tests/canvas.test.mjs`.
-
-## [0.3.5] - 2026-09-23
-
-### Added
-- **Diagnostics** (Settings → Diagnostics). anyBot keeps a local log of problems and shows them grouped by kind, each with a plain-language next step. A badge on **Runtime & privacy** counts new problems. The log keeps error details only (never conversation text), redacts keys, is capped at about 3 MB, and never leaves the computer. Copy report, Open log folder, and Clear are one click each.
-  - **Harness failures are sorted by cause:** not installed, sign-in, usage limit, timeout, unavailable model, no answer, failed to start, or another exit. Each has a fix hint and an Edit bot or Open harnesses button.
-  - **Bot output anyBot couldn't use:** unreadable `anybot-actions` blocks, refused board, doc, memory, and graph actions, refused handoffs, and files that weren't collected.
-  - **Updates:** the updater's timeline and failures are logged. Before installing, anyBot notes the version it expects, so an installer that fails (like the 0.2.25 → 0.2.26 case) shows up as "The update didn't install" on the next start.
-  - **Crashes and internal errors:** coordinator exits and error output, crashed background processes, unexpected command failures, window errors, and formatting failures.
-- **Crash recovery screen:** a rendering bug now shows "Something went wrong on this screen" with Reload and Copy details, instead of a blank window.
-
-### Fixed
-- A message the markdown renderer can't process now falls back to plain text instead of breaking the view.
-
-### Technical
-- New `desktop/diagnostics.cjs` (JSONL log with rotation, fingerprint grouping, burst suppression, and the pending-update check), `runtime/diagnostics.mjs` (harness error classification), and `src/lib/diagnostics.js` (reporting, descriptions, and the copyable report).
-- The coordinator emits `diagnostic` events, which the worker forwards to the main process. Main-process IPC methods: `diagnostics.list|report|markSeen|clear|reveal`. Snapshots carry `diagnostics: {issues, unseen, errors}`.
-- Updater install behavior is unchanged; anyBot only writes `update-pending.json` just before `quitAndInstall`. Tests: `tests/diagnostics.test.mjs`.
+- PR-driven Windows release workflow with version validation, packaged dependency/UI verification, exact-source provenance, and an installer-only public asset allowlist. Merging to main publishes after verification once the scoped GitHub App and Actions billing are configured.
+- Direct installer download page and safeguards against reused versions, mismatched source tags, incomplete uploads, and update-feed downgrades.
 
 ## [0.3.4] - 2026-09-23
 
