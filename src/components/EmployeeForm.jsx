@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Check, Folder, Plus } from "lucide-react";
 import { names, customModelValue, avatarColors, avatarHeadStyles, avatarEyeStyles } from "../constants.js";
 import { RobotAvatarPreview, parseAvatarConfig, stringifyAvatarConfig } from "./RobotAvatar.jsx";
+import { bubbleColors, bubbleStyle } from "../lib/bubbles.js";
 
 export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [], employees = [] }) {
   // An employee cannot report to itself or to anyone already below it.
@@ -54,6 +55,7 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [], em
     avatarColor: initialAvatar.color,
     avatarShape: initialAvatar.shape,
     avatarFace: initialAvatar.face,
+    avatarBubble: initialAvatar.bubble,
     manager: preset?.manager || "",
   });
   const set = (key, value) =>
@@ -81,6 +83,7 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [], em
       color: form.avatarColor,
       shape: form.avatarShape,
       face: form.avatarFace,
+      bubble: form.avatarBubble,
     });
     onSave({ ...form, avatar: avatarConfig });
   };
@@ -178,6 +181,27 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [], em
           ))}
         </div>
         <p className="avatar-studio-hint">Your bot turns to its screen while working, then faces you and waves until you read its reply.</p>
+        <div className="bubble-picker">
+          <span className="avatar-studio-label">Chat bubble</span>
+          <div className="bubble-swatches" role="group" aria-label="Chat bubble color">
+            {bubbleColors.map((color) => (
+              <button
+                key={color.id}
+                type="button"
+                className={`bubble-swatch${form.avatarBubble === color.id ? " selected" : ""}${color.id === "auto" ? " is-auto" : ""}`}
+                style={bubbleStyle(color.id, form.avatarColor)}
+                onClick={() => set("avatarBubble", color.id)}
+                title={color.name}
+                aria-label={color.name}
+                aria-pressed={form.avatarBubble === color.id}
+              />
+            ))}
+          </div>
+          <div className="bubble-sample" style={bubbleStyle(form.avatarBubble, form.avatarColor)}>
+            <strong>{form.name || "Your bot"}</strong>
+            Here's what I found. The shade adapts to your theme, so replies stay easy to read.
+          </div>
+        </div>
       </section>
       <label>
         Harness

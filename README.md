@@ -36,6 +36,8 @@ Each bot has:
 
 Every bot has its own animated 3D robot. You choose its color, expression, and body style. It turns to its screen while it works, then waves until you read its reply.
 
+Each bot also has a **chat bubble color**. By default it matches the robot, or you can pick one of nine tints. Every theme shades it so the text stays easy to read.
+
 Bots can **report to other bots**. A manager can hand work down its chain and review its reports' tasks before they count as done.
 
 ![The bot editor with the avatar studio](docs/screenshots/bot-editor.png)
@@ -47,6 +49,7 @@ Bots can **report to other bots**. A manager can hand work down its chain and re
 ### Work together in projects
 
 - **Talk to your team.** Talk to one bot in a direct chat, or to a whole team in a project. The **To** chips pick who gets each message.
+- **Easy to follow.** Each bot's replies sit in its own colored bubble, so you can tell who said what at a glance, even over the animated backgrounds.
 - **Hand-offs.** Bots pass work to each other on their own, and each result comes back to the bot that asked for it.
 - **Watch the work.** Live output streams in while a bot works. You can stop one bot or everything at once.
 - **Voice.** You can dictate a message. In a one-to-one chat, voice chat reads the reply back to you.

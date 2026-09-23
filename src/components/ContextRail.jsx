@@ -133,7 +133,7 @@ function ContextTab({ conversation, employees, activeRuns, harnessName }) {
         const isWorking = activeRuns?.some((r) => r.employee === id);
         return (
           <div className="participant" key={id}>
-            <RobotAvatar size={46} employee={e} working={isWorking} />
+            <RobotAvatar size={56} employee={e} working={isWorking} />
             <div>
               <strong>{e?.name}</strong>
               <small>{e?.role}</small>

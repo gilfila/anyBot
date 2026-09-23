@@ -5255,14 +5255,14 @@ dialog {
 /* Larger bot avatars (0.3.9): the 3D models read better with room. Sizes
    are set per place on <RobotAvatar size>; these rules make room for them. */
 .bot-list {
-  max-height: 290px;
+  max-height: 340px;
 }
 .bot-list .bot-row-main {
   padding-top: 5px;
   padding-bottom: 5px;
 }
 .org-card {
-  min-height: 124px;
+  min-height: 144px;
 }
 .org-card-top .robot-avatar,
 .agent-hero .robot-avatar {
@@ -5294,4 +5294,84 @@ dialog .modal-form > .primary.full:last-child {
   bottom: 18px;
   z-index: 3;
   box-shadow: 0 0 0 18px var(--card);
+}
+
+/* Bot chat bubbles (0.3.11). Every bot reply sits on a solid bubble so it
+   reads over any theme background. Each bot picks a hue (Match robot by
+   default); the theme's scheme sets the shade, so text contrast holds
+   (src/lib/bubbles.js mirrors these numbers and tests them). */
+:root {
+  --bubble-l: 0.965;
+  --bubble-c: 0.045;
+  --bubble-edge-l: 0.86;
+  --bubble-edge-c: 0.07;
+}
+:root[data-scheme="dark"] {
+  --bubble-l: 0.25;
+  --bubble-c: 0.045;
+  --bubble-edge-l: 0.42;
+  --bubble-edge-c: 0.08;
+}
+.message.from-bot,
+.bubble-sample {
+  --bubble-h: 90;
+  --bubble-k: 0;
+  --bubble-bg: oklch(var(--bubble-l) calc(var(--bubble-c) * var(--bubble-k)) var(--bubble-h));
+  --bubble-edge: oklch(var(--bubble-edge-l) calc(var(--bubble-edge-c) * var(--bubble-k)) var(--bubble-h));
+}
+.message.from-bot:not(.handoff) .message-body,
+.bubble-sample {
+  padding: 11px 16px;
+  background: var(--bubble-bg);
+  border: 1px solid var(--bubble-edge);
+  border-radius: 5px 18px 18px 18px;
+  box-shadow: 0 12px 28px -22px oklch(0.2 0.03 var(--bubble-h) / 0.5);
+}
+.message.from-bot .message-meta {
+  margin-top: 6px;
+}
+/* Bot editor: pick the bubble tint and see it in the current theme. */
+.bubble-picker {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+}
+.bubble-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.bubble-swatch {
+  --bubble-bg: oklch(var(--bubble-l) calc(var(--bubble-c) * var(--bubble-k)) var(--bubble-h));
+  --bubble-edge: oklch(var(--bubble-edge-l) calc(var(--bubble-edge-c) * var(--bubble-k)) var(--bubble-h));
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--bubble-bg);
+  border: 2px solid var(--bubble-edge);
+  cursor: pointer;
+  transition: transform 150ms var(--ease-out), box-shadow 150ms var(--ease-out);
+}
+.bubble-swatch:hover {
+  transform: scale(1.08);
+}
+.bubble-swatch.selected {
+  box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--ink);
+}
+/* "Match robot": a split swatch with the robot's color. */
+.bubble-swatch.is-auto {
+  background: linear-gradient(135deg, var(--bubble-bg) 50%, oklch(0.68 0.16 var(--bubble-h)) 50%);
+}
+.bubble-sample {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+.bubble-sample strong {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 12.5px;
 }

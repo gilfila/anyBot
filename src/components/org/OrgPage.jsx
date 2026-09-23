@@ -21,8 +21,8 @@ import { renderMarkdownInline } from "../../lib/markdown.js";
 import { KnowledgeGraph } from "./KnowledgeGraph.jsx";
 import "./org.css";
 
-const CARD_W = 208;
-const CARD_H = 112;
+const CARD_W = 236;
+const CARD_H = 144;
 const GAP_X = 28;
 const GAP_Y = 64;
 const ACTIVE = ["queued", "running", "cancelling"];
@@ -73,7 +73,7 @@ function OrgCard({ node, employee, stats, working, selected, onSelect }) {
       ) : (
         <>
           <div className="org-card-top">
-            <RobotAvatar size={64} employee={employee} working={working} />
+            <RobotAvatar size={80} employee={employee} working={working} />
             <div className="org-card-text">
               <strong>{employee.name}</strong>
               <span>{employee.role}</span>
@@ -257,7 +257,7 @@ function AgentPanel({ employee, data, reports, act, onClose, onMessage, onEdit, 
       </header>
       <div className="task-peek-body">
         <div className="agent-hero">
-          <RobotAvatar size={88} employee={employee} working={running.length > 0} />
+          <RobotAvatar size={108} employee={employee} working={running.length > 0} />
           <div>
             <h2>{employee.name}</h2>
             <p>{employee.role}</p>

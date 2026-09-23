@@ -59,8 +59,8 @@
 }
 .org-card {
   position: absolute;
-  width: 208px;
-  min-height: 112px;
+  width: 236px;
+  min-height: 144px;
   display: grid;
   gap: 10px;
   align-content: start;

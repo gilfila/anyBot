@@ -1,3 +1,5 @@
+import { bubbleColors } from "./bubbles.js";
+
 // Storage stays compatible with the employee.avatar JSON field.
 export const avatarColors = [
   { id: "cobalt", name: "Cobalt", fill: "#3864F4", css: "var(--bot-cobalt)" },
@@ -89,6 +91,8 @@ export function parseAvatarConfig(value, name = "bot", harness) {
       avatarHeadStyles[seed % 3].id,
     ),
     face: pick(parsed.face, avatarEyeStyles, oldFaces, "open"),
+    // Chat bubble tint (src/lib/bubbles.js); "auto" matches the robot.
+    bubble: pick(parsed.bubble, bubbleColors, {}, "auto"),
   };
 }
 export function stringifyAvatarConfig(config) {

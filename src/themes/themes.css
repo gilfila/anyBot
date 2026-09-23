@@ -131,9 +131,9 @@
   pointer-events: none;
   background: repeating-linear-gradient(to bottom, transparent 0 2px, oklch(0 0 0 / 0.14) 2px 3px);
 }
-:root[data-bubbles="terminal"] .message:not(.from-you):not(.handoff) .message-body {
-  padding-left: 12px;
-  border-left: 2px solid var(--ink-4);
+:root[data-bubbles="terminal"] .message.from-bot:not(.handoff) .message-body {
+  border-left: 2px solid var(--ink-3);
+  border-radius: 3px;
 }
 :root[data-bubbles="terminal"] .message.from-you .message-body {
   position: relative;
@@ -169,8 +169,6 @@
 }
 :root[data-bubbles="leaf"] .message:not(.from-you):not(.handoff) .message-body {
   padding: 10px 15px;
-  background: var(--card);
-  border: 1px solid var(--rule);
   border-radius: 4px 18px 18px 18px;
   box-shadow: 0 8px 20px -16px oklch(0.4 0.07 150 / 0.55);
 }
@@ -231,9 +229,11 @@
   color: var(--ink);
   border: 1px solid oklch(0.86 0.15 200 / 0.45);
   border-radius: 4px;
+  /* Scanlines and glow over the bot's solid bubble tint. */
   background:
     repeating-linear-gradient(to bottom, oklch(0.86 0.15 200 / 0.07) 0 1px, transparent 1px 3px),
-    linear-gradient(135deg, oklch(0.86 0.15 200 / 0.13), oklch(0.7 0.27 340 / 0.07));
+    linear-gradient(135deg, oklch(0.86 0.15 200 / 0.13), oklch(0.7 0.27 340 / 0.07)),
+    var(--bubble-bg, var(--card));
   box-shadow: 0 0 24px -10px var(--neon-1), inset 0 0 22px -14px var(--neon-1);
   animation: holo-in 520ms var(--ease-out) both;
 }

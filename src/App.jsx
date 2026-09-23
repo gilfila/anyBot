@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   AlertCircle,
   Archive,
@@ -141,7 +141,8 @@ function UpdateButton({ update, onAction, onDismiss }) {
 import { Avatar } from "./components/Avatar.jsx";
 import { BrandMark } from "./components/BrandMark.jsx";
 import { RobotAvatar, AvatarActivityContext } from "./components/RobotAvatar.jsx";
-import { employeeAvatarStates } from "./lib/avatar-config.js";
+import { employeeAvatarStates, parseAvatarConfig } from "./lib/avatar-config.js";
+import { bubbleStyle } from "./lib/bubbles.js";
 import { WorkingIndicator } from "./components/WorkingIndicator.jsx";
 import { ApprovalBar } from "./components/ApprovalBar.jsx";
 import { Status } from "./components/Status.jsx";
@@ -206,6 +207,17 @@ export function App() {
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [connected, setConnected] = useState(false);
+  // Each bot's chat bubble tint, as CSS custom properties for its messages.
+  const bubbles = useMemo(
+    () =>
+      new Map(
+        data.employees.map((e) => {
+          const avatar = parseAvatarConfig(e.avatar, e.name, e.harness);
+          return [e.id, bubbleStyle(avatar.bubble, avatar.color)];
+        }),
+      ),
+    [data.employees],
+  );
   const [draft, setDraft] = useState(""),
     [recipients, setRecipients] = useState([]);
   const [sidebarSearch, setSidebarSearch] = useState("");
@@ -601,7 +613,7 @@ export function App() {
                   className="bot-row-main"
                   onClick={() => directChat(employee)}
                 >
-                  <RobotAvatar size={50} employee={employee} working={run?.status === "running"} />
+                  <RobotAvatar size={60} employee={employee} working={run?.status === "running"} />
                   <span className="bot-row-text">
                     <span className="bot-row-name">{employee.name}</span>
                     <small className={waiting || run?.status === "running" ? "live" : ""}>
@@ -887,7 +899,7 @@ export function App() {
                           className={`roster-row${working ? " is-working" : ""}${e.archived ? " is-archived" : ""}`}
                           key={e.id}
                         >
-                          <RobotAvatar size={72} employee={e} working={working} />
+                          <RobotAvatar size={88} employee={e} working={working} />
                           <div className="roster-who">
                             <h3>{e.name}</h3>
                             <span className="role">{e.role}</span>
@@ -1021,7 +1033,7 @@ export function App() {
                       key={p.harness}
                       onClick={() => setModal({ type: "employee", preset: p })}
                     >
-                      <RobotAvatar size={64} employee={p} />
+                      <RobotAvatar size={76} employee={p} />
                       <span className="template-text">
                         <strong>{p.role}</strong>
                         <small>{p.summary}</small>
@@ -1197,14 +1209,15 @@ export function App() {
                   />
                 ) : (
                   <div
-                    className={`message ${m.kind}${m.author === "human" ? " from-you" : m.author === "system" ? " from-system" : ""}`}
+                    className={`message ${m.kind}${m.author === "human" ? " from-you" : m.author === "system" ? " from-system" : " from-bot"}`}
+                    style={bubbles.get(m.author)}
                     key={m.id}
                   >
                     {m.author === "human" ? (
                       <Avatar small employee={{ name: "Y" }} />
                     ) : m.author === "system" ? null : (
                       <RobotAvatar
-                        size={52}
+                        size={64}
                         employee={data.employees.find((e) => e.id === m.author)}
                       />
                     )}
@@ -1239,9 +1252,9 @@ export function App() {
                   </div>
                 ))}
                 {activeRuns.map((r) => (
-                  <div className="message live-run" key={r.id}>
+                  <div className="message live-run from-bot" style={bubbles.get(r.employee)} key={r.id}>
                     <RobotAvatar
-                      size={52}
+                      size={64}
                       employee={data.employees.find((e) => e.id === r.employee)}
                       working
                     />
@@ -1448,7 +1461,7 @@ export function App() {
                 {[...data.runs].reverse().map((r) => (
                   <article className="run-row" key={r.id}>
                     <RobotAvatar
-                      size={44}
+                      size={52}
                       employee={data.employees.find((e) => e.id === r.employee)}
                       working={r.status === "running"}
                     />
@@ -2077,7 +2090,7 @@ export function App() {
         >
           <div className="delete-confirm-content">
             <div className="delete-confirm-avatar">
-              <RobotAvatar size={88} employee={deleteConfirm} />
+              <RobotAvatar size={104} employee={deleteConfirm} />
             </div>
             <p>
               Are you sure you want to delete <strong>{deleteConfirm.name}</strong>?
