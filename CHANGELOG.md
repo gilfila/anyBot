@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-## [0.3.4] - 2026-09-23
+## [0.3.5] - 2026-09-23
 
 ### Added
 - **Diagnostics** (Settings → Diagnostics). anyBot keeps a local log of problems and shows them grouped by kind, each with a plain-language next step. A badge on **Runtime & privacy** counts new problems. The log keeps error details only (never conversation text), redacts keys, is capped at about 3 MB, and never leaves the computer. Copy report, Open log folder, and Clear are one click each.
@@ -23,6 +23,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - New `desktop/diagnostics.cjs` (JSONL log with rotation, fingerprint grouping, burst suppression, and the pending-update check), `runtime/diagnostics.mjs` (harness error classification), and `src/lib/diagnostics.js` (reporting, descriptions, and the copyable report).
 - The coordinator emits `diagnostic` events, which the worker forwards to the main process. Main-process IPC methods: `diagnostics.list|report|markSeen|clear|reveal`. Snapshots carry `diagnostics: {issues, unseen, errors}`.
 - Updater install behavior is unchanged; anyBot only writes `update-pending.json` just before `quitAndInstall`. Tests: `tests/diagnostics.test.mjs`.
+
+## [0.3.4] - 2026-09-23
+
+### Added
+- Three sculpted bot avatars: Scout, Orbit, and Tinker, each available in cobalt, coral, citron, and violet. Customization includes live model, expression, and activity previews; existing avatar settings migrate automatically.
+- Bots rest at a 30-degree angle, turn toward a holographic screen while working, and face you with a hello wave when they have unread replies. Opening their conversation returns them to idle; active work takes precedence. Reduced-motion preferences are respected.
 
 ## [0.3.3] - 2026-09-23
 
