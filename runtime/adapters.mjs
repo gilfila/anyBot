@@ -308,23 +308,32 @@ export function childEnvironment(env = process.env) {
   );
 }
 
-export function invocation(harness, model = "", permissionMode = "ask") {
-  if (model) return [...invocation(harness, "", permissionMode), "--model", model];
+export function invocation(harness, model = "", permissionMode = "auto", approvals = undefined) {
+  if (model) return [...invocation(harness, "", permissionMode, approvals), "--model", model];
   switch (harness) {
-    case "claude":
-      // Claude Code permission modes:
-      // - "default": prompts for dangerous operations (our "ask")
-      // - "acceptEdits": allows file edits without prompting, still prompts for bash (our "dontAsk"/autonomous)
-      // - "dontAsk": auto-DENIES non-allowlisted tools (dangerous, not autonomous!)
-      // - "bypassPermissions": allows all operations without prompting (not used here)
-      return [
-        "-p",
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--permission-mode",
-        permissionMode === "ask" ? "default" : "acceptEdits",
-      ];
+    case "claude": {
+      // anyBot modes → Claude Code permission modes:
+      // - auto: "auto" (a classifier runs safe actions, flags risky ones) plus
+      //   file edits inside the workspace allowed outright.
+      // - dontAsk: "acceptEdits" (edits run; commands and the rest are gated).
+      // - ask: "default" (everything gated).
+      // Headless runs can't show prompts, so gated actions go to the owner
+      // through the approval bridge (runtime/approvals.mjs); without it they
+      // would be denied silently.
+      const mode = permissionMode === "ask" ? "default" : permissionMode === "dontAsk" ? "acceptEdits" : "auto";
+      const args = ["-p", "--output-format", "stream-json", "--verbose", "--permission-mode", mode];
+      if (mode === "auto") args.push("--allowedTools", "Edit(./**)");
+      if (approvals?.configPath)
+        args.push(
+          "--permission-prompts",
+          "host",
+          "--permission-prompt-tool",
+          "mcp__anybot__approve",
+          "--mcp-config",
+          approvals.configPath,
+        );
+      return args;
+    }
     case "codex":
       return [
         "exec",
@@ -335,7 +344,8 @@ export function invocation(harness, model = "", permissionMode = "ask") {
         "-",
       ];
     case "gemini":
-      return ["--output-format", "stream-json", "--approval-mode", "default"];
+      // No approval hook: auto and dontAsk let Gemini edit files; commands stay blocked.
+      return ["--output-format", "stream-json", "--approval-mode", permissionMode === "ask" ? "default" : "auto_edit"];
     case "hermes":
       return [
         "chat",
@@ -348,7 +358,8 @@ export function invocation(harness, model = "", permissionMode = "ask") {
         "600",
       ];
     case "cursor":
-      return permissionMode === "ask"
+      // No approval hook and no classifier: only dontAsk passes --force.
+      return permissionMode !== "dontAsk"
         ? [
             "--print",
             "--output-format",
@@ -533,7 +544,7 @@ export async function probeAll(modelCatalog = {}) {
 }
 
 export async function runHarness(
-  { harness, model, workspace, prompt, signal, onText, timeoutMs = 600000, permissionMode = "ask" },
+  { harness, model, workspace, prompt, signal, onText, timeoutMs = 600000, permissionMode = "auto", approvals },
   { resolve = resolveExecutable, args, outputFormat } = {},
 ) {
   const executable = await resolve(harness);
@@ -544,7 +555,7 @@ export async function runHarness(
   if (signal.aborted) throw new Error("Run cancelled");
   const child = spawn(
     executable.file,
-    [...executable.prefix, ...(args ?? invocation(harness, model, permissionMode))],
+    [...executable.prefix, ...(args ?? invocation(harness, model, permissionMode, approvals))],
     {
       cwd: workspace,
       env: childEnvironment(),

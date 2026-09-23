@@ -45,8 +45,8 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [], em
         : customModelValue
       : "",
     permissionMode: editing
-      ? preset?.permissionMode || "dontAsk"
-      : "ask",
+      ? preset?.permissionMode || "auto"
+      : "auto",
     trusted: editing ? Boolean(preset?.trusted) : false,
     avatarColor: initialAvatar.color,
     avatarShape: initialAvatar.shape,
@@ -289,12 +289,14 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [], em
           value={form.permissionMode}
           onChange={(e) => set("permissionMode", e.target.value)}
         >
-          <option value="ask">Ask before acting</option>
-          <option value="dontAsk">Allow edits automatically</option>
+          <option value="auto">Auto: safe actions run, risky ones ask you</option>
+          <option value="dontAsk">Edits run, everything else asks you</option>
+          <option value="ask">Ask before every action</option>
         </select>
         <span className="field-hint">
-          Claude allows file edits without prompting in automatic mode.
-          Cursor uses --force. Other harnesses are unchanged.
+          Claude Code sends approval requests to the chat and waits for your answer. Codex, Gemini, and Cursor can't
+          ask: in Auto they edit files in their workspace and skip commands that need approval. Cursor only runs
+          commands freely under "Edits run".
         </span>
       </label>
       <label className="checkbox trust">

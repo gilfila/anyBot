@@ -37,7 +37,7 @@ async function fixture(t) {
 
 test("employee edits preserve identity and reject stale updates", async (t) => {
   const { c, employee } = await fixture(t);
-  assert.equal(employee.permissionMode, "ask");
+  assert.equal(employee.permissionMode, "auto");
   const payload = {
     ...employee,
     trusted: true,
@@ -161,9 +161,10 @@ test("queued or delegated work blocks employee reconfiguration", async (t) => {
 });
 
 
-test("new employees default to ask permission mode and updates persist", async (t) => {
+test("new employees default to auto permission mode and updates persist", async (t) => {
   const { c, employee } = await fixture(t);
-  assert.equal(employee.permissionMode, "ask");
+  assert.equal(employee.permissionMode, "auto");
+  await assert.rejects(c.command("employees.update", { ...employee, trusted: true, permissionMode: "yolo" }), /Permission mode/);
   await c.command("employees.update", {
     ...employee,
     trusted: true,

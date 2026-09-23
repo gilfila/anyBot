@@ -5196,3 +5196,58 @@ dialog {
   position: fixed;
   right: auto;
 }
+
+/* Approvals: a bot is paused until the owner answers. Vermilion marks what
+   needs the owner's eye. */
+.approval-bar {
+  display: grid;
+  gap: 8px;
+  max-width: 820px;
+  width: calc(100% - 56px);
+  margin: 0 auto 10px;
+}
+.approval {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--card);
+  border: 1.5px solid var(--accent);
+  border-radius: 12px;
+  box-shadow: 0 0 0 4px var(--accent-wash);
+}
+.approval-icon {
+  color: var(--accent-ink);
+}
+.approval .robot-avatar.small {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+}
+.approval-text {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.approval-text strong {
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.approval-text code {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.approval-actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.approval-actions .primary,
+.approval-actions .secondary {
+  gap: 5px;
+  padding: 7px 12px;
+}

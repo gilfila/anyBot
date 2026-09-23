@@ -8,6 +8,7 @@ const {
   Menu,
   nativeImage,
   shell,
+  Notification,
 } = require("electron");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
@@ -562,6 +563,7 @@ const methods = new Set([
   "graph.edgeUpdate",
   "graph.edgeDelete",
   "graph.ask",
+  "approvals.decide",
   "memory.create",
   "memory.update",
   "memory.delete",
@@ -917,6 +919,20 @@ function startWorker() {
       return;
     }
     if (message.type === "changed") {
+      window?.webContents.send("anybot:changed");
+      return;
+    }
+    if (message.type === "attention") {
+      // A bot is waiting on the owner (an approval). Say so when the window
+      // isn't in front; clicking the notification brings it back.
+      if ((!window || !window.isFocused()) && Notification.isSupported()) {
+        const notice = new Notification({
+          title: String(message.notice?.title || "anyBot").slice(0, 120),
+          body: String(message.notice?.body || "").slice(0, 240),
+        });
+        notice.on("click", () => showWindow());
+        notice.show();
+      }
       window?.webContents.send("anybot:changed");
       return;
     }
