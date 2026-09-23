@@ -25,6 +25,15 @@ If Windows denies every persistent profile location, the desktop shell starts in
 
 If the renderer or coordinator fails before the workspace appears, anyBot records the startup error in `startup.log` beside the SQLite workspace and shows the path in its error dialog.
 
+Everything else that goes wrong is recorded in `logs/diagnostics.jsonl` in the same folder and shown under **Settings → Diagnostics**:
+
+- harness failures sorted by cause (usage limit, sign-in, not installed, timeout, and so on)
+- bot output anyBot couldn't apply
+- update and install failures, including an installer that didn't finish, detected on the next start
+- coordinator and window crashes
+
+The log holds error details only, never conversation text, and stays on the computer. **Copy report** produces a plain-text summary to paste into a bug report.
+
 ### Windows launch recovery
 
 If an older installation shows a Windows breakpoint dialog or does nothing, use the current NSIS installer [`release/anyBot-Setup-0.2.20.exe`](release/anyBot-Setup-0.2.20.exe), the verified launcher in [`release/Launch anyBot.cmd`](release/Launch%20anyBot.cmd), or [`release/win-unpacked/anyBot.exe`](release/win-unpacked/anyBot.exe). A portable self-extractor is available at [`release/anyBot 0.2.20.exe`](release/anyBot%200.2.20.exe) when the NSIS installer is inconvenient. Remove the stale **anyBot** entry from Windows Settings > Apps before reinstalling; an ACL-corrupted `%LOCALAPPDATA%\\Programs\\anyBot` directory can prevent Windows from replacing the old executable.

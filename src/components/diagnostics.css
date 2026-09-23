@@ -1,0 +1,243 @@
+/* ==========================================================================
+   Settings → Diagnostics, and the crash recovery screen
+   Status colors always travel with an icon and a text label.
+   ========================================================================== */
+.diagnostics {
+  margin-top: 8px;
+}
+.diagnostics-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.diagnostics-head > div:first-child {
+  flex: 1 1 420px;
+}
+.diagnostics-head p {
+  max-width: 640px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+.diagnostics-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.diagnostics-actions .secondary {
+  gap: 6px;
+  padding: 6px 12px;
+}
+.diagnostics-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+}
+.diagnostics-empty svg {
+  color: var(--ok);
+}
+.diagnostics-summary {
+  margin: 16px 0 8px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.diagnostics-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--rule);
+}
+.diagnostic {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 10px;
+  padding: 14px 4px;
+  border-bottom: 1px solid var(--rule);
+}
+.diagnostic-icon {
+  padding-top: 2px;
+}
+.diagnostic-error .diagnostic-icon {
+  color: var(--danger);
+}
+.diagnostic-warn .diagnostic-icon {
+  color: var(--warn);
+}
+.diagnostic-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--ink);
+}
+.diagnostic-level {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.diagnostic-error .diagnostic-level {
+  color: var(--danger);
+}
+.diagnostic-warn .diagnostic-level {
+  color: var(--warn);
+}
+.diagnostic-count,
+.diagnostic-tag,
+.diagnostic-new {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  padding: 0 6px;
+  border-radius: 999px;
+}
+.diagnostic-count {
+  color: var(--ink-2);
+  background: var(--paper-3);
+}
+.diagnostic-tag {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+.diagnostic-new {
+  color: var(--paper);
+  background: var(--accent);
+}
+.diagnostic-hint {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.diagnostic-message {
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+.diagnostic-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--ink-4);
+}
+.diagnostic-meta time,
+.diagnostic-meta span {
+  font-family: var(--font-mono);
+}
+.diagnostic-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+  background: none;
+  border: 0;
+}
+.diagnostic-action.secondary {
+  margin-left: auto;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 12.5px;
+}
+.diagnostic-detail {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+}
+.diagnostic-detail dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px 14px;
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+.diagnostic-detail dt {
+  color: var(--ink-3);
+}
+.diagnostic-detail dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.diagnostic-detail pre {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Crash recovery */
+.crash-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--paper);
+}
+.crash-card {
+  width: min(520px, 100%);
+  display: grid;
+  gap: 12px;
+  padding: 28px;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+}
+.crash-card > svg {
+  color: var(--danger);
+}
+.crash-card h1 {
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.crash-card p {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.crash-card pre {
+  margin: 0;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  background: var(--paper-2);
+  border-radius: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.crash-actions {
+  display: flex;
+  gap: 8px;
+}
+.crash-actions .primary,
+.crash-actions .secondary {
+  gap: 6px;
+  padding: 8px 14px;
+}

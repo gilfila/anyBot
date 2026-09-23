@@ -13,6 +13,8 @@ const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const fs = require("node:fs");
 const { pathToFileURL } = require("node:url");
+const { DiagnosticsLog, checkPendingUpdate, rememberPendingUpdate } = require("./diagnostics.cjs");
+let diagnostics = null;
 let window,
   worker,
   tray,
@@ -72,8 +74,21 @@ function logStartupFailure(label, error) {
   }
   return detail;
 }
+const failureCodes = [
+  ["Unhandled exception", "main.exception"],
+  ["Unhandled promise rejection", "main.rejection"],
+  ["Renderer failed to load", "renderer.load_failed"],
+  ["Renderer process stopped", "renderer.gone"],
+];
 function reportStartupFailure(label, error) {
   const detail = logStartupFailure(label, error);
+  diagnostics?.record({
+    level: "error",
+    source: "app",
+    code: failureCodes.find(([prefix]) => label.startsWith(prefix))?.[1] || "app.failure",
+    message: `${label}: ${error?.message || String(error)}`,
+    detail,
+  });
   const message = `${label}: ${detail}\n\nSee ${startupLogPath()} for details.`;
   if (app.isReady()) dialog.showErrorBox("anyBot could not start", message);
   else app.once("ready", () => dialog.showErrorBox("anyBot could not start", message));
@@ -216,6 +231,14 @@ function initializeAutoUpdater() {
 
   try {
     const { autoUpdater: electronAutoUpdater } = require("electron-updater");
+    // Keep the updater's own timeline (check, download, install) in the
+    // diagnostics log; failures are recorded from the error event below.
+    electronAutoUpdater.logger = {
+      info: (message) => diagnostics?.record({ level: "info", source: "updater", code: "update.log", message: String(message) }),
+      warn: (message) => diagnostics?.record({ level: "warn", source: "updater", code: "update.warning", message: String(message) }),
+      error: () => {},
+      debug: () => {},
+    };
     
     // Configure electron-updater
     electronAutoUpdater.autoDownload = false;
@@ -290,6 +313,14 @@ function initializeAutoUpdater() {
     });
 
     electronAutoUpdater.on("error", (error) => {
+      diagnostics?.record({
+        level: "error",
+        source: "updater",
+        code: "update.failed",
+        message: error.message || "Update failed",
+        detail: error.stack,
+        context: { phase: updateState, code: error.code, version: updateInfo?.version },
+      });
       updateState = UpdateState.ERROR;
       updateError = {
         message: error.message || "Update failed",
@@ -303,6 +334,7 @@ function initializeAutoUpdater() {
     return electronAutoUpdater;
   } catch (error) {
     console.error("Failed to initialize auto-updater:", error.message);
+    diagnostics?.record({ level: "error", source: "updater", code: "update.init_failed", message: error.message, detail: error.stack });
     return null;
   }
 }
@@ -418,6 +450,15 @@ function installUpdate() {
   // support silent mode natively). Per-user install (perMachine=false) avoids
   // UAC prompts since installation goes to %LOCALAPPDATA%\Programs.
   quitting = true;
+  // Lets the next start confirm the installer actually ran (see
+  // checkPendingUpdate). Install behavior itself is unchanged.
+  rememberPendingUpdate(app.getPath("userData"), app.getVersion(), updateInfo?.version);
+  diagnostics?.record({
+    level: "info",
+    source: "updater",
+    code: "update.install_started",
+    message: `Installing ${updateInfo?.version} over ${app.getVersion()}`,
+  });
   autoUpdater.quitAndInstall(true, true);
 }
 
@@ -481,6 +522,7 @@ app.commandLine.appendSwitch("in-process-gpu");
 // A stale install can leave the default Chromium profile ACL-protected. Keep
 // the desktop runtime startable and preserve the old profile for recovery.
 ensureWritableUserData();
+diagnostics = new DiagnosticsLog(app.getPath("userData"), { version: app.getVersion() });
 const methods = new Set([
   "snapshot",
   "artifacts.preview",
@@ -547,6 +589,7 @@ else {
             ...result,
             runtime: { ...result.runtime, launchAtLogin, keepRunningInTray, userDataFallback },
             update: getUpdateState(),
+            diagnostics: diagnostics.summary(),
           }
         : result;
     ipcMain.handle("anybot:request", async (event, method, payload) => {
@@ -587,6 +630,41 @@ else {
       if (method === "update.retry") {
         await retryUpdate();
         return { update: getUpdateState() };
+      }
+      if (method === "diagnostics.list")
+        return {
+          groups: diagnostics.groups(),
+          summary: diagnostics.summary(),
+          version: app.getVersion(),
+          directory: diagnostics.directory,
+        };
+      if (method === "diagnostics.report") {
+        const code = String(payload?.code || "error");
+        diagnostics.record({
+          level: payload?.level === "warn" ? "warn" : "error",
+          source: "renderer",
+          code: /^[a-z][a-z_.]{0,39}$/.test(code) ? `renderer.${code}` : "renderer.error",
+          message: String(payload?.message || "").slice(0, 600),
+          detail: typeof payload?.detail === "string" ? payload.detail.slice(0, 4000) : undefined,
+          context: payload?.context && typeof payload.context === "object" ? payload.context : undefined,
+        });
+        notifyRenderer();
+        return { recorded: true };
+      }
+      if (method === "diagnostics.markSeen") {
+        diagnostics.markSeen();
+        notifyRenderer();
+        return { summary: diagnostics.summary() };
+      }
+      if (method === "diagnostics.clear") {
+        diagnostics.clear();
+        notifyRenderer();
+        return { groups: diagnostics.groups(), summary: diagnostics.summary() };
+      }
+      if (method === "diagnostics.reveal") {
+        fs.mkdirSync(diagnostics.directory, { recursive: true });
+        const failure = await shell.openPath(diagnostics.directory);
+        return { opened: !failure, error: failure || undefined };
       }
       if (method === "mobile.status")
         return {
@@ -725,6 +803,19 @@ else {
       mobileError = String(error.message);
     });
     showWindow();
+    const installed = checkPendingUpdate(app.getPath("userData"), app.getVersion());
+    if (installed) diagnostics.record(installed);
+    app.on("child-process-gone", (_event, details) => {
+      // The coordinator's exits are recorded by the worker supervisor.
+      if (quitting || details.type === "Utility" || details.reason === "clean-exit") return;
+      diagnostics.record({
+        level: "error",
+        source: "app",
+        code: "process.gone",
+        message: `${details.type} process ${details.reason} (exit ${details.exitCode})`,
+        context: { type: details.type, reason: details.reason, exitCode: details.exitCode, name: details.name },
+      });
+    });
     startUpdateChecker();
     const pixels = Buffer.alloc(16 * 16 * 4);
     for (let y = 0; y < 16; y++)
@@ -810,7 +901,14 @@ function startWorker() {
     [app.getPath("userData")],
     { serviceName: "anyBot coordinator", stdio: "pipe" },
   );
-  worker.stderr?.on("data", (chunk) => console.error(String(chunk)));
+  worker.stderr?.on("data", (chunk) => {
+    const text = String(chunk);
+    console.error(text);
+    // Node prints ExperimentalWarning for node:sqlite on every start.
+    const lines = text.split("\n").filter((line) => line.trim() && !/ExperimentalWarning|--trace-warnings/.test(line));
+    if (lines.length)
+      diagnostics?.record({ level: "warn", source: "runtime", code: "runtime.stderr", message: lines[0], detail: lines.join("\n") });
+  });
   worker.on("message", (message) => {
     if (message.type === "ready") {
       ready = true;
@@ -822,6 +920,11 @@ function startWorker() {
       window?.webContents.send("anybot:changed");
       return;
     }
+    if (message.type === "diagnostic") {
+      diagnostics?.record(message.entry);
+      notifyRenderer();
+      return;
+    }
     const call = pending.get(message.id);
     if (!call) return;
     clearTimeout(call.timer);
@@ -829,7 +932,15 @@ function startWorker() {
     if (message.error) call.reject(new Error(message.error));
     else call.resolve(message.result);
   });
-  worker.on("exit", () => {
+  worker.on("exit", (code) => {
+    if (!quitting)
+      diagnostics?.record({
+        level: "error",
+        source: "runtime",
+        code: "runtime.exited",
+        message: `The coordinator stopped unexpectedly (exit ${code})`,
+        context: { exitCode: code, restarts },
+      });
     ready = false;
     settleReadyWaiters(new Error("Runtime interrupted"));
     for (const call of pending.values()) {

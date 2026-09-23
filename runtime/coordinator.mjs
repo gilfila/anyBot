@@ -10,6 +10,7 @@ import { Docs, blocksToMarkdown } from "./docs.mjs";
 import { Org } from "./org.mjs";
 import { Memory } from "./memory.mjs";
 import { Knowledge } from "./knowledge.mjs";
+import { classifyRunError } from "./diagnostics.mjs";
 import { ACTION_GUIDE, actionsFrom, withoutActions } from "./actions.mjs";
 import packageMetadata from "../package.json" with { type: "json" };
 import {
@@ -132,6 +133,26 @@ export class Coordinator extends EventEmitter {
   }
   notify() {
     this.emit("changed");
+  }
+  // Problems for the desktop diagnostics log (desktop/diagnostics.cjs). The
+  // worker forwards them to the main process; headless hosts may ignore them.
+  diagnostic(entry) {
+    try {
+      this.emit("diagnostic", entry);
+    } catch {
+      // A listener failure must not break the run that reported it.
+    }
+  }
+  runContext(run, employee) {
+    return {
+      employee: employee?.name,
+      employeeId: employee?.id ?? run.employee,
+      harness: employee?.harness,
+      model: employee?.model || undefined,
+      run: run.id,
+      conversation: run.conversation,
+      task: run.task || undefined,
+    };
   }
   async initialize() {
     this.installations = await this.probe();
@@ -701,6 +722,13 @@ export class Coordinator extends EventEmitter {
           started = true;
         } catch (error) {
           this.board.activity(task.id, "system", "notice", `Autopilot could not start: ${error.message}`);
+          this.diagnostic({
+            level: "warn",
+            source: "board",
+            code: "autopilot.start_failed",
+            message: error.message,
+            context: { task: task.id, conversation: conversation.id },
+          });
         }
       }
     }
@@ -1145,13 +1173,21 @@ export class Coordinator extends EventEmitter {
       if (controller.signal.aborted) throw new Error("Run cancelled");
       this.store.transaction(() => {
         this.artifacts.save(artifacts);
-        if (artifactError)
+        if (artifactError) {
           this.addMessage(
             run.conversation,
             "system",
             "notice",
             `Files were not collected: ${artifactError}`,
           );
+          this.diagnostic({
+            level: "warn",
+            source: "artifacts",
+            code: "artifacts.not_collected",
+            message: artifactError,
+            context: this.runContext(run, employee),
+          });
+        }
         this.store.run(
           "UPDATE runs SET status='succeeded',output=?,ended=? WHERE id=?",
           result,
@@ -1164,6 +1200,13 @@ export class Coordinator extends EventEmitter {
           actions = actionsFrom(result);
         } catch (error) {
           actionNotes.push(`Project actions were not applied: ${error.message}`);
+          this.diagnostic({
+            level: "warn",
+            source: "actions",
+            code: "actions.invalid_block",
+            message: error.message,
+            context: this.runContext(run, employee),
+          });
         }
         // The action block is machine-readable; people see the prose and a
         // summary notice of what was applied. runs.output keeps the original.
@@ -1186,6 +1229,13 @@ export class Coordinator extends EventEmitter {
             if (action.type === "report") reported = true;
           } catch (error) {
             actionNotes.push(`rejected ${String(action.type).slice(0, 40)}: ${error.message}`);
+            this.diagnostic({
+              level: "warn",
+              source: "actions",
+              code: "actions.rejected",
+              message: `${String(action.type).slice(0, 40)}: ${error.message}`,
+              context: { ...this.runContext(run, employee), action: String(action.type).slice(0, 40) },
+            });
           }
         }
         // Roll task and delegated work up the chain of command unless the
@@ -1221,6 +1271,13 @@ export class Coordinator extends EventEmitter {
             "notice",
             `Delegation was not scheduled: ${error.message}`,
           );
+          this.diagnostic({
+            level: "warn",
+            source: "delegation",
+            code: "delegation.rejected",
+            message: error.message,
+            context: this.runContext(run, employee),
+          });
         }
         if (!delegated && run.parent) this.returnToParent(run, result);
         this.store.event("run.completed", { run: run.id });
@@ -1235,6 +1292,14 @@ export class Coordinator extends EventEmitter {
         run.id,
       );
       this.store.event("run.failed", { run: run.id, status });
+      if (status === "failed")
+        this.diagnostic({
+          level: "error",
+          source: "harness",
+          code: `harness.${classifyRunError(error.message)}`,
+          message: String(error.message).slice(0, 600),
+          context: this.runContext(run, employee),
+        });
       if (run.parent && status !== "cancelled")
         this.store.transaction(() =>
           this.returnToParent(
@@ -1249,6 +1314,14 @@ export class Coordinator extends EventEmitter {
           this.settleTask(run.task);
         } catch (error) {
           this.store.event("task.settle.failed", { task: run.task, error: String(error.message) });
+          this.diagnostic({
+            level: "error",
+            source: "board",
+            code: "task.settle_failed",
+            message: String(error.message),
+            detail: error.stack,
+            context: { task: run.task, run: run.id },
+          });
         }
       }
       this.notify();

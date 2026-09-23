@@ -25,7 +25,26 @@ export function escapeHtml(text) {
 // Doc pages link tasks, employees, and files with @[label](kind:id) tokens.
 const MENTION_PATTERN = /@\[([^\]\n]{1,80})\]\((task|agent|file):([A-Za-z0-9-]{6,64})\)/g;
 
-export function renderMarkdownInline(text, { mentions = false } = {}) {
+// A formatting bug must not blank a message: fall back to escaped text and
+// tell the host (main.jsx wires this to the diagnostics log).
+let renderErrorHandler = () => {};
+export function onRenderError(handler) {
+  renderErrorHandler = typeof handler === "function" ? handler : () => {};
+}
+export function renderMarkdownInline(text, options) {
+  try {
+    return renderInline(text, options);
+  } catch (error) {
+    try {
+      renderErrorHandler(error);
+    } catch {
+      // The fallback below still renders.
+    }
+    return escapeHtml(String(text ?? ""));
+  }
+}
+
+function renderInline(text, { mentions = false } = {}) {
   const parked = [];
   const park = (html) => `\u0000${parked.push(html) - 1}\u0000`;
   let result = escapeHtml(text);
