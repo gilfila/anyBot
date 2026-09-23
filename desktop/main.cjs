@@ -531,6 +531,7 @@ const methods = new Set([
   "artifacts.preview",
   "artifacts.reveal",
   "harnesses.probe",
+  "harnesses.models",
   "employees.create",
   "employees.update",
   "employees.setArchived",

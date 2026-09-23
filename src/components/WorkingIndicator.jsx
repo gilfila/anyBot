@@ -26,7 +26,7 @@ export function WorkingIndicator({ runs, employees, onStopAll }) {
       <div className="working-indicator-shimmer" />
       <div className="working-indicator-avatars">
         {uniqueEmployees.slice(0, 3).map((employee) => (
-          <RobotAvatar key={employee.id} employee={employee} small working />
+          <RobotAvatar key={employee.id} employee={employee} size={44} working />
         ))}
         {uniqueEmployees.length > 3 && (
           <span className="working-indicator-overflow">

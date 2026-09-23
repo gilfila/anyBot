@@ -6,12 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-## [0.3.9] - 2026-09-23
+## [0.3.10] - 2026-09-23
+
 
 ### Changed
 - Unified Any Bot branding around the approved darker sage Scout helmet, with matching desktop, taskbar, tray, installer, app header, browser, and mobile launcher artwork.
 - Product display name is now **Any Bot**. Existing app IDs, executable/update filenames, installation identity and user profiles remain compatible.
 - Enabled Windows icon and executable metadata embedding while retaining unsigned builds. Added reproducible icon exports from one approved master.
+## [0.3.9] - 2026-09-23
+
+### Added
+- **The model list stays current on its own.** Every time you open the bot editor, anyBot reads each harness's own list. New models show up the day they ship, with no anyBot update:
+  - **Claude Code:** its server-provided list, including context variants such as `claude-fable-5-1[1m]`. Models that need a newer CLI appear grayed out, with the reason.
+  - **Codex:** its model cache.
+  - **Gemini:** the models in the installed CLI.
+  - **Hermes:** its configured provider's catalog.
+
+  The old filter that showed only Fable, Sonnet, and Opus for Claude is gone. A model you typed under Custom switches to the list entry once it appears there.
+- **A features-first README** with screenshots of the current app. The technical material (running from source, updates, publishing releases, verification, mobile, headless mode, security boundaries) moved to `docs/operations.md`.
+
+### Changed
+- **Bigger bot avatars.** The robots were too small to show their animation and detail, so they are larger everywhere:
+  - sidebar and chat: about 50px (from 38px)
+  - team roster and first-run templates: 64–72px
+  - org chart and knowledge-graph cards: 64–88px
+  - approval cards and the working indicator: 44px
+- **The bot editor's close button and Save stay on screen.** In every dialog, the heading and close button stay pinned at the top and the Save button at the bottom. Only the form scrolls.
+
+### Technical
+- **`discoverLiveModels(harnessId)`** in `runtime/adapters.mjs` reads the lists:
+  - Claude Code: `~/.claude.json` `additionalModelOptionsCache`
+  - Codex: `models_cache.json` in `CODEX_HOME`, in priority order, skipping hidden models
+  - Gemini: model ids scanned from the CLI bundle, cached by the bundle's modified time
+  - Hermes: `config.yaml` names the provider, then its `cache/model_catalog.json` (CRLF-safe)
+- **`mergeModelOptions`** dedupes the entries, with the owner's `models.json` first.
+- **Refresh on open:** the new coordinator command `harnesses.models` (on the IPC allowlist) refreshes only the model lists. The editor calls it when it opens.
+- **Bracketed model ids** such as `[1m]` are now valid. Models are passed as a single argv entry, never through a shell.
+- **Tests:** `tests/models.test.mjs`.
+
 
 ## [0.3.8] - 2026-09-23
 
