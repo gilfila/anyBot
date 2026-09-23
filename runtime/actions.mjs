@@ -2,7 +2,17 @@
 // live channel back into the coordinator, so, like delegation, actions are
 // parsed from the finished output and validated before anything is applied.
 export const ACTION_LIMIT = 20;
-export const ACTION_TYPES = new Set(["task.create", "task.update", "task.claim", "doc.append", "doc.section"]);
+export const ACTION_TYPES = new Set([
+  "task.create",
+  "task.update",
+  "task.claim",
+  "doc.append",
+  "doc.section",
+  "memory.save",
+  "memory.forget",
+  "report",
+  "review",
+]);
 const BLOCK = /```anybot-actions\s*\n([\s\S]*?)\n```/g;
 
 export function actionsFrom(output) {
@@ -39,4 +49,4 @@ export const ACTION_GUIDE = `Project actions: to update the project board or doc
  {"type":"task.create","title":"Add pricing FAQ","description":"...","priority":"medium","assignees":["<employee id>"]},
  {"type":"doc.section","heading":"Decisions","markdown":"- Launch at $12/seat"}]
 \`\`\`
-Types: doc.append (markdown added to the end of the project doc), doc.section (heading plus markdown that replaces the content under that heading, or adds the section), task.create (lands in Backlog; optional description, priority none|low|medium|high|urgent, labels, assignees from the project, checklist as strings, parent task), task.update (task id plus any of status backlog|in_progress|review|done, comment, checklist [{item or index, done}], addChecklist [strings]), task.claim (take an unassigned Backlog task). Only assignees move their own tasks; when a task has a reviewer, stop at review. Use actions only for real changes.`;
+Types: doc.append (markdown added to the end of the project doc), doc.section (heading plus markdown that replaces the content under that heading, or adds the section), task.create (lands in Backlog; optional description, priority none|low|medium|high|urgent, labels, assignees from the project, checklist as strings, parent task), task.update (task id plus any of status backlog|in_progress|review|done, comment, checklist [{item or index, done}], addChecklist [strings]), task.claim (take an unassigned Backlog task). Only assignees move their own tasks; when a task has a reviewer, stop at review. memory.save (body, scope private|team|project, optional tags: durable facts worth recalling next time, not a work log), memory.forget (id of one of your memories), report (summary for your manager; task work is summarised automatically if you skip this), review (only as a task's reviewer: task id, decision approve|changes, comment). Use actions only for real changes.`;

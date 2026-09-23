@@ -7,6 +7,7 @@ export const empty = {
   artifacts: [],
   tasks: [],
   docs: [],
+  reportsUnread: 0,
   harnesses: [],
   runtime: { paused: false, active: 0 },
   update: null,
