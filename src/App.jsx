@@ -139,7 +139,8 @@ function UpdateButton({ update, onAction, onDismiss }) {
   );
 }
 import { Avatar } from "./components/Avatar.jsx";
-import { RobotAvatar } from "./components/RobotAvatar.jsx";
+import { RobotAvatar, AvatarActivityContext } from "./components/RobotAvatar.jsx";
+import { employeeAvatarStates } from "./lib/avatar-config.js";
 import { WorkingIndicator } from "./components/WorkingIndicator.jsx";
 import { ApprovalBar } from "./components/ApprovalBar.jsx";
 import { Status } from "./components/Status.jsx";
@@ -533,6 +534,7 @@ export function App() {
   const lastLine = (text) =>
     (text || "").split("\n").map((line) => line.trim()).filter(Boolean).at(-1) || "";
   return (
+    <AvatarActivityContext.Provider value={employeeAvatarStates(data, lastSeenMessages, view === "chat" ? conversationId : null)}>
     <div className="app-shell">
       <aside className={`sidebar ${leftSidebarOpen ? "" : "collapsed"}`}>
         <div className="brand">
@@ -2111,5 +2113,6 @@ export function App() {
         </Modal>
       )}
     </div>
+    </AvatarActivityContext.Provider>
   );
 }

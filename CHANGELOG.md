@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-## [0.3.7] - 2026-09-23
+## [0.3.8] - 2026-09-23
 
 ### Fixed
 - **Bots could get blocked with no way to approve anything.** Claude bots ran headless in "ask" mode, so every gated action (writing a file, running a command, opening a browser) raised a permission prompt that could never be shown. Each one quietly became a denial.
@@ -36,7 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Schema v12:** an `approvals` table. The owner decides through the `approvals.decide` IPC method. Gemini's Auto maps to `--approval-mode auto_edit`.
 - **Verified with the real Claude Code CLI** through anyBot's coordinator. In auto mode, a file write and `ls` ran without asking, and `rm -f old.txt` waited for approval, then ran once approved. Declined requests are reported to the bot. Tests: `tests/approvals.test.mjs`.
 
-## [0.3.6] - 2026-09-23
+## [0.3.7] - 2026-09-23
 
 ### Added
 - **Themes** (Settings → Appearance). Each theme changes colors, type, the background behind the app, and how chat boxes look:
@@ -59,7 +59,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - New `FloatingMenu` component (portal, fixed position, focus management). Tests: `tests/themes.test.mjs`.
 - The Organization page (org chart, knowledge graph, d3) is code-split and loads on first visit, keeping the main bundle under Vite's 500 KB advisory.
 
-## [0.3.5] - 2026-09-23
+## [0.3.6] - 2026-09-23
 
 ### Changed
 - **The Doc page is now the Canvas**, and it works like a Slack canvas: one shared, semi-structured page per conversation that you and your bots both write. Every conversation has one, one-bot chats included: the tabs are **Chat · Board · Canvas** in projects and **Chat · Canvas** in direct chats.
@@ -81,7 +81,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Doc actions now work in any conversation whose members include the bot. Prompts and the action guide call it "the canvas".
 - New `src/components/doc/CanvasParts.jsx` and `canvas.css`. Tests: `tests/canvas.test.mjs`.
 
-## [0.3.4] - 2026-09-23
+## [0.3.5] - 2026-09-23
 
 ### Added
 - **Diagnostics** (Settings → Diagnostics). anyBot keeps a local log of problems and shows them grouped by kind, each with a plain-language next step. A badge on **Runtime & privacy** counts new problems. The log keeps error details only (never conversation text), redacts keys, is capped at about 3 MB, and never leaves the computer. Copy report, Open log folder, and Clear are one click each.
@@ -98,6 +98,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - New `desktop/diagnostics.cjs` (JSONL log with rotation, fingerprint grouping, burst suppression, and the pending-update check), `runtime/diagnostics.mjs` (harness error classification), and `src/lib/diagnostics.js` (reporting, descriptions, and the copyable report).
 - The coordinator emits `diagnostic` events, which the worker forwards to the main process. Main-process IPC methods: `diagnostics.list|report|markSeen|clear|reveal`. Snapshots carry `diagnostics: {issues, unseen, errors}`.
 - Updater install behavior is unchanged; anyBot only writes `update-pending.json` just before `quitAndInstall`. Tests: `tests/diagnostics.test.mjs`.
+
+## [0.3.4] - 2026-09-23
+
+### Added
+- Three sculpted bot avatars: Scout, Orbit, and Tinker, each available in cobalt, coral, citron, and violet. Customization includes live model, expression, and activity previews; existing avatar settings migrate automatically.
+- Bots rest at a 30-degree angle, turn toward a holographic screen while working, and face you with a hello wave when they have unread replies. Opening their conversation returns them to idle; active work takes precedence. Reduced-motion preferences are respected.
 
 ## [0.3.3] - 2026-09-23
 
