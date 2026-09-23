@@ -1,0 +1,392 @@
+/* ==========================================================================
+   Canvas (Slack-style): kicker, files & links strips, tables, link cards,
+   templates, and the compact side-panel version beside the chat.
+   ========================================================================== */
+.canvas-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.canvas-kicker {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.canvas-strips {
+  display: grid;
+  gap: 10px;
+  margin: 4px 0 22px;
+}
+.canvas-strip {
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--paper);
+}
+.canvas-strip > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px;
+}
+.canvas-strip-toggle {
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--ink);
+  border-radius: 8px;
+}
+.canvas-strip-toggle:hover {
+  background: var(--paper-2);
+}
+.canvas-strip-empty {
+  padding: 0 14px 12px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.canvas-files {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 6px;
+}
+.canvas-files li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  transition: border-color 140ms var(--ease-out);
+}
+.canvas-files li:hover {
+  border-color: var(--rule-strong);
+}
+.canvas-file {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 9px 10px;
+  text-align: left;
+  color: var(--ink);
+  text-decoration: none;
+  background: none;
+  border: 0;
+  border-radius: 10px;
+}
+.canvas-file > svg {
+  flex: 0 0 auto;
+  color: var(--ink-2);
+}
+.canvas-file .robot-avatar.small {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+}
+.canvas-file span {
+  display: grid;
+  min-width: 0;
+}
+.canvas-file strong {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-file small {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-item-actions {
+  display: flex;
+  gap: 2px;
+  padding-right: 4px;
+  opacity: 0;
+  transition: opacity 120ms var(--ease-out);
+}
+.canvas-files li:hover .canvas-item-actions,
+.canvas-files li:focus-within .canvas-item-actions {
+  opacity: 1;
+}
+.canvas-item-actions .icon-button {
+  width: 26px;
+  height: 26px;
+}
+.canvas-templates {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.canvas-templates > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.canvas-templates .secondary {
+  padding: 5px 11px;
+  font-size: 12.5px;
+}
+
+/* Tables */
+.canvas-table {
+  flex: 1;
+  min-width: 0;
+  margin: 6px 0;
+}
+.canvas-table-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.canvas-table-tool {
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+}
+.canvas-table-tool:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--rule-strong);
+}
+.canvas-table-tool:disabled {
+  opacity: 0.45;
+}
+.canvas-table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--rule-strong);
+  border-radius: 10px;
+}
+.canvas-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.canvas-table th,
+.canvas-table td {
+  min-width: 110px;
+  padding: 0;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--rule);
+  border-right: 1px solid var(--rule);
+}
+.canvas-table tr:last-child > * {
+  border-bottom: 0;
+}
+.canvas-table tr > *:last-child {
+  border-right: 0;
+}
+.canvas-table th {
+  font-weight: 650;
+  background: var(--paper-2);
+}
+.canvas-cell,
+.canvas-table input {
+  display: block;
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 10px;
+  font: inherit;
+  line-height: 1.45;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  outline: none;
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+.canvas-cell a {
+  color: var(--accent-ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.canvas-table td.is-active,
+.canvas-table th.is-active {
+  box-shadow: inset 0 0 0 2px var(--ink);
+}
+.canvas-table input::placeholder {
+  color: var(--ink-4);
+  font-weight: 500;
+}
+.canvas-table input:focus-visible {
+  outline: none;
+}
+
+/* Link cards */
+.canvas-link-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 4px 0;
+}
+.canvas-link-card a {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  color: var(--ink);
+  text-decoration: none;
+  background: var(--card);
+  border: 1px solid var(--rule-strong);
+  border-radius: 10px;
+  transition: border-color 140ms var(--ease-out), background-color 140ms var(--ease-out);
+}
+.canvas-link-card a:hover {
+  border-color: var(--ink-3);
+  background: var(--paper);
+}
+.canvas-link-icon {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  color: var(--ink-2);
+  background: var(--paper-2);
+  border-radius: 8px;
+}
+.canvas-link-text {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+}
+.canvas-link-text strong {
+  font-size: 14px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-link-text small {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-link-open {
+  flex: 0 0 auto;
+  color: var(--ink-3);
+}
+.canvas-link-card .icon-button {
+  position: absolute;
+  right: 40px;
+  width: 26px;
+  height: 26px;
+  opacity: 0;
+  background: var(--card);
+}
+.canvas-link-card:hover .icon-button,
+.canvas-link-card .icon-button:focus-visible {
+  opacity: 1;
+}
+.canvas-link-edit {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+  padding: 8px 10px;
+  color: var(--ink-3);
+  background: var(--paper);
+  border: 1px dashed var(--rule-strong);
+  border-radius: 10px;
+}
+.canvas-link-edit input {
+  flex: 1 1 180px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  outline: none;
+}
+.canvas-link-edit input:focus {
+  border-color: var(--ink);
+}
+.canvas-link-edit input:focus-visible {
+  outline: none;
+}
+.canvas-link-edit .secondary {
+  padding: 4px 10px;
+  font-size: 12.5px;
+}
+.canvas-link-hint {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+/* Side-panel canvas beside the chat */
+.context-rail.is-canvas {
+  width: 440px;
+  min-width: 440px;
+}
+.project-doc.is-compact .doc-page {
+  max-width: none;
+  padding: 16px 18px 20vh 30px;
+}
+.project-doc.is-compact .doc-header h1 {
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+.project-doc.is-compact .doc-history {
+  width: 280px;
+}
+.project-doc.is-compact .canvas-files {
+  grid-template-columns: minmax(0, 1fr);
+}
+.project-doc.is-compact .doc-text,
+.project-doc.is-compact .doc-input {
+  font-size: 14px;
+}
+.project-doc.is-compact .type-h1 :is(.doc-text, .doc-input) {
+  font-size: 22px;
+}
+.project-doc.is-compact .type-h2 :is(.doc-text, .doc-input) {
+  font-size: 18px;
+}
+.project-doc.is-compact .type-h3 :is(.doc-text, .doc-input) {
+  font-size: 15.5px;
+}
+.project-doc.is-compact .canvas-table th,
+.project-doc.is-compact .canvas-table td {
+  min-width: 90px;
+}
+@media (max-width: 1280px) {
+  .context-rail.is-canvas {
+    width: 380px;
+    min-width: 380px;
+  }
+}

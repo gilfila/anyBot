@@ -1101,8 +1101,8 @@ export function App() {
                   </button>
                 )}
               </div>
-              {isProject && (
-                <div className="project-tabs" role="tablist" aria-label="Project views">
+              {conversation && (
+                <div className="project-tabs" role="tablist" aria-label="Conversation views">
                   <button
                     role="tab"
                     aria-selected={projectTab === "chat"}
@@ -1112,28 +1112,30 @@ export function App() {
                     <MessageSquare size={15} />
                     Chat
                   </button>
+                  {isProject && (
+                    <button
+                      role="tab"
+                      aria-selected={projectTab === "board"}
+                      className={projectTab === "board" ? "active" : ""}
+                      onClick={() => setProjectTab("board")}
+                    >
+                      <Columns3 size={15} />
+                      Board
+                      {openTaskCount > 0 && <span className="project-tab-count">{openTaskCount}</span>}
+                    </button>
+                  )}
                   <button
                     role="tab"
-                    aria-selected={projectTab === "board"}
-                    className={projectTab === "board" ? "active" : ""}
-                    onClick={() => setProjectTab("board")}
-                  >
-                    <Columns3 size={15} />
-                    Board
-                    {openTaskCount > 0 && <span className="project-tab-count">{openTaskCount}</span>}
-                  </button>
-                  <button
-                    role="tab"
-                    aria-selected={projectTab === "doc"}
-                    className={projectTab === "doc" ? "active" : ""}
-                    onClick={() => setProjectTab("doc")}
+                    aria-selected={projectTab === "canvas"}
+                    className={projectTab === "canvas" ? "active" : ""}
+                    onClick={() => setProjectTab("canvas")}
                   >
                     <FileText size={15} />
-                    Doc
+                    Canvas
                   </button>
                 </div>
               )}
-              {isProject && projectTab === "doc" ? (
+              {conversation && projectTab === "canvas" ? (
                 <ProjectDoc
                   conversation={conversation}
                   data={data}
@@ -1143,6 +1145,7 @@ export function App() {
                     setRightSidebarOpen(true);
                   }}
                   onOpenArtifact={openArtifact}
+                  onRevealArtifact={revealArtifact}
                 />
               ) : isProject && projectTab === "board" ? (
                 <ProjectBoard
@@ -1367,7 +1370,7 @@ export function App() {
               />
             ) : (
             <ContextRail
-              open={rightSidebarOpen && !(isProject && projectTab !== "chat")}
+              open={rightSidebarOpen && projectTab === "chat"}
               conversation={conversation}
               employees={data.employees}
               activeRuns={activeRuns}
@@ -1375,6 +1378,14 @@ export function App() {
               conversationId={conversationId}
               harnessName={harnessName}
               onOpenArtifact={openArtifact}
+              onRevealArtifact={revealArtifact}
+              data={data}
+              act={act}
+              onOpenTask={(taskId) => {
+                setProjectTab(isProject ? "board" : "chat");
+                setSelectedTask(taskId);
+              }}
+              onExpandCanvas={() => setProjectTab("canvas")}
               activeToolsTab={activeToolsPanel}
               onToolsTabChange={setActiveToolsPanel}
               browserUrl={browserUrl}

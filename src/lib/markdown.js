@@ -9,6 +9,27 @@ const SAFE_LINK_PATTERN = /^(https?:|mailto:)/i;
 const BARE_URL_PATTERN = /\bhttps?:\/\/(?:(?!&quot;|&#39;|&lt;|&gt;)[^\s<])+/g;
 const TRAILING_URL_PUNCTUATION = /[.,:;!?)\]]+$/;
 
+// GFM tables: a header row of pipes, a --- rule, then body rows. The
+// runtime keeps its own copy in runtime/docs.mjs (it can't import src/).
+export const TABLE_ROW = /^\s*\|.*\|\s*$/;
+export const TABLE_RULE = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+export function tableCells(line) {
+  const cells = [];
+  let cell = "";
+  const body = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] === "\\" && body[i + 1] === "|") {
+      cell += "|";
+      i += 1;
+    } else if (body[i] === "|") {
+      cells.push(cell.trim());
+      cell = "";
+    } else cell += body[i];
+  }
+  cells.push(cell.trim());
+  return cells;
+}
+
 export function escapeHtml(text) {
   return text
     .replace(/&/g, "&amp;")
