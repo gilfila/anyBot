@@ -8,6 +8,7 @@ const coordinator = new Coordinator({ directory: process.argv[2] });
 let ready = false,
   changedTimer;
 coordinator.on("diagnostic", (entry) => port.postMessage({ type: "diagnostic", entry }));
+coordinator.on("attention", (notice) => port.postMessage({ type: "attention", notice }));
 coordinator.on("changed", () => {
   if (!ready || changedTimer) return;
   changedTimer = setTimeout(() => {

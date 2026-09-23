@@ -1,6 +1,6 @@
 {
   "name": "anybot-desktop",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "private": true,
   "description": "A local workspace for your team of AI employees",
   "author": "anyBot contributors",
@@ -63,6 +63,9 @@
     "appId": "dev.anybot.desktop",
     "productName": "anyBot",
     "asar": true,
+    "asarUnpack": [
+      "runtime/approval-mcp.mjs"
+    ],
     "files": [
       "dist/**/*",
       "desktop/**/*",

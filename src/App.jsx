@@ -142,6 +142,7 @@ import { Avatar } from "./components/Avatar.jsx";
 import { RobotAvatar, AvatarActivityContext } from "./components/RobotAvatar.jsx";
 import { employeeAvatarStates } from "./lib/avatar-config.js";
 import { WorkingIndicator } from "./components/WorkingIndicator.jsx";
+import { ApprovalBar } from "./components/ApprovalBar.jsx";
 import { Status } from "./components/Status.jsx";
 import { Empty } from "./components/Empty.jsx";
 import { Modal } from "./components/Modal.jsx";
@@ -591,6 +592,7 @@ export function App() {
             const unread = botConv && hasUnreadMessages(botConv.id);
             const isMenuOpen = openBotMenu === employee.id;
             const run = currentRun(employee.id);
+            const waiting = (data.approvals || []).some((a) => a.status === "pending" && a.employee === employee.id);
             return (
               <div
                 key={employee.id}
@@ -603,8 +605,8 @@ export function App() {
                   <RobotAvatar small employee={employee} working={run?.status === "running"} />
                   <span className="bot-row-text">
                     <span className="bot-row-name">{employee.name}</span>
-                    <small className={run?.status === "running" ? "live" : ""}>
-                      {run ? (run.status === "running" ? "Working…" : "Queued") : employee.role}
+                    <small className={waiting || run?.status === "running" ? "live" : ""}>
+                      {waiting ? "Needs your approval" : run ? (run.status === "running" ? "Working…" : "Queued") : employee.role}
                     </small>
                   </span>
                   {unread && <i className="unread-dot" aria-label="Unread messages" />}
@@ -1292,6 +1294,11 @@ export function App() {
                   ))}
                 <div ref={end} />
               </div>
+              <ApprovalBar
+                approvals={(data.approvals || []).filter((a) => a.conversation === conversationId)}
+                employees={data.employees}
+                onDecide={(id, decision) => act("approvals.decide", { id, decision })}
+              />
               <WorkingIndicator
                 runs={activeRuns}
                 employees={data.employees}

@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.8] - 2026-09-23
+
+### Fixed
+- **Bots could get blocked with no way to approve anything.** Claude bots ran headless in "ask" mode, so every gated action (writing a file, running a command, opening a browser) raised a permission prompt that could never be shown. Each one quietly became a denial.
+
+### Added
+- **Auto mode is the new default.** Claude bots use Claude Code's auto mode:
+  - safe actions just run
+  - file edits inside the bot's workspace are always allowed
+  - only risky actions wait for you, such as deleting files, force-pushing, or work outside the workspace
+
+  Existing bots that were on "Ask before acting" were moved to Auto, since that mode could only deny.
+- **Approvals in the chat.** When a bot needs permission, an approval card appears above the composer. It shows exactly what the bot wants to do (the command, file, or address) with **Approve** and **Decline**.
+  - The bot's run pauses until you answer. Requests nobody answers within 15 minutes are declined.
+  - Each answer, expiry, or withdrawal leaves a line in the chat, so you and the bot can see what happened.
+  - The bot's row in the sidebar says "Needs your approval", and a Windows notification appears if anyBot isn't in front.
+- **Three permission modes** on the bot form:
+  - **Auto** (safe actions run, risky ones ask you)
+  - **Edits run, everything else asks you**
+  - **Ask before every action**
+
+  Codex, Gemini, and Cursor have no approval hook. In Auto they edit files in their workspace, and actions that would need approval are skipped.
+
+### Technical
+- **Claude runs:** `--permission-mode auto --allowedTools "Edit(./**)"` (or `acceptEdits` / `default`), plus `--permission-prompts host --permission-prompt-tool mcp__anybot__approve --mcp-config <per-run file>`.
+- **The bridge:** `runtime/approval-mcp.mjs` is a dependency-free stdio MCP server, run with `ELECTRON_RUN_AS_NODE` and unpacked from `app.asar`. It forwards each request over loopback HTTP, with a random 256-bit per-run token, to `runtime/approvals.mjs`, which holds the request open until the owner decides.
+- **Limits:** tokens die with the run, request bodies are capped at 64 KB, and each run can have at most 20 pending requests.
+- **Schema v12:** an `approvals` table. The owner decides through the `approvals.decide` IPC method. Gemini's Auto maps to `--approval-mode auto_edit`.
+- **Verified with the real Claude Code CLI** through anyBot's coordinator. In auto mode, a file write and `ls` ran without asking, and `rm -f old.txt` waited for approval, then ran once approved. Declined requests are reported to the bot. Tests: `tests/approvals.test.mjs`.
+
 ## [0.3.7] - 2026-09-23
 
 ### Added
