@@ -9,6 +9,7 @@ import { Board } from "./board.mjs";
 import { Docs, blocksToMarkdown } from "./docs.mjs";
 import { Org } from "./org.mjs";
 import { Memory } from "./memory.mjs";
+import { Knowledge } from "./knowledge.mjs";
 import { ACTION_GUIDE, actionsFrom, withoutActions } from "./actions.mjs";
 import packageMetadata from "../package.json" with { type: "json" };
 import {
@@ -90,6 +91,7 @@ export class Coordinator extends EventEmitter {
     this.board = new Board(this.store, this.org);
     this.board.onMove = (task, from, to, author) => this.onTaskMoved(task, from, to, author);
     this.docs = new Docs(this.store);
+    this.knowledge = new Knowledge(this.store);
     this.lastAutopilot = 0;
     this.modelCatalog = loadModelCatalog(directory);
     this.custom = loadCustomHarnesses(directory);
@@ -271,6 +273,39 @@ export class Coordinator extends EventEmitter {
         return { memories: this.memory.list({ employee: payload.employee }) };
       case "docs.restore":
         this.docs.restore(payload);
+        break;
+      case "graph.get":
+        return this.knowledge.query({
+          q: typeof payload.q === "string" ? payload.q.slice(0, 200) : "",
+          focus: typeof payload.focus === "string" ? payload.focus.slice(0, 120) : "",
+          depth: Number(payload.depth) || 1,
+          types: Array.isArray(payload.types) ? payload.types.map(String).slice(0, 20) : null,
+        });
+      case "graph.fact":
+        this.knowledge.addFact(
+          {
+            subject: payload.subject,
+            relation: payload.relation,
+            object: payload.object,
+            note: payload.note || undefined,
+          },
+          "human",
+        );
+        break;
+      case "graph.entityUpdate":
+        this.knowledge.updateEntity(payload);
+        break;
+      case "graph.entityDelete":
+        this.knowledge.deleteEntity(payload.id);
+        break;
+      case "graph.edgeUpdate":
+        this.knowledge.updateEdge(payload);
+        break;
+      case "graph.edgeDelete":
+        this.knowledge.deleteEdge(payload.id);
+        break;
+      case "graph.ask":
+        this.askGraph(payload);
         break;
       case "routines.create":
         this.routines.create(payload);
@@ -686,6 +721,7 @@ export class Coordinator extends EventEmitter {
       return `reported to ${to}`;
     }
     if (action.type === "review") return this.applyReview(action, run);
+    if (action.type === "kg.fact") return this.knowledge.applyAgentAction(action, run);
     return this.board.applyAgentAction(action, run);
   }
   // A reviewer's verdict. Approve finishes the task; changes sends it back
@@ -832,6 +868,39 @@ export class Coordinator extends EventEmitter {
       });
     });
   }
+  // "Ask the graph" is an ordinary direct-chat message: the question plus the
+  // matching slice of the graph, sent to the chosen employee.
+  askGraph(payload) {
+    const employee = this.activeEmployee(text(payload.employee, "Employee ID", 100));
+    const question = text(payload.question, "Question", 2000);
+    const facts = this.knowledge.recall(question, { budget: 6000, limit: 80 });
+    let conversation = this.store
+      .all("SELECT id,members FROM conversations ORDER BY created")
+      .find((c) => {
+        const members = JSON.parse(c.members);
+        return members.length === 1 && members[0] === employee.id;
+      })?.id;
+    if (!conversation) {
+      conversation = id();
+      this.store.run(
+        "INSERT INTO conversations(id,title,members,delegation,created,allowedFolders,artifactsFolder) VALUES (?,?,?,?,?,?,?)",
+        conversation,
+        employee.name.slice(0, 100),
+        JSON.stringify([employee.id]),
+        0,
+        now(),
+        "[]",
+        "",
+      );
+    }
+    const body = `Question about the knowledge graph: ${question}\n\n${
+      facts.length
+        ? `Matching facts (workspace data; facts marked bot-written may be wrong):\n${facts.map((f) => `- ${f}`).join("\n")}`
+        : "No facts in the graph match this question yet."
+    }`;
+    this.send({ requestId: id(), conversation, recipients: [employee.id], body });
+    return conversation;
+  }
   prompt(run, employee, files = []) {
     const conversation = this.store.one(
       "SELECT * FROM conversations WHERE id=?",
@@ -875,7 +944,10 @@ export class Coordinator extends EventEmitter {
       : reports.length
         ? `Delegation to peers is disabled here, but as a manager you may ${delegateHow} Your direct reports: ${JSON.stringify(reports)}.`
         : "Delegation is disabled in this conversation.";
-    const board = this.boardContext(run, conversation, peers) + this.orgContext(run, employee, assignment);
+    const board =
+      this.boardContext(run, conversation, peers) +
+      this.orgContext(run, employee, assignment) +
+      this.knowledgeContext(run, assignment);
     const allowedFolders = JSON.parse(conversation.allowedFolders || "[]");
     const projectContext = allowedFolders.length
       ? ` Project allowed folders: ${JSON.stringify(allowedFolders)}.`
@@ -916,6 +988,16 @@ export class Coordinator extends EventEmitter {
           .join("\n")}`,
       );
     return `\n\n${lines.join("\n\n")}`.slice(0, 6000);
+  }
+  knowledgeContext(run, assignment) {
+    const task = run.task && this.store.one("SELECT title,description FROM tasks WHERE id=?", run.task);
+    const facts = this.knowledge.recall(
+      `${assignment} ${task?.title || ""} ${task?.description || ""}`.slice(0, 4000),
+    );
+    if (!facts.length) return "";
+    return `\n\nKnowledge graph (workspace data; facts marked bot-written were added by bots and may be wrong):\n${facts
+      .map((fact) => `- ${fact}`)
+      .join("\n")}`;
   }
   // Task and board context for the prompt. Card text is written by people
   // and other employees, so it is presented as data, not instructions.
