@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 
 export const id = () => randomUUID();
 // Bump with each migration below. Newer workspaces are refused by older apps.
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 export const now = () => new Date().toISOString();
 
 export class Store {
@@ -226,6 +226,31 @@ export class Store {
         `);
         this.db
           .prepare("UPDATE metadata SET value='8' WHERE key='schema'")
+          .run();
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        this.db.close();
+        throw error;
+      }
+    }
+    const docsVersion = Number(
+      this.db.prepare("SELECT value FROM metadata WHERE key='schema'").get()
+        .value,
+    );
+    if (docsVersion < 9) {
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
+        this.db.exec(`
+          CREATE TABLE docs (conversation TEXT PRIMARY KEY REFERENCES conversations(id),
+            blocks TEXT NOT NULL, revision INTEGER NOT NULL, updatedBy TEXT NOT NULL, updated TEXT NOT NULL);
+          CREATE TABLE doc_history (id TEXT PRIMARY KEY,
+            conversation TEXT NOT NULL REFERENCES conversations(id), blocks TEXT NOT NULL,
+            revision INTEGER NOT NULL, author TEXT NOT NULL, run TEXT, created TEXT NOT NULL);
+          CREATE INDEX doc_history_conversation ON doc_history(conversation, created);
+        `);
+        this.db
+          .prepare("UPDATE metadata SET value='9' WHERE key='schema'")
           .run();
         this.db.exec("COMMIT");
       } catch (error) {

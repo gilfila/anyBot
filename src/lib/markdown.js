@@ -22,11 +22,18 @@ export function escapeHtml(text) {
 // injections), so escape first and only then add the markdown we render.
 // Code spans and links are parked in placeholders so later patterns cannot
 // reach inside them.
-export function renderMarkdownInline(text) {
+// Doc pages link tasks, employees, and files with @[label](kind:id) tokens.
+const MENTION_PATTERN = /@\[([^\]\n]{1,80})\]\((task|agent|file):([A-Za-z0-9-]{6,64})\)/g;
+
+export function renderMarkdownInline(text, { mentions = false } = {}) {
   const parked = [];
   const park = (html) => `\u0000${parked.push(html) - 1}\u0000`;
   let result = escapeHtml(text);
   result = result.replace(INLINE_CODE_PATTERN, (_, code) => park(`<code>${code}</code>`));
+  if (mentions)
+    result = result.replace(MENTION_PATTERN, (_, label, kind, ref) =>
+      park(`<span class="mention mention-${kind}" data-mention="${kind}:${ref}">@${label}</span>`),
+    );
   result = result.replace(LINK_PATTERN, (match, label, href) =>
     SAFE_LINK_PATTERN.test(href)
       ? park(`<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`)

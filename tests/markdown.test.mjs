@@ -41,6 +41,15 @@ test("bold, italic, and code render", () => {
   assert.equal(renderMarkdownInline("**a** *b* `c`"), "<strong>a</strong> <em>b</em> <code>c</code>");
 });
 
+test("doc mentions render as inert chips only when enabled", () => {
+  const token = "Ask @[Morgan](agent:1a2b3c4d-0000) about @[Pricing <page>](task:9f8e7d6c)";
+  assert.ok(!renderMarkdownInline(token).includes("data-mention"));
+  const html = renderMarkdownInline(token, { mentions: true });
+  assert.match(html, /<span class="mention mention-agent" data-mention="agent:1a2b3c4d-0000">@Morgan<\/span>/);
+  assert.match(html, /data-mention="task:9f8e7d6c">@Pricing &lt;page&gt;<\/span>/);
+  assert.ok(!renderMarkdownInline('@[x](task:abc" onclick="y)', { mentions: true }).includes("data-mention"));
+});
+
 test("escapeHtml covers quotes and ampersands", () => {
   assert.equal(escapeHtml(`&<>"'`), "&amp;&lt;&gt;&quot;&#39;");
 });

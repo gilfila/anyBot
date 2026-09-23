@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-23
+
+### Added
+- **Project doc page.** Projects get a third tab, **Doc**: a Notion-style page of blocks (headings, text, bulleted/numbered lists, to-dos, quotes, callouts, code, dividers) with a `/` command menu, Markdown shortcuts (`#`, `-`, `1.`, `[]`, `>`, ```` ``` ````, `---`), Enter/Backspace list behavior, and drag handles to reorder.
+- **Live embeds and mentions:** `/task` and `/file` embed board tasks and returned files (task cards show live status and assignees). `@` links a bot, task, or file inline, and clicking a task mention opens its side peek.
+- **Employees write to the doc** with `doc.append` (add to the end) and `doc.section` (replace the content under a heading, or add the section) actions. They never rewrite the whole page. Their blocks carry an author badge. Every run in a project sees the doc's section list and first ~3k characters as untrusted workspace data.
+- **Saves and history:** edits save automatically (debounced) with revision checks. If an employee changed the page meanwhile, the owner's edits are merged by block instead of overwritten. **History** keeps the last 20 versions with one-click restore.
+
+### Fixed
+- Board: task start is logged before its runs are queued, so a card no longer stays In progress when the clock ticks between the two (also shipped to PR #25).
+
+### Technical
+- Schema v9: `docs` and `doc_history`. New `runtime/docs.mjs` (block validation, markdown↔blocks, agent section edits), `src/components/doc/*` (editor plus pure `blocks.js` helpers), and mention tokens `@[label](task|agent|file:id)` rendered escape-first by `renderMarkdownInline(text, { mentions: true })`.
+- New IPC methods: `docs.get|save|history|restore`. Tests: `tests/docs.test.mjs` and `tests/doc-editor.test.mjs`.
+
 ## [0.3.0] - 2026-09-23
 
 ### Added
