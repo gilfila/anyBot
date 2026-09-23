@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-09-23
+
+### Added
+- **Knowledge graph** (Organization → Knowledge graph). One graph connects your bots, projects, tasks, and files with the facts that bots and you write about them.
+  - **Workspace links** are derived from what already exists: who reports to whom, project membership, task assignees and completions, and the files each run produced. They stay current on their own.
+  - **Bots add facts** with a `kg.fact` action (subject, relation, object, optional note). Names of bots, projects, and tasks link to those nodes. New names become entities such as a decision, a person, or a tool. Repeating a fact updates it instead of duplicating it, and every written fact records who wrote it, in which run, and when.
+  - **Recall:** each run gets the facts relevant to its assignment (SQLite FTS5), labelled as workspace data. Facts written by bots are marked `[bot-written]`, so other bots treat them as unverified.
+  - **You curate:** add facts; rename, retype, annotate, or delete entities. Pinning a fact vouches for it: it is always recalled and loses the bot-written marker. Pinning an entity puts all of its facts in every prompt.
+  - **The view:**
+    - a force layout with visible labels, and a type legend that doubles as a filter
+    - search, and a neighborhood focus of 1 or 2 hops (double-click a node)
+    - a written-facts-only filter and a Facts table
+    - distinct line styles for workspace links, your facts, and bot facts
+  - **Ask the graph:** sends your question, with the facts that match it, to a bot you choose as a direct message. The answer arrives in that chat.
+
+### Fixed
+- Board search showed a doubled focus ring.
+
+### Technical
+- **Schema v11:** `kg_entities`, `kg_edges`, and an FTS5 index (`kg_fts`). Workspace nodes are derived on read (ids `agent:`, `project:`, `task:`, `artifact:`) and never stored. New `runtime/knowledge.mjs`.
+- **New IPC methods:** `graph.get`, `graph.fact`, `graph.entityUpdate`, `graph.entityDelete`, `graph.edgeUpdate`, `graph.edgeDelete`, `graph.ask`.
+- **New renderer dependency:** `d3-force`. Categorical color tokens `--cat-agent`, `--cat-task`, `--cat-project` were validated as a set for color-vision deficiency on the paper surface. Tests: `tests/knowledge.test.mjs`.
+
 ## [0.3.2] - 2026-09-23
 
 ### Added

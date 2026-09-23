@@ -74,6 +74,12 @@
   --block-accent: oklch(0.8 0.11 65);
   --block-ok: oklch(0.82 0.12 145);
   --block-error: oklch(0.72 0.15 28);
+  /* Categorical data colors (knowledge graph node types), validated as a set
+     on --paper for color-vision deficiency. Fixed order: agent, task, project.
+     Other node types stay neutral ink and differ by shape. */
+  --cat-agent: oklch(0.575 0.163 255.5);
+  --cat-task: oklch(0.671 0.175 40.6);
+  --cat-project: oklch(0.669 0.141 162.1);
   --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, "SF Mono", monospace;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --radius: 10px;

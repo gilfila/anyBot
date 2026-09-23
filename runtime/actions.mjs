@@ -12,6 +12,7 @@ export const ACTION_TYPES = new Set([
   "memory.forget",
   "report",
   "review",
+  "kg.fact",
 ]);
 const BLOCK = /```anybot-actions\s*\n([\s\S]*?)\n```/g;
 
@@ -49,4 +50,4 @@ export const ACTION_GUIDE = `Project actions: to update the project board or doc
  {"type":"task.create","title":"Add pricing FAQ","description":"...","priority":"medium","assignees":["<employee id>"]},
  {"type":"doc.section","heading":"Decisions","markdown":"- Launch at $12/seat"}]
 \`\`\`
-Types: doc.append (markdown added to the end of the project doc), doc.section (heading plus markdown that replaces the content under that heading, or adds the section), task.create (lands in Backlog; optional description, priority none|low|medium|high|urgent, labels, assignees from the project, checklist as strings, parent task), task.update (task id plus any of status backlog|in_progress|review|done, comment, checklist [{item or index, done}], addChecklist [strings]), task.claim (take an unassigned Backlog task). Only assignees move their own tasks; when a task has a reviewer, stop at review. memory.save (body, scope private|team|project, optional tags: durable facts worth recalling next time, not a work log), memory.forget (id of one of your memories), report (summary for your manager; task work is summarised automatically if you skip this), review (only as a task's reviewer: task id, decision approve|changes, comment). Use actions only for real changes.`;
+Types: doc.append (markdown added to the end of the project doc), doc.section (heading plus markdown that replaces the content under that heading, or adds the section), task.create (lands in Backlog; optional description, priority none|low|medium|high|urgent, labels, assignees from the project, checklist as strings, parent task), task.update (task id plus any of status backlog|in_progress|review|done, comment, checklist [{item or index, done}], addChecklist [strings]), task.claim (take an unassigned Backlog task). Only assignees move their own tasks; when a task has a reviewer, stop at review. memory.save (body, scope private|team|project, optional tags: durable facts worth recalling next time, not a work log), memory.forget (id of one of your memories), report (summary for your manager; task work is summarised automatically if you skip this), review (only as a task's reviewer: task id, decision approve|changes, comment), kg.fact (add to the shared knowledge graph: subject, relation, object, optional note; subject and object are names, or {"type":"decision","label":"..."}; names of bots, projects, and tasks link to those nodes, e.g. {"type":"kg.fact","subject":"Checkout redesign","relation":"depends on","object":"Stripe API v3","note":"needs webhooks"}). Use actions only for real changes.`;

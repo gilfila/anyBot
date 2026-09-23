@@ -12,11 +12,13 @@ import {
   Settings2,
   Trash2,
   User,
+  Waypoints,
   X,
 } from "lucide-react";
 import { RobotAvatar } from "../RobotAvatar.jsx";
 import { Status } from "../Status.jsx";
 import { renderMarkdownInline } from "../../lib/markdown.js";
+import { KnowledgeGraph } from "./KnowledgeGraph.jsx";
 import "./org.css";
 
 const CARD_W = 208;
@@ -401,7 +403,7 @@ function ReportsFeed({ reports, data, act }) {
   );
 }
 
-export function OrgPage({ data, act, onMessage, onEdit, tab, onTab, extraTabs = [], children }) {
+export function OrgPage({ data, act, onMessage, onEdit, tab, onTab }) {
   const [org, setOrg] = useState({ stats: {}, reports: [] });
   const [selected, setSelected] = useState(null);
   const refreshKey = `${data.runs.length}:${data.tasks.map((t) => t.updated).join()}:${data.reportsUnread}:${data.employees.map((e) => e.manager).join()}`;
@@ -417,7 +419,7 @@ export function OrgPage({ data, act, onMessage, onEdit, tab, onTab, extraTabs = 
         <header className="org-heading">
           <div>
             <h1>Organization</h1>
-            <p>Who reports to whom, what they've finished, and what they remember.</p>
+            <p>Who reports to whom, what they've finished, what they remember, and what they know.</p>
           </div>
         </header>
         <div className="project-tabs org-tabs" role="tablist" aria-label="Organization views">
@@ -425,7 +427,10 @@ export function OrgPage({ data, act, onMessage, onEdit, tab, onTab, extraTabs = 
             <Network size={15} />
             Org chart
           </button>
-          {extraTabs}
+          <button role="tab" aria-selected={tab === "graph"} className={tab === "graph" ? "active" : ""} onClick={() => onTab("graph")}>
+            <Waypoints size={15} />
+            Knowledge graph
+          </button>
           <button role="tab" aria-selected={tab === "reports"} className={tab === "reports" ? "active" : ""} onClick={() => onTab("reports")}>
             <Inbox size={15} />
             Reports
@@ -452,7 +457,7 @@ export function OrgPage({ data, act, onMessage, onEdit, tab, onTab, extraTabs = 
             </div>
           ))}
         {tab === "reports" && <ReportsFeed reports={org.reports} data={data} act={act} />}
-        {children}
+        {tab === "graph" && <KnowledgeGraph data={data} act={act} onMessage={onMessage} />}
       </div>
       {employee && tab === "chart" && (
         <AgentPanel

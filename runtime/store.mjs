@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 
 export const id = () => randomUUID();
 // Bump with each migration below. Newer workspaces are refused by older apps.
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 export const now = () => new Date().toISOString();
 
 export class Store {
@@ -284,6 +284,36 @@ export class Store {
         `);
         this.db
           .prepare("UPDATE metadata SET value='10' WHERE key='schema'")
+          .run();
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        this.db.close();
+        throw error;
+      }
+    }
+    const knowledgeVersion = Number(
+      this.db.prepare("SELECT value FROM metadata WHERE key='schema'").get()
+        .value,
+    );
+    if (knowledgeVersion < 11) {
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
+        this.db.exec(`
+          CREATE TABLE kg_entities (id TEXT PRIMARY KEY, type TEXT NOT NULL, label TEXT NOT NULL,
+            labelKey TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', source TEXT NOT NULL,
+            createdBy TEXT NOT NULL, run TEXT, pinned INTEGER NOT NULL DEFAULT 0,
+            created TEXT NOT NULL, updated TEXT NOT NULL, UNIQUE(type, labelKey));
+          CREATE TABLE kg_edges (id TEXT PRIMARY KEY, src TEXT NOT NULL, dst TEXT NOT NULL,
+            relation TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', source TEXT NOT NULL,
+            createdBy TEXT NOT NULL, run TEXT, pinned INTEGER NOT NULL DEFAULT 0,
+            created TEXT NOT NULL, updated TEXT NOT NULL, UNIQUE(src, dst, relation));
+          CREATE INDEX kg_edge_src ON kg_edges(src);
+          CREATE INDEX kg_edge_dst ON kg_edges(dst);
+          CREATE VIRTUAL TABLE kg_fts USING fts5(text, ref UNINDEXED);
+        `);
+        this.db
+          .prepare("UPDATE metadata SET value='11' WHERE key='schema'")
           .run();
         this.db.exec("COMMIT");
       } catch (error) {

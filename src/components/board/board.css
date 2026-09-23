@@ -72,7 +72,11 @@
   color: var(--ink-3);
 }
 .board-search:focus-within {
-  border-color: var(--ink-3);
+  border-color: var(--ink);
+}
+/* The field's border is the focus ring; skip the global outline inside it. */
+.board-search input:focus-visible {
+  outline: none;
 }
 .board-search input {
   border: 0;
