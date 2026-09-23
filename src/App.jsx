@@ -1684,7 +1684,6 @@ export function App() {
                 </div>
               </div>
             )}
-            <AppearancePanel />
             <div className="settings-card">
               <div>
                 <h3>Check for updates</h3>
@@ -1715,6 +1714,7 @@ export function App() {
                 Check now
               </button>
             </div>
+            <AppearancePanel />
             <div className="settings-nav">
               <button
                 className="settings-nav-item"

@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.11] - 2026-09-23
+
+### Changed
+- **Solarpunk and Cyberpunk have living, detailed backgrounds.** The flat drawings are replaced with looping scenes:
+  - **Solarpunk:** a sunlit valley with orchards, terraced gardens, wheat, a river, wind turbines, and robots tending the crops.
+  - **Cyberpunk:** a rainy neon megacity at night with holograms and flying cars.
+
+  Both were made with Higgsfield. The theme cards in Settings show the same scenes. Turning off animations (in Settings or in Windows) shows a still frame instead, and the video pauses while the window is hidden.
+- **Check for updates is back at the top of Settings,** above Appearance.
+
+### Technical
+- **Video backdrops:** `VideoScene` in `ThemeBackdrop.jsx` plays `src/themes/media/{solarpunk,cyberpunk}.webm` (VP9, 1080p, no audio) over its first-frame JPEG, with a veil (`.scene-veil-*`) that keeps text on the glass surfaces readable.
+- **Seamless loops:** each clip is animated from one keyframe back to the same keyframe, and the encode crossfades its last second into its first. `scripts/make-scene-loop.sh` reproduces the encode.
+- **Glass levels retuned for the busier scenes:**
+  - Solarpunk's side panels are more opaque (`glass-2` 0.8).
+  - Cyberpunk's main surface is lighter (`glass` 0.5), so the city shows through.
+- **Old scenes removed:** the SVG `Meadow`/`NeonCity` scenes and their CSS are gone. That removes a second `@keyframes robot-bob` in `themes.css` that collided with the avatar animation of the same name in `style.css`.
+
 ## [0.3.10] - 2026-09-23
 
 
