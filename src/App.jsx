@@ -155,6 +155,7 @@ import { HtmlPreviewModal } from "./components/HtmlPreviewModal.jsx";
 import { ProjectSettingsForm } from "./components/ProjectSettingsForm.jsx";
 import { ProjectBoard } from "./components/board/ProjectBoard.jsx";
 import { TaskPeek } from "./components/board/TaskPeek.jsx";
+import { ProjectDoc } from "./components/doc/ProjectDoc.jsx";
 import { statusLabel } from "./components/board/meta.js";
 
 // A task being started posts its brief into the project chat. Render it as a
@@ -1101,9 +1102,29 @@ export function App() {
                     Board
                     {openTaskCount > 0 && <span className="project-tab-count">{openTaskCount}</span>}
                   </button>
+                  <button
+                    role="tab"
+                    aria-selected={projectTab === "doc"}
+                    className={projectTab === "doc" ? "active" : ""}
+                    onClick={() => setProjectTab("doc")}
+                  >
+                    <FileText size={15} />
+                    Doc
+                  </button>
                 </div>
               )}
-              {isProject && projectTab === "board" ? (
+              {isProject && projectTab === "doc" ? (
+                <ProjectDoc
+                  conversation={conversation}
+                  data={data}
+                  act={act}
+                  onOpenTask={(taskId) => {
+                    setSelectedTask(taskId);
+                    setRightSidebarOpen(true);
+                  }}
+                  onOpenArtifact={openArtifact}
+                />
+              ) : isProject && projectTab === "board" ? (
                 <ProjectBoard
                   conversation={conversation}
                   tasks={data.tasks}
@@ -1326,7 +1347,7 @@ export function App() {
               />
             ) : (
             <ContextRail
-              open={rightSidebarOpen && !(isProject && projectTab === "board")}
+              open={rightSidebarOpen && !(isProject && projectTab !== "chat")}
               conversation={conversation}
               employees={data.employees}
               activeRuns={activeRuns}

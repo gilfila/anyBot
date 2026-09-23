@@ -26,7 +26,8 @@ Electron 44 main process (`desktop/main.cjs`) + sandboxed React 19 renderer (`sr
 ## Last turn / Pending (2026-09-23)
 **Roadmap in progress:** boards + doc pages + agent org/memory/knowledge graph. Plan: `~/.claude/plans/i-want-two-large-generic-liskov.md` (Phases 1–5). Decisions: agents act via `anybot-actions` blocks (MCP server later), the canvas is a Notion-style doc page, the chain of command is enforced, and knowledge is auto-derived plus agent-written.
 **Phase 1 done (0.3.0): project boards.** `runtime/board.mjs` owns task data and agent permission rules. `runtime/actions.mjs` parses `anybot-actions` blocks. The coordinator handles `startTask`/`settleTask`/`autopilot`/`boardContext` and applies actions inside the run-completion transaction. UI lives in `src/components/board/*` (dnd-kit), with styles in `board.css` (tokens only). Verified by a real Electron e2e using a fake custom harness (`harnesses.json`) that emits actions.
-**Next:** Phase 2, the project doc page (0.3.1).
+**Phase 2 done (0.3.1): project doc page.** `runtime/docs.mjs` (block model, `doc.append`/`doc.section`, 20-version history), and `src/components/doc/ProjectDoc.jsx` shows rendered blocks until focused, then a textarea; `blocks.js` holds the pure editing rules and the conflict merge. Doc commands return doc objects (not snapshots), so the renderer calls them with `window.anybot.request` directly, not `act()`.
+**Next:** Phase 3, chain of command plus memory (0.3.2).
 **Local test caveat:** `tests/server.test.mjs` binds fixed port 4319. When another process holds it (for example a Codex preview server), 2 tests fail with EADDRINUSE; CI is unaffected.
 
 ### Earlier (2026-09-22)

@@ -2,7 +2,7 @@
 // live channel back into the coordinator, so, like delegation, actions are
 // parsed from the finished output and validated before anything is applied.
 export const ACTION_LIMIT = 20;
-export const ACTION_TYPES = new Set(["task.create", "task.update", "task.claim"]);
+export const ACTION_TYPES = new Set(["task.create", "task.update", "task.claim", "doc.append", "doc.section"]);
 const BLOCK = /```anybot-actions\s*\n([\s\S]*?)\n```/g;
 
 export function actionsFrom(output) {
@@ -33,9 +33,10 @@ export function withoutActions(output) {
   return String(output).replace(BLOCK, "").trimEnd();
 }
 
-export const ACTION_GUIDE = `Board actions: to update the project board, end your reply with one fenced anybot-actions block containing a JSON array, for example
+export const ACTION_GUIDE = `Project actions: to update the project board or doc, end your reply with one fenced anybot-actions block containing a JSON array, for example
 \`\`\`anybot-actions
 [{"type":"task.update","task":"1a2b3c4d","status":"review","comment":"Built the page; tests pass","checklist":[{"item":"Write copy","done":true}]},
- {"type":"task.create","title":"Add pricing FAQ","description":"...","priority":"medium","assignees":["<employee id>"]}]
+ {"type":"task.create","title":"Add pricing FAQ","description":"...","priority":"medium","assignees":["<employee id>"]},
+ {"type":"doc.section","heading":"Decisions","markdown":"- Launch at $12/seat"}]
 \`\`\`
-Types: task.create (lands in Backlog; optional description, priority none|low|medium|high|urgent, labels, assignees from the project, checklist as strings, parent task), task.update (task id plus any of status backlog|in_progress|review|done, comment, checklist [{item or index, done}], addChecklist [strings]), task.claim (take an unassigned Backlog task). Only assignees move their own tasks; when a task has a reviewer, stop at review. Use actions only for real changes.`;
+Types: doc.append (markdown added to the end of the project doc), doc.section (heading plus markdown that replaces the content under that heading, or adds the section), task.create (lands in Backlog; optional description, priority none|low|medium|high|urgent, labels, assignees from the project, checklist as strings, parent task), task.update (task id plus any of status backlog|in_progress|review|done, comment, checklist [{item or index, done}], addChecklist [strings]), task.claim (take an unassigned Backlog task). Only assignees move their own tasks; when a task has a reviewer, stop at review. Use actions only for real changes.`;

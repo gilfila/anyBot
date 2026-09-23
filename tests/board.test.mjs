@@ -163,7 +163,7 @@ test("agent actions update progress, checklists, and create backlog tasks within
   assert.equal(task("Follow-up FAQ").createdBy, names.Lead.id);
   assert.equal(task("Sneaky"), undefined);
   const notice = c.snapshot().messages.find((m) => m.kind === "notice").body;
-  assert.match(notice, /Lead updated the board/);
+  assert.match(notice, /Lead updated the project/);
   assert.match(notice, /Agents can only add tasks to Backlog/);
   assert.match(notice, /Only unassigned Backlog tasks can be claimed/);
   const reply = c.snapshot().messages.find((m) => m.author === names.Lead.id);

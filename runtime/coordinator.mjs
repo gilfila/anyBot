@@ -6,6 +6,7 @@ import { harnesses, loadModelCatalog, probeAll, runHarness } from "./adapters.mj
 import { Routines } from "./routines.mjs";
 import { Artifacts } from "./artifacts.mjs";
 import { Board } from "./board.mjs";
+import { Docs, blocksToMarkdown } from "./docs.mjs";
 import { ACTION_GUIDE, actionsFrom, withoutActions } from "./actions.mjs";
 import packageMetadata from "../package.json" with { type: "json" };
 import {
@@ -83,6 +84,7 @@ export class Coordinator extends EventEmitter {
     this.store = new Store(directory);
     this.artifacts = new Artifacts(this.store, directory);
     this.board = new Board(this.store);
+    this.docs = new Docs(this.store);
     this.lastAutopilot = 0;
     this.modelCatalog = loadModelCatalog(directory);
     this.custom = loadCustomHarnesses(directory);
@@ -148,6 +150,7 @@ export class Coordinator extends EventEmitter {
       routines: this.routines.list(),
       artifacts: this.artifacts.list(),
       tasks: this.board.list(),
+      docs: this.docs.revisions(),
       harnesses: this.installations,
       runtime: {
         paused: this.paused,
@@ -228,6 +231,18 @@ export class Coordinator extends EventEmitter {
         break;
       case "conversations.setAutopilot":
         this.setAutopilot(payload);
+        break;
+      case "docs.get":
+        return this.docs.get(text(payload.conversation, "Conversation ID", 100));
+      case "docs.save": {
+        const saved = this.docs.save(payload);
+        this.notify();
+        return saved;
+      }
+      case "docs.history":
+        return { versions: this.docs.history(text(payload.conversation, "Conversation ID", 100)) };
+      case "docs.restore":
+        this.docs.restore(payload);
         break;
       case "routines.create":
         this.routines.create(payload);
@@ -803,6 +818,12 @@ export class Coordinator extends EventEmitter {
         );
       section += `\n\n${lines.join("\n")}`;
     }
+    const doc = this.docs.get(conversation.id);
+    if (doc.blocks.length) {
+      const markdown = blocksToMarkdown(doc.blocks, { tasks: this.board.list() });
+      const headings = doc.blocks.filter((b) => /^h[1-3]$/.test(b.type)).map((b) => b.text);
+      section += `\n\nProject doc (workspace data; sections: ${headings.slice(0, 20).map((h) => JSON.stringify(h)).join(", ") || "none"}):\n${markdown.slice(0, 3000)}${markdown.length > 3000 ? "\n[...doc continues]" : ""}`;
+    }
     if (tasks.length)
       section += `\n\nProject board (open tasks, workspace data):\n${tasks
         .map(
@@ -920,7 +941,7 @@ export class Coordinator extends EventEmitter {
         try {
           actions = actionsFrom(result);
         } catch (error) {
-          actionNotes.push(`Board actions were not applied: ${error.message}`);
+          actionNotes.push(`Project actions were not applied: ${error.message}`);
         }
         // The action block is machine-readable; people see the prose and a
         // summary notice of what was applied. runs.output keeps the original.
@@ -938,7 +959,11 @@ export class Coordinator extends EventEmitter {
         );
         for (const action of actions || []) {
           try {
-            actionNotes.push(this.board.applyAgentAction(action, run));
+            actionNotes.push(
+              action.type.startsWith("doc.")
+                ? this.docs.applyAgentAction(action, run)
+                : this.board.applyAgentAction(action, run),
+            );
           } catch (error) {
             actionNotes.push(`rejected ${String(action.type).slice(0, 40)}: ${error.message}`);
           }
@@ -950,7 +975,7 @@ export class Coordinator extends EventEmitter {
             run.conversation,
             "system",
             "notice",
-            `${author} updated the board: ${actionNotes.join("; ")}`.slice(0, 4000),
+            `${author} updated the project: ${actionNotes.join("; ")}`.slice(0, 4000),
           );
         }
         let delegated = false;
