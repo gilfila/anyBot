@@ -155,7 +155,7 @@ test("bots write canvas tables through doc actions, including in a one-bot chat"
   const table = "| Channel | Owner |\n|---|---|\n| Blog | Sol |";
   reply = () => `Added.\n\n\`\`\`anybot-actions\n${JSON.stringify([{ type: "doc.section", heading: "Launch plan", markdown: `${table}\n[Brief](https://example.com/brief)` }])}\n\`\`\``;
   await c.command("messages.send", { conversation: chat.id, body: "Plan the launch", recipients: [sol.id], requestId: crypto.randomUUID() });
-  const deadline = Date.now() + 5000;
+  const deadline = Date.now() + 30000;
   while (c.snapshot().runs.some((r) => ["queued", "running"].includes(r.status))) {
     if (Date.now() > deadline) throw new Error("Queue did not settle");
     await new Promise((r) => setTimeout(r, 10));

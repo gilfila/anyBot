@@ -43,7 +43,7 @@ async function fixture(t, replies = () => "Finished", { concurrency = 2 } = {}) 
   return { c, prompts, employees, names, conversation, task };
 }
 async function settled(c) {
-  const deadline = Date.now() + 5000;
+  const deadline = Date.now() + 30000;
   while (c.snapshot().runs.some((r) => ["running", "queued", "cancelling"].includes(r.status))) {
     if (Date.now() > deadline) throw new Error("Queue did not settle");
     await new Promise((r) => setTimeout(r, 10));
@@ -186,7 +186,7 @@ test("a lead finishing early waits for collaborators before the card moves", asy
   await c.command("tasks.create", { conversation: conversation.id, title: "Pair", assignees: [names.Lead.id, names.Helper.id] });
   ref = task("Pair").id.slice(0, 8);
   await c.command("tasks.start", { id: task("Pair").id });
-  const deadline = Date.now() + 3000;
+  const deadline = Date.now() + 30000;
   while (!c.snapshot().runs.some((r) => r.employee === names.Lead.id && r.status === "succeeded")) {
     if (Date.now() > deadline) throw new Error("lead did not finish");
     await new Promise((r) => setTimeout(r, 10));

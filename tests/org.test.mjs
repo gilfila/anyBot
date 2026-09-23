@@ -37,7 +37,7 @@ async function fixture(t, reply = () => "ok") {
   await c.command("employees.setManager", { id: e.Lead.id, manager: e.Chief.id });
   await c.command("employees.setManager", { id: e.Junior.id, manager: e.Lead.id });
   const settled = async () => {
-    const deadline = Date.now() + 5000;
+    const deadline = Date.now() + 30000;
     while (c.snapshot().runs.some((r) => ["running", "queued", "cancelling"].includes(r.status))) {
       if (Date.now() > deadline) throw new Error("Queue did not settle");
       await new Promise((r) => setTimeout(r, 10));

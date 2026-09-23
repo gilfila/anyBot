@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.12] - 2026-09-23
+
+### Fixed
+- **Release builds no longer fail on a slow test.** The first automated release of 0.3.11 failed because one test's wait for queued runs gave up after 5 seconds. GitHub's Windows runners took over 8, even though the test passes easily on a PC.
+  - Every test that waits for runs to settle now allows up to 30 seconds.
+  - Passing tests are no faster or slower; only a real hang takes longer to report.
+
 ## [0.3.11] - 2026-09-23
 
 ### Added

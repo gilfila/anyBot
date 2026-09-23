@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 async function settled(c) {
-  const deadline = Date.now() + 3000;
+  const deadline = Date.now() + 30000;
   while (c.snapshot().runs.some(r => ['running', 'queued', 'cancelling'].includes(r.status))) {
     if (Date.now() > deadline) throw new Error('Snake agent conversation did not settle');
     await new Promise(resolve => setTimeout(resolve, 10));

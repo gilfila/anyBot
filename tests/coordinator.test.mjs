@@ -58,7 +58,7 @@ async function fixture(t, runner = async () => "Finished") {
   };
 }
 async function settled(c) {
-  const deadline = Date.now() + 3000;
+  const deadline = Date.now() + 30000;
   while (
     c
       .snapshot()
