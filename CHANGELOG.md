@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-09-23
+
+### Changed
+- **The Doc page is now the Canvas**, and it works like a Slack canvas: one shared, semi-structured page per conversation that you and your bots both write. Every conversation has one, one-bot chats included: the tabs are **Chat · Board · Canvas** in projects and **Chat · Canvas** in direct chats.
+- **Canvas beside the chat:** the chat side panel's **Deliverables** tab is now **Canvas**. It shows the same editable canvas next to the conversation, with **Open full canvas** to expand it.
+
+### Added
+- **Files & outputs** at the top of every canvas: every file the bots returned in the conversation, with who made it, size, and age. Click a file to open it, show it in its folder, or add it to the page.
+- **Links from the chat:** every link shared in the conversation, newest first, one per address. Click to open, or add it to the page as a link card.
+- **Tables:** `/table`, editable in place.
+  - Tab and Shift+Tab move between cells, and Enter moves down, adding a row at the end.
+  - A toolbar adds and deletes rows and columns.
+  - Cells render links, bold, and code.
+- **Link cards:** `/link`, or any line in a bot's canvas update that is only a link.
+- **Starter templates** for an empty canvas: Project brief, Meeting notes, and Tracker.
+- **Markdown tables from bots:** they become canvas tables in `doc.append` and `doc.section`, and they now render as real tables in chat messages instead of raw pipes.
+
+### Technical
+- Canvas blocks add `table` (`rows`, at most 100 × 12, cells up to 500 characters) and `link` (http(s) `url` only). `markdownToBlocks` and `blocksToMarkdown` round-trip GFM tables, including escaped pipes.
+- Doc actions now work in any conversation whose members include the bot. Prompts and the action guide call it "the canvas".
+- New `src/components/doc/CanvasParts.jsx` and `canvas.css`. Tests: `tests/canvas.test.mjs`.
+
 ## [0.3.5] - 2026-09-23
 
 ### Added

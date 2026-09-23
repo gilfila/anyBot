@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Columns3, FileText, GripVertical, History, Lightbulb, RotateCcw, X } from "lucide-react";
+import { Columns3, FileText, GripVertical, History, Lightbulb, Maximize2, RotateCcw, X } from "lucide-react";
 import { escapeHtml, renderMarkdownInline } from "../../lib/markdown.js";
 import { RobotAvatar } from "../RobotAvatar.jsx";
 import { Status } from "../Status.jsx";
@@ -13,11 +13,16 @@ import {
   blankBlock,
   changeType,
   filterSlash,
+  fromTemplate,
+  linksFromMessages,
   mergeBlocks,
+  savable,
   shortcutFor,
   splitBlock,
 } from "./blocks.js";
+import { CanvasFiles, CanvasLinks, CanvasTemplates, LinkBlock, TableBlock } from "./CanvasParts.jsx";
 import "./doc.css";
+import "./canvas.css";
 
 const SAVE_DELAY = 700;
 const when = (value) =>
@@ -119,6 +124,7 @@ function DocBlock({ block, number, focused, caret, menu, author, onFocus, onKeyD
             tabIndex={0}
             onFocus={() => onFocus(null)}
             onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return;
               if (event.key === "Backspace" || event.key === "Delete") {
                 event.preventDefault();
                 onRemove();
@@ -139,13 +145,16 @@ function DocBlock({ block, number, focused, caret, menu, author, onFocus, onKeyD
   );
 }
 
-export function ProjectDoc({ conversation, data, act, onOpenTask, onOpenArtifact }) {
+// The canvas: one shared, Slack-style page per conversation. `compact` is the
+// side-panel version beside the chat.
+export function ProjectDoc({ conversation, data, act, onOpenTask, onOpenArtifact, onRevealArtifact, compact = false, onExpand }) {
   const [doc, setDoc] = useState(null);
   const [blocks, setBlocks] = useState([]);
   const [focus, setFocus] = useState(null); // { id, caret }
   const [menu, setMenu] = useState(null); // { kind, blockId, query, active, start }
   const [state, setState] = useState("saved");
   const [history, setHistory] = useState(null);
+  const [strips, setStrips] = useState({ files: true, links: !compact });
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
   const docRef = useRef(doc);
@@ -157,6 +166,10 @@ export function ProjectDoc({ conversation, data, act, onOpenTask, onOpenArtifact
   const projectTasks = data.tasks.filter((task) => task.conversation === conversation.id);
   const files = data.artifacts.filter((artifact) => artifact.conversation === conversation.id);
   const members = data.employees.filter((e) => conversation.members.includes(e.id));
+  const links = useMemo(
+    () => linksFromMessages(data.messages.filter((m) => m.conversation === conversation.id)),
+    [data.messages, conversation.id],
+  );
   const remoteRevision = data.docs?.find((d) => d.conversation === conversation.id)?.revision ?? 0;
 
   const load = useCallback(async () => {
@@ -189,7 +202,9 @@ export function ProjectDoc({ conversation, data, act, onOpenTask, onOpenArtifact
     setState("saving");
     const sentDirty = new Set(dirty.current);
     const sentDeleted = new Set(deleted.current);
-    const payload = blocksRef.current.filter((block, index, all) => !(index === all.length - 1 && block.type === "p" && !block.text && all.length > 1));
+    const payload = blocksRef.current
+      .filter(savable)
+      .filter((block, index, all) => !(index === all.length - 1 && block.type === "p" && !block.text && all.length > 1));
     try {
       const saved = await window.anybot.request("docs.save", {
         conversation: conversation.id,
@@ -406,12 +421,21 @@ export function ProjectDoc({ conversation, data, act, onOpenTask, onOpenArtifact
 
   const who = (author) =>
     author === "human" ? "You" : data.employees.find((e) => e.id === author)?.name || (author ? "Former employee" : "");
+  // Files and chat links can be dropped into the page as embeds or cards.
+  const insert = (extra) => {
+    const created = { ...blankBlock(extra.type), ...extra };
+    const current = blocksRef.current;
+    const last = current.at(-1);
+    const next = last && last.type === "p" && !last.text ? [...current.slice(0, -1), created, last] : [...current, created, blankBlock()];
+    commit(next, [created.id, next.at(-1).id]);
+  };
+  const empty = blocks.every((block) => block.type === "p" && !block.text);
 
-  if (!doc) return <div className="project-doc loading">Loading the doc…</div>;
+  if (!doc) return <div className="project-doc loading">Loading the canvas…</div>;
 
   return (
     <div
-      className="project-doc"
+      className={`project-doc${compact ? " is-compact" : ""}`}
       onClick={(event) => {
         const mention = event.target.closest?.("[data-mention]");
         if (!mention) return;
@@ -425,10 +449,21 @@ export function ProjectDoc({ conversation, data, act, onOpenTask, onOpenArtifact
     >
       <div className="doc-page">
         <header className="doc-header">
+          <div className="canvas-title-row">
+            <span className="canvas-kicker">Canvas</span>
+            {compact && onExpand && (
+              <button type="button" className="doc-history-button" onClick={onExpand}>
+                <Maximize2 size={13} />
+                Open full canvas
+              </button>
+            )}
+          </div>
           <h1>{conversation.title}</h1>
           <div className="doc-meta">
             <span>
-              {doc.updated ? `Edited by ${who(doc.updatedBy)} · ${when(doc.updated)}` : "A shared page for this project. Bots can read it and add to it."}
+              {doc.updated
+                ? `Edited by ${who(doc.updatedBy)} · ${when(doc.updated)}`
+                : "A shared page for this conversation. You and your bots can both read and write it."}
             </span>
             <span className={`doc-save-state ${state}`} role="status">
               {state === "saving" ? "Saving…" : state === "unsaved" ? "Unsaved" : state === "error" ? "Not saved. Retrying on next edit." : "Saved"}
@@ -472,6 +507,34 @@ export function ProjectDoc({ conversation, data, act, onOpenTask, onOpenArtifact
             </div>
           )}
         </header>
+        <div className="canvas-strips">
+          <CanvasFiles
+            files={files}
+            runs={data.runs}
+            employees={data.employees}
+            open={strips.files}
+            onToggle={() => setStrips((s) => ({ ...s, files: !s.files }))}
+            onOpen={onOpenArtifact}
+            onReveal={(file) => onRevealArtifact?.(file)}
+            onInsert={insert}
+          />
+          <CanvasLinks
+            links={links}
+            employees={data.employees}
+            open={strips.links}
+            onToggle={() => setStrips((s) => ({ ...s, links: !s.links }))}
+            onInsert={insert}
+          />
+        </div>
+        {empty && !focus && (
+          <CanvasTemplates
+            onPick={(id) => {
+              const next = fromTemplate(id);
+              commit(next, next.map((b) => b.id), blocksRef.current.map((b) => b.id));
+              setFocus({ id: next[1]?.id || next[0].id, caret: 0 });
+            }}
+          />
+        )}
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -533,6 +596,27 @@ export function ProjectDoc({ conversation, data, act, onOpenTask, onOpenArtifact
                         <FileText size={15} />
                         {file?.name || block.text || "File no longer available"}
                       </button>
+                    )}
+                    {block.type === "table" && (
+                      <TableBlock
+                        block={block}
+                        focused={focus?.id === block.id}
+                        onFocus={() => setFocus({ id: block.id, caret: null })}
+                        onChange={(rows) => commit(blocksRef.current.map((b) => (b.id === block.id ? { ...b, rows } : b)), [block.id])}
+                        onRemove={() => remove(block, index)}
+                      />
+                    )}
+                    {block.type === "link" && (
+                      <LinkBlock
+                        block={block}
+                        focused={focus?.id === block.id}
+                        onFocus={() => setFocus({ id: block.id, caret: null })}
+                        onChange={(patch) => commit(blocksRef.current.map((b) => (b.id === block.id ? { ...b, ...patch } : b)), [block.id])}
+                        onDone={() => {
+                          const next = blocksRef.current[index + 1];
+                          if (next) setFocus({ id: next.id, caret: 0 });
+                        }}
+                      />
                     )}
                   </DocBlock>
                 );

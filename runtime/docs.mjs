@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { now } from "./store.mjs";
 
-// Project doc pages: an ordered list of Notion-style blocks per project.
-// Blocks hold plain text (inline markdown is rendered escape-first in the
-// renderer), never HTML.
+// Canvases: one shared, Slack-canvas-style page per conversation, stored as
+// an ordered list of blocks. Blocks hold plain text (inline markdown is
+// rendered escape-first in the renderer), never HTML. Tables hold rows of
+// plain-text cells; link cards hold an http(s) URL.
 export const BLOCK_TYPES = [
   "p",
   "h1",
@@ -18,8 +19,46 @@ export const BLOCK_TYPES = [
   "divider",
   "task",
   "file",
+  "table",
+  "link",
 ];
 const MAX_BLOCKS = 800;
+const MAX_ROWS = 100;
+const MAX_COLUMNS = 12;
+const MAX_CELL = 500;
+const SAFE_URL = /^https?:\/\/[^\s<>"]{1,2000}$/i;
+const TABLE_ROW = /^\s*\|.*\|\s*$/;
+const TABLE_RULE = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+// Cells are split on unescaped pipes; "\|" stays a literal pipe.
+export function tableCells(line) {
+  const cells = [];
+  let cell = "";
+  const body = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] === "\\" && body[i + 1] === "|") {
+      cell += "|";
+      i += 1;
+    } else if (body[i] === "|") {
+      cells.push(cell.trim());
+      cell = "";
+    } else cell += body[i];
+  }
+  cells.push(cell.trim());
+  return cells;
+}
+const tableRows = (value) => {
+  if (!Array.isArray(value) || !value.length) throw new Error("Tables need at least one row");
+  if (value.length > MAX_ROWS) throw new Error(`Tables hold at most ${MAX_ROWS} rows`);
+  const width = Math.min(MAX_COLUMNS, Math.max(1, ...value.map((row) => (Array.isArray(row) ? row.length : 0))));
+  return value.map((row) => {
+    if (!Array.isArray(row)) throw new Error("Table rows must be lists of cells");
+    return Array.from({ length: width }, (_, index) => {
+      const cell = row[index] === undefined || row[index] === null ? "" : String(row[index]);
+      if (cell.length > MAX_CELL) throw new Error(`Table cells hold at most ${MAX_CELL} characters`);
+      return cell.replace(/\n/g, " ");
+    });
+  });
+};
 const MAX_TEXT = 8000;
 const HISTORY = 20;
 const HEADING = { h1: 1, h2: 2, h3: 3 };
@@ -38,6 +77,16 @@ export function normalizeBlocks(value) {
     if (text.length > MAX_TEXT) throw new Error(`A block holds at most ${MAX_TEXT} characters`);
     const out = { id: blockId, type: block.type, text };
     if (block.type === "todo") out.checked = block.checked === true;
+    if (block.type === "table") {
+      out.text = "";
+      out.rows = tableRows(block.rows);
+    }
+    if (block.type === "link") {
+      const url = typeof block.url === "string" ? block.url.trim() : "";
+      if (!SAFE_URL.test(url)) throw new Error("Link cards need an http(s) address");
+      out.url = url;
+      out.text = text.slice(0, 300);
+    }
     if (block.type === "task" || block.type === "file") {
       if (typeof block.ref !== "string" || !/^[A-Za-z0-9-]{6,64}$/.test(block.ref))
         throw new Error("Embeds need a valid reference");
@@ -67,7 +116,25 @@ export function markdownToBlocks(markdown, author = null) {
       continue;
     }
     if (!line.trim()) continue;
+    // GFM table: a header row, a --- rule, then body rows.
+    if (TABLE_ROW.test(line) && TABLE_RULE.test(lines[i + 1] || "")) {
+      const rows = [tableCells(line)];
+      i += 2;
+      while (i < lines.length && TABLE_ROW.test(lines[i]) && rows.length < MAX_ROWS) rows.push(tableCells(lines[i++]));
+      i -= 1;
+      push("table", "", { rows: tableRows(rows) });
+      continue;
+    }
     let match;
+    // A line that is only a link becomes a link card.
+    if ((match = line.match(/^\s*\[([^\]]{1,300})\]\((https?:\/\/[^\s)]+)\)\s*$/))) {
+      push("link", match[1].trim(), { url: match[2] });
+      continue;
+    }
+    if ((match = line.match(/^\s*(https?:\/\/[^\s<>"]+)\s*$/))) {
+      push("link", "", { url: match[1] });
+      continue;
+    }
     if ((match = line.match(/^(#{1,3})\s+(.*)$/))) push(`h${match[1].length}`, match[2].trim());
     else if ((match = line.match(/^\s*[-*+]\s+\[( |x|X)\]\s+(.*)$/))) push("todo", match[2], { checked: match[1] !== " " });
     else if ((match = line.match(/^\s*[-*+]\s+(.*)$/))) push("bullet", match[1]);
@@ -110,6 +177,17 @@ export function blocksToMarkdown(blocks, { tasks = [] } = {}) {
         }
         case "file":
           return `[File ${block.text || block.ref}]`;
+        case "table": {
+          const cell = (value) => value.replace(/\|/g, "\\|");
+          const [head = [], ...body] = block.rows || [];
+          return [
+            `| ${head.map(cell).join(" | ")} |`,
+            `| ${head.map(() => "---").join(" | ")} |`,
+            ...body.map((row) => `| ${row.map(cell).join(" | ")} |`),
+          ].join("\n");
+        }
+        case "link":
+          return block.text ? `[${block.text}](${block.url})` : block.url;
         default:
           return block.text;
       }
@@ -200,7 +278,7 @@ export class Docs {
     const members = JSON.parse(
       this.store.one("SELECT members FROM conversations WHERE id=?", run.conversation)?.members || "[]",
     );
-    if (!members.includes(run.employee)) throw new Error("Only project members can edit this doc");
+    if (!members.includes(run.employee)) throw new Error("Only members of this conversation can edit its canvas");
     const markdown = typeof action.markdown === "string" ? action.markdown : "";
     if (!markdown.trim()) throw new Error(`${action.type} needs markdown`);
     if (markdown.length > 20000) throw new Error("Doc updates are limited to 20000 characters");
@@ -224,7 +302,7 @@ export class Docs {
     }
     this.write(run.conversation, normalizeBlocks(next), run.employee, run.id);
     return action.type === "doc.append"
-      ? `added ${added.length} block${added.length === 1 ? "" : "s"} to the doc`
+      ? `added ${added.length} block${added.length === 1 ? "" : "s"} to the canvas`
       : `updated the "${action.heading.trim()}" section`;
   }
 }

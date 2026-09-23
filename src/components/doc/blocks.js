@@ -1,5 +1,5 @@
-// Pure block helpers for the project doc editor. No React here so the
-// editing rules can be unit tested under node:test.
+// Pure block helpers for the canvas editor (a conversation's shared page).
+// No React here so the editing rules can be unit tested under node:test.
 
 export const newId = () =>
   (globalThis.crypto?.randomUUID?.() || `b-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -19,6 +19,8 @@ export const SLASH_ITEMS = [
   { type: "callout", label: "Callout", hint: "Make it stand out", keys: "callout note info" },
   { type: "code", label: "Code", hint: "Monospace block", keys: "code snippet" },
   { type: "divider", label: "Divider", hint: "Separate sections", keys: "divider line hr rule" },
+  { type: "table", label: "Table", hint: "Rows and columns", keys: "table grid rows columns spreadsheet" },
+  { type: "link", label: "Link", hint: "A link card", keys: "link url bookmark web" },
   { type: "task", label: "Task", hint: "Embed a board task", keys: "task board card embed" },
   { type: "file", label: "File", hint: "Embed a returned file", keys: "file artifact attachment embed" },
 ];
@@ -57,7 +59,96 @@ export function shortcutFor(prefix) {
 export function blankBlock(type = "p") {
   const block = { id: newId(), type, text: "" };
   if (type === "todo") block.checked = false;
+  if (type === "table") block.rows = blankRows();
+  if (type === "link") block.url = "";
   return block;
+}
+export const blankRows = (columns = 3, rows = 3) => Array.from({ length: rows }, () => Array(columns).fill(""));
+export const SAFE_URL = /^https?:\/\/[^\s<>"]{1,2000}$/i;
+// Link cards without a valid address stay local until one is typed.
+export const savable = (block) => block.type !== "link" || SAFE_URL.test(block.url || "");
+
+// Table edits. Every row keeps the header's width; at least one row and one
+// column always remain.
+export const tableOps = {
+  set: (rows, r, c, value) => rows.map((row, ri) => (ri === r ? row.map((cell, ci) => (ci === c ? value : cell)) : row)),
+  addRow: (rows, at) => [...rows.slice(0, at), rows[0].map(() => ""), ...rows.slice(at)],
+  addColumn: (rows, at) => rows.map((row) => [...row.slice(0, at), "", ...row.slice(at)]),
+  removeRow: (rows, r) => (rows.length > 1 ? rows.filter((_, index) => index !== r) : rows),
+  removeColumn: (rows, c) => (rows[0].length > 1 ? rows.map((row) => row.filter((_, index) => index !== c)) : rows),
+};
+
+// Every link shared in a conversation's chat, newest first, one per URL.
+const LINKS = /\[([^\]\n]{1,200})\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>"'`)\]]+)/g;
+export function linksFromMessages(messages) {
+  const byUrl = new Map();
+  for (const message of messages) {
+    if (message.kind === "notice") continue;
+    const body = String(message.body || "").replace(/```[\s\S]*?```/g, "");
+    for (const match of body.matchAll(LINKS)) {
+      const url = (match[2] || match[3]).replace(/[.,:;!?]+$/, "");
+      if (!SAFE_URL.test(url)) continue;
+      const found = { url, label: match[1] || "", author: message.author, created: message.created };
+      const previous = byUrl.get(url);
+      if (!previous || previous.created <= found.created) byUrl.set(url, { ...found, label: found.label || previous?.label || "" });
+    }
+  }
+  return [...byUrl.values()].sort((a, b) => String(b.created).localeCompare(String(a.created)));
+}
+
+export const hostOf = (url) => {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+};
+
+// Starting points for an empty canvas: semi-structured, not a blank board.
+export const CANVAS_TEMPLATES = [
+  {
+    id: "brief",
+    label: "Project brief",
+    hint: "Goal, decisions, open questions, links",
+    blocks: () => [
+      { type: "h2", text: "Goal" },
+      { type: "p", text: "" },
+      { type: "h2", text: "Decisions" },
+      { type: "bullet", text: "" },
+      { type: "h2", text: "Open questions" },
+      { type: "todo", text: "" },
+      { type: "h2", text: "Links" },
+      { type: "p", text: "" },
+    ],
+  },
+  {
+    id: "meeting",
+    label: "Meeting notes",
+    hint: "Agenda, notes, action items",
+    blocks: () => [
+      { type: "h2", text: "Agenda" },
+      { type: "bullet", text: "" },
+      { type: "h2", text: "Notes" },
+      { type: "p", text: "" },
+      { type: "h2", text: "Action items" },
+      { type: "todo", text: "" },
+    ],
+  },
+  {
+    id: "tracker",
+    label: "Tracker",
+    hint: "A table of items, owners, and status",
+    blocks: () => [
+      { type: "h2", text: "Tracker" },
+      { type: "table", text: "", rows: [["Item", "Owner", "Status", "Due"], ...blankRows(4, 3)] },
+      { type: "h2", text: "Notes" },
+      { type: "p", text: "" },
+    ],
+  },
+];
+export function fromTemplate(id) {
+  const template = CANVAS_TEMPLATES.find((item) => item.id === id);
+  return template ? template.blocks().map((block) => ({ ...blankBlock(block.type), ...block })) : [blankBlock()];
 }
 
 // Enter at `caret`: text after the caret moves to a new block. Lists keep
@@ -107,6 +198,8 @@ export function changeType(blocks, index, type, extra = {}) {
   const next = [...blocks];
   const changed = { id: block.id, type, text: TEXT_TYPES.includes(type) ? block.text : "", ...extra };
   if (type === "todo") changed.checked = false;
+  if (type === "table" && !changed.rows) changed.rows = blankRows();
+  if (type === "link" && changed.url === undefined) changed.url = "";
   next[index] = changed;
   // Dividers and embeds need a text block after them to keep typing.
   if (!TEXT_TYPES.includes(type) && !next[index + 1]) next.push(blankBlock());

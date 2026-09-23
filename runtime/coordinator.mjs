@@ -1072,7 +1072,7 @@ export class Coordinator extends EventEmitter {
     if (doc.blocks.length) {
       const markdown = blocksToMarkdown(doc.blocks, { tasks: this.board.list() });
       const headings = doc.blocks.filter((b) => /^h[1-3]$/.test(b.type)).map((b) => b.text);
-      section += `\n\nProject doc (workspace data; sections: ${headings.slice(0, 20).map((h) => JSON.stringify(h)).join(", ") || "none"}):\n${markdown.slice(0, 3000)}${markdown.length > 3000 ? "\n[...doc continues]" : ""}`;
+      section += `\n\nCanvas, this conversation's shared page (workspace data; sections: ${headings.slice(0, 20).map((h) => JSON.stringify(h)).join(", ") || "none"}):\n${markdown.slice(0, 3000)}${markdown.length > 3000 ? "\n[...canvas continues]" : ""}`;
     }
     if (tasks.length)
       section += `\n\nProject board (open tasks, workspace data):\n${tasks

@@ -20,6 +20,7 @@ import {
   Users,
 } from "lucide-react";
 import { RobotAvatar } from "./RobotAvatar.jsx";
+import { ProjectDoc } from "./doc/ProjectDoc.jsx";
 
 export function ContextRail({
   open,
@@ -30,6 +31,11 @@ export function ContextRail({
   conversationId,
   harnessName,
   onOpenArtifact,
+  onRevealArtifact,
+  data,
+  act,
+  onOpenTask,
+  onExpandCanvas,
   activeToolsTab,
   onToolsTabChange,
   browserUrl,
@@ -56,7 +62,7 @@ export function ContextRail({
   if (!open) return null;
 
   return (
-    <aside className="context-rail">
+    <aside className={`context-rail${activeTab === "canvas" ? " is-canvas" : ""}`}>
       <div className="context-rail-tabs">
         <button
           className={activeTab === "context" ? "active" : ""}
@@ -66,11 +72,11 @@ export function ContextRail({
           Context
         </button>
         <button
-          className={activeTab === "deliverables" ? "active" : ""}
-          onClick={() => handleTabChange("deliverables")}
+          className={activeTab === "canvas" ? "active" : ""}
+          onClick={() => handleTabChange("canvas")}
         >
           <FileText size={14} />
-          Deliverables
+          Canvas
         </button>
         <button
           className={activeTab === "tools" ? "active" : ""}
@@ -90,11 +96,16 @@ export function ContextRail({
             harnessName={harnessName}
           />
         )}
-        {activeTab === "deliverables" && (
-          <DeliverablesTab
-            artifacts={artifacts}
-            conversationId={conversationId}
+        {activeTab === "canvas" && conversation && data && (
+          <ProjectDoc
+            compact
+            conversation={conversation}
+            data={data}
+            act={act}
+            onOpenTask={onOpenTask}
             onOpenArtifact={onOpenArtifact}
+            onRevealArtifact={onRevealArtifact}
+            onExpand={onExpandCanvas}
           />
         )}
         {activeTab === "tools" && (
@@ -149,42 +160,6 @@ function ContextTab({ conversation, employees, activeRuns, harnessName }) {
         <ShieldCheck size={15} />
         Trusted local execution
       </div>
-    </div>
-  );
-}
-
-function DeliverablesTab({ artifacts, conversationId, onOpenArtifact }) {
-  const conversationArtifacts = (artifacts || []).filter(
-    (a) => a.conversation === conversationId
-  );
-
-  const formatTime = (created) => {
-    const date = new Date(created);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
-  return (
-    <div className="deliverables-tab-content">
-      <div className="eyebrow">FILES & OUTPUTS</div>
-      {conversationArtifacts.length === 0 ? (
-        <p className="empty-state">Files returned by your employees will appear here.</p>
-      ) : (
-        conversationArtifacts.map((a) => (
-          <button
-            className="artifact-item"
-            key={a.id}
-            onClick={() => onOpenArtifact(a)}
-          >
-            <FileText size={18} />
-            <span>
-              {a.name}
-              <small>
-                {Math.max(1, Math.ceil(a.bytes / 1024))} KB · {formatTime(a.created)}
-              </small>
-            </span>
-          </button>
-        ))
-      )}
     </div>
   );
 }
