@@ -9,9 +9,14 @@ import { SCHEMA_VERSION, Store } from "../runtime/store.mjs";
 import { Coordinator } from "../runtime/coordinator.mjs";
 
 // A workspace written by 0.3.19 (schema 14), from tests/fixtures/schema-v14.sql.
-async function v14(t) {
+// The caller closes the workspace before removing it (Windows can't delete an
+// open database), so cleanup is one hook: close, then remove.
+async function v14(t, close) {
   const directory = await mkdtemp(join(tmpdir(), "anybot-v14-"));
-  t.after(() => rm(directory, { recursive: true, force: true }));
+  t.after(async () => {
+    await close.current?.();
+    await rm(directory, { recursive: true, force: true });
+  });
   const db = new DatabaseSync(join(directory, "anybot.sqlite"));
   db.exec(await readFile(new URL("./fixtures/schema-v14.sql", import.meta.url), "utf8"));
   db.close();
@@ -19,9 +24,10 @@ async function v14(t) {
 }
 
 test("schema 14 workspaces upgrade to 15 with usage and prompt metrics", async (t) => {
-  const directory = await v14(t);
+  const close = {};
+  const directory = await v14(t, close);
   const store = new Store(directory);
-  t.after(() => store.close());
+  close.current = () => store.close();
   assert.equal(SCHEMA_VERSION, 15);
   assert.equal(store.one("SELECT value FROM metadata WHERE key='schema'").value, "15");
   const runs = store.all("SELECT id,status,output,usage FROM runs ORDER BY id");
@@ -44,7 +50,8 @@ test("schema 14 workspaces upgrade to 15 with usage and prompt metrics", async (
 });
 
 test("an upgraded workspace opens in the coordinator and prunes by the retention rules", async (t) => {
-  const directory = await v14(t);
+  const close = {};
+  const directory = await v14(t, close);
   const c = new Coordinator({
     directory,
     runner: async () => "Done",
@@ -52,7 +59,7 @@ test("an upgraded workspace opens in the coordinator and prunes by the retention
     keepPrompts: 1,
     clock: () => Date.parse("2026-09-24T00:00:00.000Z"),
   });
-  t.after(() => c.close());
+  close.current = () => c.close();
   // The newest prompt stays; the older one keeps only its size and hash.
   assert.equal(c.store.one("SELECT prompt FROM run_inputs WHERE run='r2'").prompt, "Synthetic prompt number two");
   const older = c.store.one("SELECT * FROM run_inputs WHERE run='r1'");
