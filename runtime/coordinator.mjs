@@ -150,6 +150,17 @@ export class Coordinator extends EventEmitter {
     this.paused =
       this.store.one("SELECT value FROM metadata WHERE key='paused'").value ===
       "true";
+    // Before 0.3.18 the chat's "Stop all" also paused all new work, with
+    // only a small note in the sidebar, so workspaces sat paused without
+    // anyone meaning it. Resume once; a pause set from now on is kept.
+    if (!this.store.one("SELECT value FROM metadata WHERE key='pauseReset'")) {
+      this.store.run("INSERT OR IGNORE INTO metadata VALUES ('pauseReset', '1')");
+      if (this.paused) {
+        this.paused = false;
+        this.store.run("UPDATE metadata SET value='false' WHERE key='paused'");
+        this.store.event("runtime.resumed", { reason: "stop-all-pause-reset" });
+      }
+    }
     this.routines = new Routines(this, clock);
     this.routines.recover();
     this.timer = setInterval(() => {
@@ -1594,9 +1605,13 @@ export class Coordinator extends EventEmitter {
     if (!conversation || !this.isProject(conversation)) return;
     const targets = mentionedIds(text, this.memberBots(conversation)).filter((id) => id !== run.employee);
     if (!targets.length) return;
-    const busy = new Set(
+    // A teammate that's still working on its own reply gets the mention as
+    // its next turn (it reads the thread when that turn starts). Only one
+    // that already has a turn waiting in this thread is skipped: that turn
+    // will read this reply too.
+    const waiting = new Set(
       this.store
-        .all("SELECT employee FROM runs WHERE thread=? AND status IN ('queued','running','cancelling')", run.thread)
+        .all("SELECT employee FROM runs WHERE thread=? AND status='queued'", run.thread)
         .map((r) => r.employee),
     );
     const since =
@@ -1612,7 +1627,7 @@ export class Coordinator extends EventEmitter {
       since,
     ).n;
     for (const target of targets) {
-      if (busy.has(target)) continue;
+      if (waiting.has(target)) continue;
       if (hops >= MENTION_HOPS) {
         this.addMessage(
           run.conversation,

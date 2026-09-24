@@ -147,3 +147,22 @@ test("explicit recipients still work and still thread; retries stay idempotent",
   assert.ok(runs[0].thread);
   await assert.rejects(c.command("messages.send", { ...request, body: "Something else" }), /already used/);
 });
+
+test("bots asked together can confer: a mention to a teammate that's still working waits for it", async (t) => {
+  // Alex answers at once and asks Morgan; Morgan is still on its own reply.
+  const later = (text, ms) => new Promise((resolve) => setTimeout(() => resolve(text), ms));
+  const { c, say, prompts, byId } = await project(t, {
+    script: { Alex: ["My part is done. @Morgan what's your status?"], Morgan: [later("Still building the page.", 600), "@Alex the page is live."] },
+  });
+  await say("@Alex @Morgan status update, and confer with each other");
+  const snap = c.snapshot();
+  assert.deepEqual(
+    snap.runs.map((r) => [byId(r.employee), r.status]),
+    [["Alex", "succeeded"], ["Morgan", "succeeded"], ["Morgan", "succeeded"], ["Alex", "succeeded"]],
+    "Morgan answers Alex after its own reply, then Alex hears back",
+  );
+  assert.equal(new Set(snap.runs.map((r) => r.thread)).size, 1, "all in one thread");
+  const second = prompts.filter((p) => p.name === "Morgan")[1].prompt;
+  assert.match(second, /Alex mentioned you: My part is done\. @Morgan what's your status\?/);
+  assert.match(second, /Morgan: Still building the page\./, "it sees its own first reply in the thread");
+});

@@ -23,6 +23,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - **Stop all** in a chat now stops only that chat's work.
   - When new work is paused, a banner says so in the chat and on Activity, and the sidebar has a **Resume** button. **Stop the team** in Runtime & privacy still stops everything and pauses on purpose.
   - A queued run's terminal says when it's waiting because new work is paused.
+  - Workspaces that the old **Stop all** left paused are resumed once when you update, so work already waiting in the queue starts.
+- **Bots asked together couldn't confer.** When two bots worked on the same thread at once, the first to finish could @mention the other, but that mention was dropped because the other bot was still busy. Now the mention waits: the teammate answers it as soon as its own reply is done, with the whole thread in view.
 - **Up to 8 bots work at the same time**, up from 2. Each bot still works on one assignment at a time.
 
 ### Changed
