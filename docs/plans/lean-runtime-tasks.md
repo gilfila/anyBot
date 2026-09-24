@@ -89,7 +89,7 @@ that does them. Section numbers (§) point into the plan.
       `docs/reviews/2026-09-24-M1-code.md`, 3 high findings, all fixed
 - [ ] PR, CI green, ask Tony, merge
 
-## M2: Harness sessions (0.3.23; split Claude/Codex from the spikes if large)
+## M2: Harness sessions (built, live gate not met, resume off: draft PR #49, its branch has the full list)
 
 - [ ] Design checkpoint on §3.2
 - [ ] Schema: `harness_sessions` (§3.2)
@@ -111,9 +111,11 @@ that does them. Section numbers (§) point into the plan.
 - [ ] Code checkpoint (focus: fallback paths)
 - [ ] PR(s), CI green, ask Tony, merge
 
-## M3: Incremental sync (0.3.24; three PRs in the plan's order)
+## M3: Incremental sync (next free version; three PRs in the plan's order)
 
-- [ ] Design checkpoint on §3.3
+- [x] Design checkpoint on §3.3 (`docs/reviews/2026-09-24-M3-design.md`: 9
+      findings, all accepted; §3.3 amended, 64 KB gate re-scoped to the
+      summary response)
 - [ ] Step 1: `read_cursors` table + unread from the server; thread summaries
       and `threads.get`; run `assignmentPreview`/`outputTail`; mobile gateway on
       `messages.page` / `runs.list`; renderer moved onto these while the full

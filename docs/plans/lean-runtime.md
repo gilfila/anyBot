@@ -243,6 +243,37 @@ number and emits typed changes:
   unit-tested). Components select slices, so a streaming append re-renders the
   live bubble, not the app.
 
+**Amended by the M3 design checkpoint** (`docs/reviews/2026-09-24-M3-design.md`,
+1 critical and 7 high findings, all accepted), superseding the bullets above
+where they differ:
+
+- **Durable output first.** Pushing appends every 250 ms is separate from
+  saving: `runs.output` keeps a checkpoint at most 1 s apart (not 5 s) until
+  an append-only reply stream with startup replay exists and passes a crash
+  test.
+- **Appends are suffixes.** `onText` delivers the whole output so far; the
+  coordinator emits only what's new since its last emit, drains pending chunks
+  before the completion change, and completion replaces the live bubble with
+  the posted reply.
+- **The initial response is a summary**, not a message window: conversations
+  with unread counts and thread summaries, employees, active runs without
+  output, and the open conversation's newest 30 channel roots with their
+  summaries. Channel roots page independently of replies; a thread's replies
+  load when it opens (`threads.get`). The 64 KB gate applies to that
+  response on the 5k corpus (100 messages alone are 176 KB there).
+- **`snapshot {open}`** names the open conversation; selection changes page
+  it in.
+- **Replies keep their results:** mutations return `{epoch, seq, result}`
+  with created ids (`messageId`, `conversationId`, `runIds`). Step 1
+  moves `App.jsx` and the mobile gateway onto those ids while snapshots
+  still exist.
+- **Ordering:** a snapshot is installed only if its (epoch, seq) is at least
+  the store's; deltas arriving during a resync are buffered and replayed.
+- **Every mutation boundary emits**, not only commands: `dispatch`,
+  `execute` callbacks, routines, approvals. The main test is replay
+  equivalence: for each scenario, the delta-built store equals a fresh
+  snapshot. Shell state (updater, tray) keeps its own push.
+
 ### 3.4 Any Bot MCP server (`runtime/anybot-mcp.mjs`; generalizes `approval-mcp.mjs`)
 
 Same transport as approvals today: a stdio MCP server started per run by the
@@ -576,5 +607,7 @@ Open questions for the owner:
 | Checkpoint | Result | Report |
 |---|---|---|
 | M0 code review (2026-09-24) | 4 findings (2 high, 2 medium): retention failure stopped runs, code-mode command rejected by Codex, events pruned only at startup, fixtures not captured. All fixed; Gemini and Cursor captures deferred (both CLIs unusable on the owner's PC). | `docs/reviews/2026-09-24-M0-code.md` |
+| M3 design review of §3.3 (2026-09-24) | 9 findings (1 critical, 7 high, 1 medium), all accepted; see the amendment at the end of §3.3. The 64 KB snapshot gate is re-scoped to the summary response. | `docs/reviews/2026-09-24-M3-design.md` |
+| M2 (2026-09-24, PR #49, draft) | Session resume built and measured: live gate not met for Claude or Codex; resume off. Findings and numbers on the M2 branch (`docs/architecture/sessions.md`). | #49 |
 | M1 design review of §3.1 (2026-09-24) | 8 findings (1 critical, 4 high, 3 medium), all accepted; see the amendment at the end of §3.1. | `docs/reviews/2026-09-24-M1-design.md` |
 | 0: design review of this plan (Codex CLI, read-only, 2026-09-24) | 13 findings (11 high, 2 medium). 12 accepted and folded in above: clipping, delegation, delta eligibility, cursor commits, report read-marking, snapshot consumers, durable partial output, epochs, mobile paging, token files, MCP handshake, measurable gates. 1 rejected with evidence (the `codex review -` stdin form is documented in `--help`); **that rejection was wrong**: run for real in M0, `codex review --base` refuses a custom prompt, so the script now uses `codex exec` with the diff range. | `docs/reviews/2026-09-24-plan-design.md` |
