@@ -112,6 +112,10 @@ export function describeIssue(issue) {
     },
     "update.init_failed": { title: "Automatic updates are unavailable", hint: "The updater didn't start.", bug: true },
     "update.warning": { title: "The updater reported a warning", hint: "Usually harmless. Details are below." },
+    "harness.stuck_cancel": {
+      title: `${tool(c)} didn't stop cleanly for ${who(c)}`,
+      hint: "Any Bot marked the run stopped and freed the bot. A helper process the harness started may still be running; it ends when you restart the computer.",
+    },
     "runtime.exited": {
       title: "The coordinator stopped unexpectedly",
       hint: "Any Bot restarts it automatically. Repeats are a bug.",

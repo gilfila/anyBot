@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.14] - 2026-09-24
+
+### Fixed
+- **A bot could get stuck on "Waiting for the harness" forever, and stopping it left it on "cancelling".** Seen with Codex on Windows:
+  - Codex started a helper process (its computer-use runtime) that kept Codex's output pipes open after Codex itself exited.
+  - Stopping the run killed Codex's process tree, but the helper was already cut off from that tree, so it survived.
+  - The helper held the run open, and the bot couldn't start new work.
+
+  Two changes stop this happening again:
+  - **Runner:** once the harness process has exited, Any Bot waits at most two seconds for its output instead of waiting on leftover helpers.
+  - **Coordinator:** a stopped run that still hasn't exited after 20 seconds is recorded as cancelled, its bot is freed, and Diagnostics shows "didn't stop cleanly".
+- **Text is readable in every theme (WCAG AA).** An audit of every view in all four themes checked each piece of text and each icon against the worst case, a pure black or pure white scene behind it. It found 621 problems; now there are none.
+  - **Solarpunk, Cyberpunk, and Matrix:** text over the animated scenes now always sits on an opaque box, and the scene shows in the space between them.
+    - The sidebars, chat heading, and tabs are solid.
+    - Each message's name, time, and status sit in a pill above its bubble.
+    - Pages and the canvas are sheets floating on the scene.
+    - Cyberpunk's hologram bubble for your own messages has a solid base.
+  - **The faintest grey text** (timestamps, counts, hints, chips) passed as low as 2.6:1, even in Studio paper. Every theme's two lightest ink steps now reach at least 4.5:1 on every surface they're used on.
+
+### Added
+- **Bots show what they need from you.** An icon right of each bot's name in the sidebar:
+  - shield: needs your approval
+  - red alert: its last run failed
+  - warning triangle: its last reply asks you a question
+  - pull request: it linked a PR for review
+  - check: it finished and you haven't read the reply
+
+  The line under the name says the same in words. A question or PR clears once you reply.
+
+### Technical
+- **Theme rules:** `validateTheme` now requires `ink-3` and `ink-4` to reach 4.5:1 on paper, card, paper-2, and paper-3. The new values (paper ink-3 0.49, ink-4 0.505; Solarpunk ink-3 0.49, ink-4 0.505; Matrix ink-4 0.61; Cyberpunk ink-4 0.635) are mirrored in `style.css`.
+- **Backdrop themes:** in `themes.css`, text containers get `var(--paper)`, and glass covers only empty space.
+- **Attention icons:** `src/lib/attention.js` decides a bot's state (with tests in `tests/attention.test.mjs`), and `AttentionIcon.jsx` draws it.
+- **Stuck runs:**
+  - `runHarness` also settles on the child's `exit` plus a `pipeGraceMs` drain (2 s).
+  - `Coordinator.forceCancelled` runs `stuckCancelMs` (20 s) after a cancel. It records the run as cancelled, frees the bot and workspace, and writes a `harness.stuck_cancel` diagnostic.
+  - `tests/stuck-runs.test.mjs` reproduces the pipe-holding detached helper (it hangs without the fix) and a runner that ignores cancellation.
+
 ## [0.3.13] - 2026-09-23
 
 ### Added

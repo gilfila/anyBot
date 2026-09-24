@@ -51,8 +51,8 @@
   --card: oklch(0.99 0.004 85);
   --ink: oklch(0.215 0.01 60);
   --ink-2: oklch(0.4 0.014 62);
-  --ink-3: oklch(0.53 0.016 68);
-  --ink-4: oklch(0.68 0.016 72);
+  --ink-3: oklch(0.49 0.016 68);
+  --ink-4: oklch(0.505 0.016 72);
   --rule: oklch(0.885 0.014 80);
   --rule-strong: oklch(0.8 0.018 78);
   --accent: oklch(0.56 0.185 35);
@@ -5374,4 +5374,27 @@ dialog .modal-form > .primary.full:last-child {
   display: block;
   margin-bottom: 2px;
   font-size: 12.5px;
+}
+
+/* What a bot needs from you (AttentionIcon.jsx): an icon right of its name. */
+.bot-row-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.attention {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+}
+.attention-approval,
+.attention-question {
+  color: var(--warn);
+}
+.attention-error {
+  color: var(--danger);
+}
+.attention-pr,
+.attention-done {
+  color: var(--ok);
 }
