@@ -76,7 +76,13 @@ const output = await new Promise((done, fail) => {
   child.on("close", (code) => (code === 0 ? done(text) : fail(Error(`Codex exited with ${code}`))));
   child.stdin.end(prompt);
 });
-const findings = (existsSync(lastMessage) ? readFileSync(lastMessage, "utf8") : output).replace(/\x1b\[[0-9;]*m/g, "").trim();
+// Links relative to the repo: the reports are committed to a public repo, and
+// absolute paths would carry the owner's user name.
+const rootLink = new RegExp(`/?${root.replace(/\\/g, "/").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/`, "gi");
+const findings = (existsSync(lastMessage) ? readFileSync(lastMessage, "utf8") : output)
+  .replace(/\x1b\[[0-9;]*m/g, "")
+  .replace(rootLink, "")
+  .trim();
 rmSync(scratch, { recursive: true, force: true });
 
 mkdirSync(join(root, "docs/reviews"), { recursive: true });
