@@ -55,8 +55,11 @@ that does them. Section numbers (§) point into the plan.
 - [x] `scripts/bench-context.mjs` and `scripts/bench-sync.mjs`; record
       `docs/architecture/baseline.json` (`scripts/record-baseline.mjs`)
 - [x] `docs/architecture/metrics.md`
-- [ ] Code checkpoint (focus: no message content in metrics or logs);
-      run `adversarial-review.mjs code` once for real (M0 exit gate)
+- [x] Code checkpoint (focus: no message content in metrics or logs);
+      run `adversarial-review.mjs code` once for real (M0 exit gate):
+      `docs/reviews/2026-09-24-M0-code.md`, 4 findings, all closed
+- [x] Real Codex capture for `tests/fixtures/usage/codex.jsonl` (Gemini and
+      Cursor CLIs don't run on Tony's PC; deferred)
 - [ ] PR, CI green, ask Tony, merge
 
 ## M1: Lean prompts (0.3.22)
