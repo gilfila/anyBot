@@ -655,7 +655,7 @@ export async function probeAll(modelCatalog = {}) {
 
 export async function runHarness(
   { harness, model, workspace, prompt, signal, onText, timeoutMs = 600000, permissionMode = "auto", approvals },
-  { resolve = resolveExecutable, args, outputFormat } = {},
+  { resolve = resolveExecutable, args, outputFormat, pipeGraceMs = 2000 } = {},
 ) {
   const executable = await resolve(harness);
   if (!executable)
@@ -738,6 +738,17 @@ export async function runHarness(
     const code = await new Promise((resolve, reject) => {
       child.once("error", reject);
       child.once("close", resolve);
+      // A harness's helper processes can outlive it and keep its output pipes
+      // open (on Windows, killing the tree misses helpers whose parent already
+      // exited). Once the harness itself has exited, give the pipes a moment
+      // to drain, then stop waiting for them.
+      child.once("exit", (exitCode) => {
+        setTimeout(() => {
+          child.stdout.destroy();
+          child.stderr.destroy();
+          resolve(exitCode);
+        }, pipeGraceMs).unref();
+      });
     });
     const tail = decoder.end();
     if (harness === "hermes" || outputFormat === "text") append(tail);

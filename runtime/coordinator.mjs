@@ -85,6 +85,7 @@ export class Coordinator extends EventEmitter {
     probe = probeAll,
     probeModels: modelProbe = probeModels,
     concurrency = 2,
+    stuckCancelMs = 20000,
     clock = Date.now,
   }) {
     super();
@@ -126,6 +127,7 @@ export class Coordinator extends EventEmitter {
     ];
     this.probeModels = modelProbe;
     this.concurrency = concurrency;
+    this.stuckCancelMs = stuckCancelMs;
     this.active = new Map();
     this.installations = [];
     this.closed = false;
@@ -1470,6 +1472,7 @@ export class Coordinator extends EventEmitter {
           target,
         );
         active.controller.abort();
+        setTimeout(() => this.forceCancelled(target, active), this.stuckCancelMs).unref?.();
       } else
         this.store.run(
           "UPDATE runs SET status='cancelled',ended=? WHERE id=? AND status='queued'",
@@ -1478,6 +1481,30 @@ export class Coordinator extends EventEmitter {
         );
     }
     this.notify();
+  }
+  // A cancelled run whose harness never finished exiting: record it as
+  // stopped and free its bot and workspace, so nothing waits on it forever.
+  forceCancelled(runId, state) {
+    if (this.closed || this.active.get(runId) !== state) return;
+    this.store.run(
+      "UPDATE runs SET status='cancelled',error=?,ended=? WHERE id=? AND status='cancelling'",
+      "Stopped. The harness didn't exit on its own, so Any Bot let it go.",
+      now(),
+      runId,
+    );
+    this.active.delete(runId);
+    this.approvals.release(runId);
+    const run = this.store.one("SELECT * FROM runs WHERE id=?", runId);
+    const employee = run && this.store.one("SELECT * FROM employees WHERE id=?", run.employee);
+    this.diagnostic({
+      level: "warn",
+      source: "harness",
+      code: "harness.stuck_cancel",
+      message: `The run was stopped, but the ${employee?.harness || "harness"} process didn't exit within ${Math.round(this.stuckCancelMs / 1000)} seconds.`,
+      context: run && employee ? this.runContext(run, employee) : {},
+    });
+    this.notify();
+    this.dispatch();
   }
   // An answered, expired, or cancelled approval leaves a line in the chat
   // so the owner (and the bot's next prompt) can see what happened.
