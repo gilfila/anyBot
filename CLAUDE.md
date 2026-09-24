@@ -8,7 +8,7 @@ Electron 44 main process (`desktop/main.cjs`) + sandboxed React 19 renderer (`sr
 
 ## Run / Build / Test
 - `npm start` (builds renderer, opens Electron). `npm run build` for the renderer only.
-- `npm test` (node:test, ~127 tests), `npm run test:runtime` (Electron utility-process smoke), `npm run doctor`, `npm run verify:local` (all gates).
+- `npm test` (node:test, ~270 tests), `npm run test:runtime` (Electron utility-process smoke), `npm run doctor`, `npm run verify:local` (all gates).
 - `npm run package` builds `release/anyBot-Setup-X.Y.Z.exe` + `latest.yml` + blockmap. `.github/workflows/release.yml` validates PRs and publishes verified Windows assets after merge to main. Do not manually build/upload releases. One-time activation and recovery: `docs/releasing.md`.
 
 ## Structure
@@ -23,7 +23,7 @@ Electron 44 main process (`desktop/main.cjs`) + sandboxed React 19 renderer (`sr
 - Each PR bumps `package.json` + `package-lock.json` version and adds a CHANGELOG entry.
 - Do not change updater install behavior (`quitAndInstall(true, true)`, NSIS oneClick/perMachine=false) without testing a real update from the previous release.
 
-## Last turn / Pending (2026-09-23)
+## Last turn / Pending (2026-09-24)
 **Roadmap in progress:** boards + doc pages + agent org/memory/knowledge graph. Plan: `~/.claude/plans/i-want-two-large-generic-liskov.md` (Phases 1–5). Decisions: agents act via `anybot-actions` blocks (MCP server later), the canvas is a Notion-style doc page, the chain of command is enforced, and knowledge is auto-derived plus agent-written.
 **Phase 1 done (0.3.0): project boards.** `runtime/board.mjs` owns task data and agent permission rules. `runtime/actions.mjs` parses `anybot-actions` blocks. The coordinator handles `startTask`/`settleTask`/`autopilot`/`boardContext` and applies actions inside the run-completion transaction. UI lives in `src/components/board/*` (dnd-kit), with styles in `board.css` (tokens only). Verified by a real Electron e2e using a fake custom harness (`harnesses.json`) that emits actions.
 **Phase 2 done (0.3.1): project doc page.** `runtime/docs.mjs` (block model, `doc.append`/`doc.section`, 20-version history), and `src/components/doc/ProjectDoc.jsx` shows rendered blocks until focused, then a textarea; `blocks.js` holds the pure editing rules and the conflict merge. Doc commands return doc objects (not snapshots), so the renderer calls them with `window.anybot.request` directly, not `act()`.
@@ -63,6 +63,15 @@ Electron 44 main process (`desktop/main.cjs`) + sandboxed React 19 renderer (`sr
 - **Prompt for a threaded run:** the thread in full, plus the 6 top-level messages before the root, each with its latest reply, as background.
 - **UI:** `src/components/chat/` (`Composer` with the @ menu and To chips that toggle mentions, `ThreadPanel`/`ThreadSummary`, `threads.js`, `chat.css`). The composer places the caret in `useLayoutEffect` (a rAF lost keystrokes). The mobile app still sends explicit recipients and shows threads flat.
 **Popups in scrolling lists:** use `FloatingMenu` (portal + fixed position), never an absolutely positioned child. That caused the clipped bot menu.
+**Lean runtime M0 (0.3.20, branch `claude/lean-runtime-plan-wmf8pa`, PR open, not merged):** metrics only, no behavior change for bots.
+- **Usage:** `runtime/usage.mjs` reads result events inside `runHarness` (`onUsage`, reported however the run ends); the coordinator stores OTel-named JSON in `runs.usage` (schema v15). Input tokens always include cached ones. Snapshot runs carry `usage` parsed. Activity shows per-run tokens and a "Tokens today" panel (`src/lib/usage.js`, `UsageToday.jsx`).
+- **Prompt sections:** `Coordinator.promptParts()` returns `{text, sections}`; `prompt()` is its text (byte-identical to 0.3.19). `run_inputs` gains `sections` (sizes only), `hash`, `chars`. `boardContext()` now returns `{board, guide}`.
+- **Retention:** `runtime/retention.mjs`: full prompt text for the newest 50 runs (`keepPrompts`), events 90 days (`eventDays`), both at startup; prompts also after each insert.
+- **Corpus + baselines:** `scripts/corpus.mjs` (fixed seed; `direct`, `project2`, `project5k`), `make-corpus.mjs` (JSON gitignored, `manifest.json` committed and checked by `tests/corpus.test.mjs`), `bench-context.mjs`, `bench-sync.mjs`, `record-baseline.mjs` → `docs/architecture/baseline.json`. Changing the generator changes the manifest: regenerate and commit it.
+- **Schema fixtures:** `tests/fixtures/schema-v14.sql` (0.3.19 Store output; `.gitignore` excludes `*.sql` except `tests/fixtures/schema-v*.sql`). Add a `schema-v15.sql` the same way when M2 bumps the schema.
+- **Pending before merge:** the Codex code checkpoint on Tony's PC (`node scripts/adversarial-review.mjs code --milestone M0 --focus "no message content in metrics or logs"`; codex isn't installed in the cloud session) and a real Codex `turn.completed` capture for `tests/fixtures/usage/codex.jsonl`. `--dry-run` now works without codex.
+- Also fixed: thread participants include bots whose turn failed (`threads.js`), and the composer's "who is/are in this thread".
+
 **Next: the lean-runtime plan** (`docs/plans/lean-runtime.md`): M0 measure → M1 lean prompts → M2 harness session resume → M3 incremental sync → M4 Any Bot MCP server (was "Phase 5") → M5 A2A at the edge (only on request). Each milestone has a Codex CLI design checkpoint before code and a code checkpoint before merge (`node scripts/adversarial-review.mjs design|code --milestone Mn`; reports in `docs/reviews/`, every high finding fixed or rejected with evidence). ADRs live in `docs/adr/`. The plan, ADR-0001, the review prompts, and the script ride in the M0 PR (a docs-only PR would publish an empty update).
 **Shared working tree:** another session (Codex, avatar "Character Studio" redesign) edits these files in this checkout: `src/constants.js`, `src/lib/avatar-config.js`, `src/lib/bot-avatar-*.js`, `src/components/RobotAvatar.jsx`, `src/components/robot-avatar.css`, `.superdesign/`, and `design/bot-redesign-options.md`. It also has uncommitted hunks in `src/App.jsx`, `src/components/EmployeeForm.jsx`, and `CHANGELOG.md` (its Unreleased entry). Never stage those; for shared files, stage only your own hunks. Commit with explicit paths, not `git add -A src`.
 **Local test caveat:** `tests/server.test.mjs` binds fixed port 4319. When another process holds it (for example a Codex preview server), 2 tests fail with EADDRINUSE; CI is unaffected.

@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.20] - 2026-09-24
+
+### Added
+- **See how many tokens your bots use.** Each run in **Activity** now shows the tokens it used, as its CLI reported them: input, how much of that came from the provider's cache, output, and the cost when Claude Code reports one. A **Tokens today** panel at the top of Activity adds them up per bot.
+  - Works for Claude Code, Codex, and Gemini. Cursor Agent shows only the run time, because its CLI doesn't report tokens. Hermes and custom CLIs report nothing.
+  - Only numbers are recorded, never message or prompt text.
+- This is the first step of making Any Bot leaner: with these numbers, the next updates can show exactly how much less they send to your bots.
+
+### Changed
+- **Any Bot keeps less on disk.** The full text of what was sent to a bot is now kept only for the newest 50 runs (older runs keep just its size). The internal event log keeps 90 days.
+
+### Fixed
+- A thread's header and its "Goes to …" line now include bots whose turn failed.
+- The thread message box says "who is in this thread" when there's only one bot.
+
 ## [0.3.19] - 2026-09-24
 
 ### Fixed

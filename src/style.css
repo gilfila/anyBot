@@ -5476,3 +5476,49 @@ dialog .modal-form > .primary.full:last-child {
 .project-row.is-archived .bot-row-menu-trigger {
   opacity: 1;
 }
+
+/* Activity: tokens per run and per bot today (0.3.20) */
+.run-description .run-usage {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.usage-today {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin: 4px 0 12px;
+}
+.usage-today h2 {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-3);
+  margin: 0 0 8px;
+  letter-spacing: 0.02em;
+}
+.usage-today ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.usage-today li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.usage-today li strong {
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.usage-today li span {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

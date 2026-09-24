@@ -49,7 +49,8 @@ const prompt =
     : `${template}\n\n---\nMilestone: ${milestone}\n\n${milestoneText}\n${flag("focus") ? `\nFocus: ${flag("focus")}\n` : ""}`;
 
 const codex = await resolveExecutable("codex");
-if (!codex) {
+// A dry run only shows what would run, so it works without Codex installed.
+if (!codex && !dryRun) {
   console.error("Codex CLI not found. Install it and sign in (codex login).");
   process.exit(1);
 }
@@ -60,7 +61,7 @@ const args =
     ? ["exec", "--sandbox", "read-only", "--skip-git-repo-check", "-C", root, "-o", lastMessage, "-"]
     : ["review", "--base", flag("base", "main"), "-"];
 if (dryRun) {
-  console.log([codex.file, ...codex.prefix, ...args].join(" "));
+  console.log([...(codex ? [codex.file, ...codex.prefix] : ["codex"]), ...args].join(" "));
   console.log(`prompt: ${prompt.length} chars`);
   rmSync(scratch, { recursive: true, force: true });
   process.exit(0);

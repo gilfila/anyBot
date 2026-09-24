@@ -1,6 +1,6 @@
 # Lean runtime: efficient context, incremental sync, standard protocols
 
-Status: proposed · Written 2026-09-24 against 0.3.19 (`9d394af`) · Owner: Tony
+Status: M0 in review (0.3.20) · Written 2026-09-24 against 0.3.19 (`9d394af`) · Owner: Tony
 
 This plan turns the 2026-09-24 architecture review into a design and a
 sequence of milestones. It replaces "Phase 5: live MCP tools" in the

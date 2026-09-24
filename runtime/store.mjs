@@ -1,12 +1,13 @@
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 export const id = () => randomUUID();
 // Bump with each migration below. Newer workspaces are refused by older apps.
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 export const now = () => new Date().toISOString();
+export const promptHash = (prompt) => createHash("sha256").update(prompt).digest("hex");
 
 export class Store {
   constructor(directory) {
@@ -388,6 +389,39 @@ export class Store {
           this.db.exec("ALTER TABLE conversations ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
         this.db
           .prepare("UPDATE metadata SET value='14' WHERE key='schema'")
+          .run();
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        this.db.close();
+        throw error;
+      }
+    }
+    const usageVersion = Number(
+      this.db.prepare("SELECT value FROM metadata WHERE key='schema'").get()
+        .value,
+    );
+    if (usageVersion < 15) {
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
+        // Metrics (docs/architecture/metrics.md): token usage per run, and
+        // the size of each prompt section. Sizes and hashes only; the full
+        // prompt text is kept for the newest runs and pruned after that.
+        const runColumns = this.db.prepare("PRAGMA table_info(runs)").all().map((c) => c.name);
+        if (!runColumns.includes("usage")) this.db.exec("ALTER TABLE runs ADD COLUMN usage TEXT");
+        const inputColumns = this.db.prepare("PRAGMA table_info(run_inputs)").all().map((c) => c.name);
+        if (!inputColumns.includes("sections"))
+          this.db.exec("ALTER TABLE run_inputs ADD COLUMN sections TEXT NOT NULL DEFAULT '{}'");
+        if (!inputColumns.includes("hash"))
+          this.db.exec("ALTER TABLE run_inputs ADD COLUMN hash TEXT NOT NULL DEFAULT ''");
+        if (!inputColumns.includes("chars"))
+          this.db.exec("ALTER TABLE run_inputs ADD COLUMN chars INTEGER NOT NULL DEFAULT 0");
+        const fill = this.db.prepare("UPDATE run_inputs SET chars=?, hash=? WHERE run=?");
+        for (const row of this.db.prepare("SELECT run,prompt FROM run_inputs WHERE hash=''").all())
+          fill.run(row.prompt.length, promptHash(row.prompt), row.run);
+        this.db.exec("CREATE INDEX IF NOT EXISTS events_created ON events(created)");
+        this.db
+          .prepare("UPDATE metadata SET value='15' WHERE key='schema'")
           .run();
         this.db.exec("COMMIT");
       } catch (error) {

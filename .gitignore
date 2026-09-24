@@ -61,6 +61,7 @@ config.json
 *.backup
 *.dump
 *.sql
+!tests/fixtures/schema-v*.sql
 
 # IDE and editor local config
 .idea/
@@ -94,3 +95,7 @@ live-tests/
 
 # wrangler dev state for relay/
 .wrangler/
+
+# Benchmark corpus: regenerated from a fixed seed (scripts/make-corpus.mjs)
+tests/fixtures/corpus/*.json
+!tests/fixtures/corpus/manifest.json

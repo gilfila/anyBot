@@ -36,24 +36,25 @@ that does them. Section numbers (§) point into the plan.
 
 - [x] Plan, ADR-0001, review prompts, `scripts/adversarial-review.mjs`,
       checkpoint 0 report (branch `claude/lean-runtime-plan`, rides in this PR)
-- [ ] Schema v15: `runs.usage` JSON (OTel GenAI names, §3.5); `run_inputs`
-      gains `sections` (sizes per layer) and `hash`; migration test from a v14
-      fixture DB
-- [ ] Usage parsing from harness result events (Claude `result`, Codex
+- [x] Schema v15: `runs.usage` JSON (OTel GenAI names, §3.5); `run_inputs`
+      gains `sections` (sizes per layer), `hash`, and `chars`; migration test
+      from a v14 fixture DB (`tests/fixtures/schema-v14.sql`)
+- [x] Usage parsing from harness result events (Claude `result`, Codex
       `turn.completed`, Gemini `result`, Cursor `result`), stored at run end;
-      unit tests with real event fixtures
-- [ ] Record prompt section sizes (wrap today's `prompt()` pieces; no content
+      unit tests with event fixtures (Claude captured for real; Codex, Gemini,
+      Cursor from their documented shapes: replace with captures from Tony's PC)
+- [x] Record prompt section sizes (wrap today's `prompt()` pieces; no content
       in metrics)
-- [ ] Retention: keep full `run_inputs.prompt` for the newest 50 runs (sizes
+- [x] Retention: keep full `run_inputs.prompt` for the newest 50 runs (sizes
       and hash kept for all); prune `events` older than 90 days at startup;
       tests
-- [ ] Activity: tokens per run (in / cached / out) and per-bot daily totals
-- [ ] `scripts/make-corpus.mjs` (fixed seed, size distribution in M0 of the
+- [x] Activity: tokens per run (in / cached / out) and per-bot daily totals
+- [x] `scripts/make-corpus.mjs` (fixed seed, size distribution in M0 of the
       plan) → `tests/fixtures/corpus/` (direct chat, 2-bot thread, 5k-message
       project)
-- [ ] `scripts/bench-context.mjs` and `scripts/bench-sync.mjs`; record
-      `docs/architecture/baseline.json`
-- [ ] `docs/architecture/metrics.md`
+- [x] `scripts/bench-context.mjs` and `scripts/bench-sync.mjs`; record
+      `docs/architecture/baseline.json` (`scripts/record-baseline.mjs`)
+- [x] `docs/architecture/metrics.md`
 - [ ] Code checkpoint (focus: no message content in metrics or logs);
       run `adversarial-review.mjs code` once for real (M0 exit gate)
 - [ ] PR, CI green, ask Tony, merge

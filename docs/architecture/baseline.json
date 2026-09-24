@@ -1,0 +1,220 @@
+{
+  "recorded": "2026-09-24",
+  "version": "0.3.20",
+  "commit": "fc79388",
+  "corpus": {
+    "seed": 20260924,
+    "sizes": {
+      "median": 400,
+      "p95": 4096,
+      "min": 20,
+      "max": 24000
+    }
+  },
+  "workspaces": {
+    "direct": {
+      "prompt": {
+        "runs": 30,
+        "median": 20120,
+        "p95": 24313,
+        "max": 28435,
+        "mean": 18342
+      },
+      "sections": {
+        "instructions": {
+          "median": 255,
+          "max": 255
+        },
+        "platform": {
+          "median": 450,
+          "max": 450
+        },
+        "delegation": {
+          "median": 57,
+          "max": 57
+        },
+        "artifacts": {
+          "median": 318,
+          "max": 318
+        },
+        "board": {
+          "median": 0,
+          "max": 0
+        },
+        "actionGuide": {
+          "median": 1942,
+          "max": 1942
+        },
+        "org": {
+          "median": 44,
+          "max": 44
+        },
+        "knowledge": {
+          "median": 0,
+          "max": 0
+        },
+        "team": {
+          "median": 0,
+          "max": 0
+        },
+        "background": {
+          "median": 16,
+          "max": 16
+        },
+        "history": {
+          "median": 16224,
+          "max": 21775
+        },
+        "assignment": {
+          "median": 296,
+          "max": 5179
+        }
+      },
+      "sync": {
+        "messages": 60,
+        "runs": 30,
+        "snapshotBytes": 81802,
+        "duplicatedOutputBytes": 20218,
+        "streamingTickBytes": 105691,
+        "pushIntervalMs": 100,
+        "outputWriteIntervalMs": 150
+      }
+    },
+    "project2": {
+      "prompt": {
+        "runs": 42,
+        "median": 46264,
+        "p95": 53350,
+        "max": 57421,
+        "mean": 37281
+      },
+      "sections": {
+        "instructions": {
+          "median": 255,
+          "max": 255
+        },
+        "platform": {
+          "median": 450,
+          "max": 450
+        },
+        "delegation": {
+          "median": 428,
+          "max": 428
+        },
+        "artifacts": {
+          "median": 318,
+          "max": 318
+        },
+        "board": {
+          "median": 0,
+          "max": 0
+        },
+        "actionGuide": {
+          "median": 1942,
+          "max": 1942
+        },
+        "org": {
+          "median": 44,
+          "max": 44
+        },
+        "knowledge": {
+          "median": 124,
+          "max": 151
+        },
+        "team": {
+          "median": 325,
+          "max": 325
+        },
+        "background": {
+          "median": 5854,
+          "max": 5854
+        },
+        "history": {
+          "median": 36032,
+          "max": 36032
+        },
+        "assignment": {
+          "median": 919,
+          "max": 11772
+        }
+      },
+      "sync": {
+        "messages": 52,
+        "runs": 42,
+        "snapshotBytes": 246550,
+        "duplicatedOutputBytes": 106524,
+        "streamingTickBytes": 260371,
+        "pushIntervalMs": 100,
+        "outputWriteIntervalMs": 150
+      }
+    },
+    "project5k": {
+      "prompt": {
+        "runs": 4000,
+        "median": 24075,
+        "p95": 45805,
+        "max": 73885,
+        "mean": 25908
+      },
+      "sections": {
+        "instructions": {
+          "median": 255,
+          "max": 255
+        },
+        "platform": {
+          "median": 450,
+          "max": 450
+        },
+        "delegation": {
+          "median": 476,
+          "max": 476
+        },
+        "artifacts": {
+          "median": 318,
+          "max": 318
+        },
+        "board": {
+          "median": 0,
+          "max": 0
+        },
+        "actionGuide": {
+          "median": 1942,
+          "max": 1942
+        },
+        "org": {
+          "median": 44,
+          "max": 44
+        },
+        "knowledge": {
+          "median": 0,
+          "max": 125
+        },
+        "team": {
+          "median": 342,
+          "max": 342
+        },
+        "background": {
+          "median": 9310,
+          "max": 12076
+        },
+        "history": {
+          "median": 9562,
+          "max": 36032
+        },
+        "assignment": {
+          "median": 577,
+          "max": 24139
+        }
+      },
+      "sync": {
+        "messages": 5000,
+        "runs": 4000,
+        "snapshotBytes": 12054363,
+        "duplicatedOutputBytes": 4291423,
+        "streamingTickBytes": 12078255,
+        "pushIntervalMs": 100,
+        "outputWriteIntervalMs": 150
+      }
+    }
+  }
+}
