@@ -39,7 +39,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - `worker.mjs` is the Cloudflare Worker with hibernating Durable Objects.
   - `node-server.mjs` runs the same logic on Node for tests and self-hosting.
   - `wrangler.toml` configures deployment; see `relay/README.md`.
-  - `DEFAULT_RELAY_URL` in `desktop/main.cjs` stays empty until the relay is deployed, and `ANYBOT_RELAY_URL` overrides it.
+  - The relay is deployed at `https://anybot-relay.anybot-desktop.workers.dev` (Tony's Cloudflare account) as `DEFAULT_RELAY_URL` in `desktop/main.cjs`, and `ANYBOT_RELAY_URL` overrides it.
 - **Tests:**
   - `tests/phone-link.test.mjs` passes on the Node relay and on the real Worker under `wrangler dev`. It covers pairing, requests and errors, used/expired/tampered codes, restarts on both ends, removal, desktop offline, replay and tamper, and relay room ownership and frame cap.
   - Also verified: the real mobile UI scanning through Chromium's fake camera, and real Electron pairing through IPC into the coordinator.

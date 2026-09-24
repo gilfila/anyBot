@@ -1120,7 +1120,7 @@ async function startMobileAccess() {
 
 // The relay only ever sees encrypted frames; see relay/README.md to run
 // your own. ANYBOT_RELAY_URL overrides it (tests, self-hosting).
-const DEFAULT_RELAY_URL = "";
+const DEFAULT_RELAY_URL = "https://anybot-relay.anybot-desktop.workers.dev";
 // Secrets at rest use Windows' own per-user encryption when available.
 const protectSecret = (text) =>
   safeStorage.isEncryptionAvailable() ? `os:${safeStorage.encryptString(text).toString("base64")}` : text;

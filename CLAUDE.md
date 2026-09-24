@@ -47,7 +47,7 @@ Electron 44 main process (`desktop/main.cjs`) + sandboxed React 19 renderer (`sr
 - **Transport:** the desktop dials out to a relay (`relay/`: Cloudflare Worker + Durable Objects; the same `room.mjs` runs on Node for tests). The phone app (`mobile/link-client.mjs`, `mobile/Scanner.jsx`) scans the QR and dials out too.
 - **Crypto:** end-to-end in `runtime/link-protocol.mjs`; the relay only forwards opaque frames.
 - **Routing:** phone requests go through `createMobileGateway().handle()` with a `linked` session. The HTTPS listener is optional (`serve: false`).
-- **Relay URL:** `DEFAULT_RELAY_URL` in `desktop/main.cjs` is empty until Tony deploys the relay (`relay/README.md` needs his Cloudflare login). Until then the card says phone connections aren't available. `ANYBOT_RELAY_URL` overrides it.
+- **Relay URL:** the relay is deployed at `https://anybot-relay.anybot-desktop.workers.dev` on Tony's Cloudflare account (Wrangler is logged in on his PC). Redeploy with `npx wrangler@4 deploy --config relay/wrangler.toml` after changing `relay/`. `ANYBOT_RELAY_URL` overrides `DEFAULT_RELAY_URL`.
 - **Testing the Worker:** run `ANYBOT_TEST_RELAY=... node --test tests/phone-link.test.mjs` against `wrangler dev --persist-to <short path>`. The default state path is too long on Windows and fails with "internal error".
 - **Still missing:** there is no easy way to get the Android app onto a phone. Next is publishing a signed APK on the download page, with a "get the app" QR in the pairing dialog.
 **Popups in scrolling lists:** use `FloatingMenu` (portal + fixed position), never an absolutely positioned child. That caused the clipped bot menu.

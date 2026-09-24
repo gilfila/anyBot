@@ -42,6 +42,8 @@ The phone and the desktop encrypt everything end to end ([`runtime/link-protocol
    It prints the relay's address, for example `https://anybot-relay.<your-subdomain>.workers.dev`.
 4. Put that address in `DEFAULT_RELAY_URL` in `desktop/main.cjs` and ship a release. Setting `ANYBOT_RELAY_URL` overrides it for one machine.
 
+Any Bot's own relay runs at `https://anybot-relay.anybot-desktop.workers.dev`.
+
 The Workers free plan covers personal use; Durable Objects with SQLite storage are included. Changing `worker.mjs` or `room.mjs` only needs step 3 again.
 
 ## Run it yourself
