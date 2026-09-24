@@ -1,5 +1,27 @@
 # Mobile companion
 
+## Connect your phone (the easy way)
+
+1. On the computer, open **Settings → Your phone** and click **Connect a phone**. A QR code appears.
+2. On the phone, open Any Bot and tap **Scan QR code**. Point the camera at the code.
+
+That's all. The phone stays paired across restarts and works on Wi-Fi or mobile data. Remove it any time from the same Settings card, or with **Disconnect** on the phone.
+
+**How it works:**
+- **The relay:** the phone and the desktop both connect out to a small relay ([relay/README.md](../relay/README.md)). Nothing listens on a port and no certificate is involved.
+- **Encryption:** everything between them is end-to-end encrypted with keys from the QR code ([runtime/link-protocol.mjs](../runtime/link-protocol.mjs)). The QR code carries the desktop's public key and a one-time secret that works for ten minutes, for one phone.
+  - The phone proves it scanned the code.
+  - The desktop proves it holds the key in the code.
+  - Each connection mixes in fresh keys, so recorded traffic stays private even if a device key later leaks, and replayed frames are rejected.
+- **Where keys are kept:**
+  - Desktop: its keys sit in `phone-link.json` in the app's data folder, encrypted with Windows' per-user protection.
+  - Phone: its private key is created non-extractable in the WebView's key store.
+- **Access:** a paired phone gets the same routes as the HTTPS gateway below, as the owner with full control. Requests go through the same `handle()` in `runtime/mobile-gateway.mjs`.
+
+The rest of this page covers the original self-hosted setup: an HTTPS gateway with your own TLS certificate. It is still available for advanced use, under **Advanced: connect to a server** on the phone.
+
+## Self-hosted gateway
+
 The mobile implementation has a touch-first React client, Capacitor iOS/Android projects, and an opt-in HTTPS gateway attached to the desktop coordinator. It uses the existing Open Design visual direction. The gateway is a local multi-human foundation, not yet a hosted identity provider: it can bind sessions to configured members, invite those members to conversations, and retain bounded audit records.
 
 ## What works
@@ -45,7 +67,7 @@ Android: open `android` in Android Studio, or run `npm run mobile:build`. The sc
 
 iOS: run `npm ci` and `npm run mobile:sync` on the Mac, open the generated project in `ios/App`, configure your development team, and build/run with Xcode. No iOS binary is claimed by a successful Windows web build or Capacitor sync.
 
-## Connect to your actual desktop team
+### Connect to your actual desktop team
 
 An older desktop build may predate the gateway and member ACLs. Use the current 0.2.11 desktop source or installer before attempting pairing. Remote access is off unless explicitly configured; this implementation does not open firewall ports, publish a tunnel, or change TLS trust automatically.
 

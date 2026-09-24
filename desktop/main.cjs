@@ -9,10 +9,12 @@ const {
   nativeImage,
   shell,
   Notification,
+  safeStorage,
 } = require("electron");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const fs = require("node:fs");
+const os = require("node:os");
 const { DISPLAY_NAME, BRAND_DIR, applyBrand, trayIcon } = require("./brand.cjs");
 applyBrand(app);
 const { pathToFileURL } = require("node:url");
@@ -56,7 +58,7 @@ let updateCheckTimer = null;
 let autoUpdater = null;
 const pending = new Map();
 const readyWaiters = new Set();
-let mobileGateway, mobileUrl, mobileError;
+let mobileGateway, mobileUrl, mobileError, phoneLink, phoneError;
 const page = pathToFileURL(path.join(__dirname, "../dist/index.html")).href;
 const startupPath = () => path.join(app.getPath("userData"), "startup.json");
 function startupLogPath() {
@@ -679,6 +681,21 @@ else {
           devices: mobileGateway?.devices() || [],
           members: mobileGateway?.members() || [],
         };
+      // Settings → Your phone (runtime/phone-link.mjs).
+      if (method === "phone.status")
+        return phoneLink ? phoneLink.status() : { connection: phoneError ? "error" : "starting", error: phoneError || null, devices: [] };
+      if (method === "phone.pair") {
+        if (!phoneLink) throw new Error(phoneError || "Phone connections are still starting. Try again in a moment.");
+        return phoneLink.createPairing();
+      }
+      if (method === "phone.cancelPairing") {
+        phoneLink?.cancelPairing();
+        return { cancelled: true };
+      }
+      if (method === "phone.remove") {
+        if (!phoneLink) throw new Error("Phone connections are still starting.");
+        return phoneLink.remove(String(payload?.id || ""));
+      }
       if (method === "runtime.tray") {
         applyTrayPreference(payload?.enabled === true);
         await waitForReady();
@@ -804,7 +821,7 @@ else {
       return { opened: true };
     });
     startWorker();
-    startMobileGateway().catch((error) => {
+    startMobileAccess().catch((error) => {
       mobileError = String(error.message);
     });
     showWindow();
@@ -1035,6 +1052,7 @@ app.on("before-quit", (event) => {
   quitting = true;
   stopUpdateChecker();
   void mobileGateway?.close();
+  phoneLink?.stop();
   ready = false;
   if (!worker) {
     app.quit();
@@ -1047,43 +1065,80 @@ app.on("before-quit", (event) => {
     app.quit();
   }, 10000).unref();
 });
-async function startMobileGateway() {
-  const configPath = path.join(app.getPath("userData"), "mobile-access.json");
-  if (!fs.existsSync(configPath)) return;
-  const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-  if (config.enabled !== true) return;
-  const url = new URL(config.publicUrl);
-  if (
-    url.protocol !== "https:" ||
-    url.username ||
-    url.password ||
-    url.pathname !== "/" ||
-    url.search ||
-    url.hash
-  )
-    throw new Error("Mobile publicUrl must be an HTTPS origin");
-  if (!path.isAbsolute(config.certPath) || !path.isAbsolute(config.keyPath))
-    throw new Error("TLS certificate paths must be absolute");
+// Phones reach this computer two ways, through one gateway:
+// - Settings → Your phone: paired by QR code, through the relay, end-to-end
+//   encrypted (runtime/phone-link.mjs). Needs no setup.
+// - mobile-access.json: a self-hosted HTTPS listener with a TLS certificate,
+//   for advanced setups (docs/mobile.md).
+async function startMobileAccess() {
   const { createMobileGateway } = await import("../runtime/mobile-gateway.mjs");
+  const configPath = path.join(app.getPath("userData"), "mobile-access.json");
+  let config = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, "utf8")) : null;
+  if (config?.enabled !== true) config = null;
+  let url = null;
+  if (config) {
+    url = new URL(config.publicUrl);
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash
+    )
+      throw new Error("Mobile publicUrl must be an HTTPS origin");
+    if (!path.isAbsolute(config.certPath) || !path.isAbsolute(config.keyPath))
+      throw new Error("TLS certificate paths must be absolute");
+  }
   const gateway = createMobileGateway({
     command: request,
-    host: config.host || "127.0.0.1",
-    port: config.port || 4319,
-    tls: {
+    serve: Boolean(config),
+    host: config?.host || "127.0.0.1",
+    port: config?.port || 4319,
+    tls: config && {
       cert: fs.readFileSync(config.certPath),
       key: fs.readFileSync(config.keyPath),
     },
     origins: [
       "capacitor://localhost",
       "https://localhost",
-      ...(Array.isArray(config.webOrigins) ? config.webOrigins : []),
+      ...(Array.isArray(config?.webOrigins) ? config.webOrigins : []),
     ],
-    members: Array.isArray(config.members) ? config.members : [],
+    members: Array.isArray(config?.members) ? config.members : [],
     membersPath: path.join(app.getPath("userData"), "mobile-members.json"),
     statePath: path.join(app.getPath("userData"), "mobile-membership.json"),
     auditPath: path.join(app.getPath("userData"), "mobile-audit.jsonl"),
   });
+  startPhoneLink(gateway).catch((error) => {
+    phoneError = String(error.message);
+  });
+  if (!config) return;
   await gateway.listen();
   mobileGateway = gateway;
   mobileUrl = url.origin;
+}
+
+// The relay only ever sees encrypted frames; see relay/README.md to run
+// your own. ANYBOT_RELAY_URL overrides it (tests, self-hosting).
+const DEFAULT_RELAY_URL = "";
+// Secrets at rest use Windows' own per-user encryption when available.
+const protectSecret = (text) =>
+  safeStorage.isEncryptionAvailable() ? `os:${safeStorage.encryptString(text).toString("base64")}` : text;
+const unprotectSecret = (text) =>
+  text.startsWith("os:") ? safeStorage.decryptString(Buffer.from(text.slice(3), "base64")) : text;
+function computerName() {
+  const user = (os.userInfo().username || "").replace(/[^\p{L}\p{N} ._-]/gu, "").trim();
+  return user ? `${user[0].toUpperCase()}${user.slice(1)}'s computer` : os.hostname();
+}
+async function startPhoneLink(gateway) {
+  const { createPhoneLink } = await import("../runtime/phone-link.mjs");
+  phoneLink = await createPhoneLink({
+    statePath: path.join(app.getPath("userData"), "phone-link.json"),
+    relay: process.env.ANYBOT_RELAY_URL || DEFAULT_RELAY_URL,
+    gateway,
+    name: computerName(),
+    protect: protectSecret,
+    unprotect: unprotectSecret,
+  });
+  phoneLink.start();
 }

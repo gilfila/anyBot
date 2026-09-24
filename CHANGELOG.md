@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.13] - 2026-09-23
+
+### Added
+- **Connect your phone with one QR code.** Open **Settings → Your phone** on the computer and click **Connect a phone**. On the phone, tap **Scan QR code**.
+  - No addresses, certificates, config files, or accounts.
+  - The phone stays paired across restarts and works on Wi-Fi or mobile data.
+  - The Settings card lists paired phones, with when each was last seen and a **Remove** button.
+- **End-to-end encryption.** The phone and the computer meet through a small relay, and everything between them is encrypted with keys from the QR code. The relay can't read or change anything.
+  - A code works once, for ten minutes.
+  - A phone removed on the computer is cut off immediately and told why.
+- **The phone app starts with Scan QR code.** Pasting the code works too. The old server form moved under **Advanced: connect to a server**.
+
+### Technical
+- **Protocol (`runtime/link-protocol.mjs`):** WebCrypto on both ends.
+  - Keys: P-256 ECDH with long-term and per-connection keys, HKDF-SHA-256 over a full transcript, and two directional AES-256-GCM keys.
+  - Frames: 8-byte counters reject replays.
+  - Pairing: HMAC proof of the QR code's one-time secret, plus a desktop key confirmation.
+- **Desktop (`runtime/phone-link.mjs`):**
+  - It holds one outbound WebSocket to the relay, with backoff and keepalive.
+  - It pairs phones; a new phone stays pending until its first real request.
+  - It serves requests through the mobile gateway's new `handle()`, which was extracted from the HTTPS server with no behavior change; the 15 gateway tests are unchanged.
+  - `createMobileGateway({ serve: false })` runs without any listener.
+  - Secrets at rest use Electron `safeStorage`.
+  - IPC: `phone.status`, `phone.pair`, `phone.cancelPairing`, `phone.remove`.
+- **Phone:**
+  - `mobile/link-client.mjs` exposes the same `request()` as the HTTPS client and keeps the pairing in IndexedDB with a non-extractable key.
+  - `mobile/Scanner.jsx` scans with the camera plus jsQR, so no native plugin is needed.
+  - The Android app gains the CAMERA permission, and its CSP allows `wss:`.
+- **Relay (`relay/`):**
+  - `room.mjs` holds the shared room logic.
+  - `worker.mjs` is the Cloudflare Worker with hibernating Durable Objects.
+  - `node-server.mjs` runs the same logic on Node for tests and self-hosting.
+  - `wrangler.toml` configures deployment; see `relay/README.md`.
+  - `DEFAULT_RELAY_URL` in `desktop/main.cjs` stays empty until the relay is deployed, and `ANYBOT_RELAY_URL` overrides it.
+- **Tests:**
+  - `tests/phone-link.test.mjs` passes on the Node relay and on the real Worker under `wrangler dev`. It covers pairing, requests and errors, used/expired/tampered codes, restarts on both ends, removal, desktop offline, replay and tamper, and relay room ownership and frame cap.
+  - Also verified: the real mobile UI scanning through Chromium's fake camera, and real Electron pairing through IPC into the coordinator.
+
 ## [0.3.12] - 2026-09-23
 
 ### Fixed

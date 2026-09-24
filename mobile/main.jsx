@@ -9,6 +9,7 @@ import {
   MessageSquare,
   Mic,
   Plus,
+  QrCode,
   RefreshCw,
   Settings,
   Square,
@@ -18,11 +19,26 @@ import {
   WifiOff,
 } from "lucide-react";
 import { createClient } from "./client.mjs";
+import { indexedDbStore, pairWithLink, resumeLink } from "./link-client.mjs";
+import { Scanner } from "./Scanner.jsx";
 import { beginOidc, consumeOidcCallback } from "./oidc.mjs";
 import "./style.css";
 import { BrandMark } from "../src/components/BrandMark.jsx";
 
 const blank = { employees: [], conversations: [], runs: [], runtime: {} };
+// A phone paired by QR code remembers its computer (mobile/link-client.mjs).
+const linkStore = typeof indexedDB === "undefined" ? null : indexedDbStore();
+async function deviceName() {
+  try {
+    const { model } = (await navigator.userAgentData?.getHighEntropyValues?.(["model"])) || {};
+    if (model) return model.slice(0, 40);
+  } catch {
+    // Not available in this browser.
+  }
+  const match = navigator.userAgent.match(/Android [\d.]+; ([^;)]+)\)/);
+  if (match && match[1].trim() !== "K") return match[1].trim().slice(0, 40);
+  return /iPhone/.test(navigator.userAgent) ? "iPhone" : /Android/.test(navigator.userAgent) ? "Android phone" : "Phone";
+}
 const active = (r) => ["running", "queued", "cancelling"].includes(r.status);
 function Avatar({ name }) {
   return (
@@ -57,6 +73,27 @@ function App() {
   const name = (id) =>
     data.employees.find((e) => e.id === id)?.name ||
     (id === "human" ? "You" : "Coordinator");
+  // Reopen the saved QR pairing on launch.
+  const [resuming, setResuming] = useState(Boolean(linkStore));
+  useEffect(() => {
+    if (!linkStore) return undefined;
+    let active = true;
+    resumeLink({ store: linkStore })
+      .then((next) => {
+        if (active && next) setClient(next);
+        else next?.close();
+      })
+      .catch(() => {})
+      .finally(() => active && setResuming(false));
+    return () => {
+      active = false;
+    };
+  }, []);
+  function forgetLink() {
+    if (!client?.linked) return;
+    client.close();
+    linkStore?.clear().catch(() => {});
+  }
   function disconnect() {
     generation.current++;
     setClient(null);
@@ -101,10 +138,13 @@ function App() {
     } catch (e) {
       if (g !== generation.current) return;
       setOnline(false);
-      if (e.status === 401) {
+      if (e.status === 401 || e.reason === "unpaired") {
+        forgetLink();
         disconnect();
         setError(
-          "Session expired or revoked. Connect again from your desktop.",
+          e.reason === "unpaired"
+            ? e.message
+            : "Session expired or revoked. Connect again from your desktop.",
         );
       }
     } finally {
@@ -288,10 +328,23 @@ function App() {
     }
   }
   useEffect(() => () => recognition.current?.stop(), []);
+  if (!client && resuming)
+    return (
+      <div className="connect connect-resuming">
+        <BrandMark />
+        <p>Connecting to your computer…</p>
+      </div>
+    );
   if (!client)
     return (
       <Connect
         error={error}
+        onLink={async (text) => {
+          const next = await pairWithLink(text, { store: linkStore, name: await deviceName() });
+          setClient(next);
+          setOnline(true);
+          setError("");
+        }}
         onOidcSignIn={async (address, issuer, clientId) => {
           const redirectUri = `${window.location.origin}${window.location.pathname}`;
           const authorizationUrl = await beginOidc({
@@ -355,8 +408,10 @@ function App() {
       </header>
       {!online && (
         <div className="notice">
-          <WifiOff size={16} /> Your host may be offline. Drafts stay here; work
-          status may be out of date.
+          <WifiOff size={16} />{" "}
+          {client.linked
+            ? `Can't reach ${client.desktopName}. Make sure Any Bot is open on it. Drafts stay here.`
+            : "Your host may be offline. Drafts stay here; work status may be out of date."}
         </div>
       )}
       {error && (
@@ -742,8 +797,17 @@ function App() {
               onClick={async () => {
                 try {
                   await client.request("/session", { method: "DELETE" });
+                  forgetLink();
                   disconnect();
                 } catch {
+                  if (client.linked) {
+                    // Forget it here anyway; the computer lists it until removed there.
+                    forgetLink();
+                    disconnect();
+                    return setError(
+                      "This phone is disconnected. Your computer was offline, so also remove this phone in Any Bot → Settings → Your phone.",
+                    );
+                  }
                   setError(
                     "Could not revoke this session on the host. Revoke it on desktop, or retry when connected.",
                   );
@@ -804,7 +868,24 @@ function Empty({ title, text }) {
     </div>
   );
 }
-function Connect({ onConnect, onOidcSignIn, error: externalError }) {
+function Connect({ onConnect, onLink, onOidcSignIn, error: externalError }) {
+  const [scanning, setScanning] = useState(false),
+    [pasting, setPasting] = useState(false),
+    [pasted, setPasted] = useState(""),
+    [linking, setLinking] = useState(false),
+    [linkError, setLinkError] = useState("");
+  const link = async (text) => {
+    setScanning(false);
+    setLinking(true);
+    setLinkError("");
+    try {
+      await onLink(text);
+    } catch (e) {
+      setLinkError(e.message);
+    } finally {
+      setLinking(false);
+    }
+  };
   const [address, setAddress] = useState(""),
     [code, setCode] = useState(""),
     [identityToken, setIdentityToken] = useState(""),
@@ -844,6 +925,53 @@ function Connect({ onConnect, onOidcSignIn, error: externalError }) {
           Pick up the conversation with your AI employees, wherever you are.
         </p>
       </div>
+      {scanning && <Scanner onResult={link} onClose={() => setScanning(false)} />}
+      <section className="link-start" aria-labelledby="link-start-title">
+        <h2 id="link-start-title">Connect to your computer</h2>
+        <p>
+          On your computer, open Any Bot, go to <strong>Settings → Your phone</strong>, and click{" "}
+          <strong>Connect a phone</strong>. Then scan the code it shows.
+        </p>
+        <button className="primary wide" type="button" disabled={linking} onClick={() => setScanning(true)}>
+          <QrCode size={20} />
+          {linking ? "Connecting…" : "Scan QR code"}
+        </button>
+        {pasting ? (
+          <form
+            className="link-paste"
+            onSubmit={(e) => {
+              e.preventDefault();
+              link(pasted);
+            }}
+          >
+            <label>
+              Code
+              <textarea
+                rows={3}
+                autoComplete="off"
+                spellCheck="false"
+                placeholder="anybot://link?…"
+                value={pasted}
+                onChange={(e) => setPasted(e.target.value)}
+              />
+            </label>
+            <button className="secondary wide" disabled={linking || !pasted.trim()}>
+              Connect
+            </button>
+          </form>
+        ) : (
+          <button className="text-button" type="button" onClick={() => setPasting(true)}>
+            Paste a code instead
+          </button>
+        )}
+        {(linkError || externalError) && (
+          <p role="alert" className="error">
+            {linkError || externalError}
+          </p>
+        )}
+      </section>
+      <details className="advanced-connect">
+        <summary>Advanced: connect to a server</summary>
       <form
         onSubmit={async (e) => {
           e.preventDefault();
@@ -941,9 +1069,9 @@ function Connect({ onConnect, onOidcSignIn, error: externalError }) {
           </button>
           <small>Uses authorization code + PKCE S256. The token returns to this device and is kept in memory only.</small>
         </fieldset>
-        {(error || externalError) && (
+        {error && (
           <p role="alert" className="error">
-            {error || externalError}
+            {error}
           </p>
         )}
         <button className="primary wide" disabled={busy}>
@@ -954,6 +1082,7 @@ function Connect({ onConnect, onOidcSignIn, error: externalError }) {
           Agents stay on your desktop or server. Your phone is their companion.
         </small>
       </form>
+      </details>
     </div>
   );
 }

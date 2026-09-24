@@ -1,0 +1,130 @@
+/* Settings → Your phone (PhoneLinkPanel.jsx). Tokens only. */
+.phone-link-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 16px;
+}
+.phone-link-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+}
+.phone-link-card p {
+  max-width: 560px;
+}
+.phone-link-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.phone-link-status span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-4);
+}
+.phone-link-status.is-ok span {
+  background: var(--ok);
+}
+.phone-link-status.is-warn span {
+  background: var(--warn);
+}
+.phone-link-error {
+  margin: 8px 4px 0;
+  font-size: 13px;
+  color: var(--danger);
+}
+.phone-link-devices {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.phone-link-devices li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  color: var(--ink-2);
+}
+.phone-link-devices strong {
+  display: block;
+  font-size: 14px;
+  color: var(--ink);
+}
+.phone-link-devices small {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+/* The pairing dialog: a big code that any phone camera can read. The code
+   itself is always black on white, whatever the theme. */
+.phone-pair {
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  padding-bottom: 22px;
+  text-align: center;
+}
+.phone-qr {
+  width: min(320px, 70vw);
+  aspect-ratio: 1;
+  padding: 14px;
+  background: oklch(1 0 0);
+  border-radius: 16px;
+  box-shadow: 0 0 0 1px var(--rule), 0 14px 34px -24px oklch(0.2 0.02 60 / 0.6);
+  image-rendering: pixelated;
+}
+.phone-steps {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 22px;
+  text-align: left;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.phone-steps strong {
+  color: var(--ink);
+}
+.phone-expiry {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.phone-paired {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 18px 0 4px;
+}
+.phone-paired strong {
+  font-size: 17px;
+  color: var(--ink);
+}
+.phone-paired p {
+  margin: 0;
+  color: var(--ink-3);
+}
+.phone-paired-mark {
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: var(--ok);
+  color: var(--paper);
+}
