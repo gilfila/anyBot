@@ -368,3 +368,64 @@ test("exit gate: turns 2–5 send at most 15% of what fresh mode would", async (
   }
   assert.ok(sent <= fresh * 0.15, `sent ${sent} chars vs ${fresh} fresh (${Math.round((sent / fresh) * 100)}%)`);
 });
+
+test("code review: a restart drops the session of a turn it interrupted", async (t) => {
+  const calls = [];
+  const directory = await mkdtemp(join(tmpdir(), "anybot-sessions-restart-"));
+  let c;
+  // One hook: close the workspace, then remove it (Windows cannot delete an open database).
+  t.after(async () => {
+    if (!c.closed) await c.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const options = { directory, probe: async () => [], sessionProbe: async () => true, concurrency: 1, resumable: ["claude"] };
+  c = new Coordinator({ ...options, runner: resumableRunner(calls) });
+  await c.initialize();
+  await c.command("employees.create", { name: "Alex", role: "Engineer", harness: "claude", trusted: true });
+  await c.command("conversations.create", { title: "Alex", members: [c.snapshot().employees[0].id] });
+  const conversation = c.snapshot().conversations[0].id;
+  const settle = async () => {
+    for (let i = 0; i < 300 && c.snapshot().runs.some((r) => ["queued", "running"].includes(r.status)); i++)
+      await new Promise((r) => setTimeout(r, 10));
+  };
+  await c.command("messages.send", { conversation, body: "One", requestId: crypto.randomUUID() });
+  await settle();
+  assert.equal(rows(c).length, 1);
+  // The app stops while turn 2 is running.
+  c.store.run("UPDATE runs SET status='running' WHERE rowid=(SELECT max(rowid) FROM runs)");
+  await c.close();
+  c = new Coordinator({ ...options, runner: resumableRunner(calls) });
+  await c.initialize();
+  assert.equal(rows(c).length, 0);
+});
+
+test("code review: Start fresh during a run isn't undone when that run finishes", async (t) => {
+  let release;
+  const gate = new Promise((resolve) => (release = resolve));
+  const calls = [];
+  const { c, people, room, say } = await workspace(t, resumableRunner(calls, { 2: { wait: gate } }));
+  await say("One");
+  await c.command("messages.send", { conversation: room.id, body: "Two", requestId: crypto.randomUUID() });
+  await new Promise((r) => setTimeout(r, 30));
+  await c.command("sessions.startFresh", { employee: people.Alex.id });
+  release();
+  for (let i = 0; i < 300 && c.snapshot().runs.some((r) => ["queued", "running"].includes(r.status)); i++)
+    await new Promise((r) => setTimeout(r, 10));
+  assert.equal(rows(c).length, 0, "the in-flight run didn't save its session back");
+  await say("Three");
+  assert.equal(calls.at(-1).session.resume, false);
+});
+
+test("code review: renaming a teammate starts a fresh session (the roster is in the stable layers)", async (t) => {
+  const calls = [];
+  const { c, people, say } = await workspace(t, resumableRunner(calls), { bots: ["Alex", "Sam"] });
+  await say("@Alex one");
+  const thread = c.snapshot().runs[0].thread;
+  await say("@Alex two", { thread });
+  assert.equal(calls.at(-1).session.resume, true);
+  const sam = c.snapshot().employees.find((e) => e.id === people.Sam.id);
+  await c.command("employees.update", { ...sam, name: "Samira", trusted: true });
+  await say("@Alex three", { thread });
+  assert.equal(calls.at(-1).session.resume, false);
+  assert.match(calls.at(-1).prompt, /@Samira/);
+});

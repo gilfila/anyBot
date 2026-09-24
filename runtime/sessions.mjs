@@ -23,9 +23,13 @@ export const RESUMABLE = new Set();
 // Rotation keeps harness-side compaction from ballooning.
 export const MAX_TURNS = 40;
 
-export function policyHash({ employee, conversation, members, reports = [] }) {
+// `peers` and `reports` are {id, name, role}: the stable layers quote their
+// names and roles, so renaming a teammate changes the policy too.
+export function policyHash({ employee, conversation, members, peers = [], reports = [] }) {
+  const roster = (list) => list.map((p) => [p.id, p.name, p.role]).sort();
   const policy = {
-    reports: [...reports].sort(),
+    peers: roster(peers),
+    reports: roster(reports),
     harness: employee.harness,
     model: employee.model || "",
     workspace: employee.workspace,
@@ -41,6 +45,9 @@ export function policyHash({ employee, conversation, members, reports = [] }) {
 export class Sessions {
   constructor(store) {
     this.store = store;
+    // Bumped by every "Start fresh" and archive. A run that started under an
+    // older generation doesn't save its session, so it can't undo them.
+    this.generation = 0;
   }
   static key(run) {
     return { employee: run.employee, conversation: run.conversation, thread: run.thread || "" };
@@ -72,7 +79,8 @@ export class Sessions {
     return { ...row, delivered };
   }
   // Called inside the successful run's transaction.
-  save(key, { harness, sessionId, policy, delivered }) {
+  save(key, { harness, sessionId, policy, delivered, generation = this.generation }) {
+    if (generation !== this.generation) return false;
     const at = new Date().toISOString();
     this.store.run(
       `INSERT INTO harness_sessions(employee,conversation,thread,harness,session_id,policy_hash,turns,created,updated)
@@ -92,6 +100,13 @@ export class Sessions {
     );
     const insert = "INSERT OR IGNORE INTO harness_session_messages(employee,conversation,thread,message) VALUES (?,?,?,?)";
     for (const message of delivered) this.store.run(insert, key.employee, key.conversation, key.thread, message);
+    return true;
+  }
+  // A failed turn drops only the session it used, never a newer one that
+  // another run saved for the same key in the meantime.
+  dropIf(key, sessionIds) {
+    const row = this.store.one("SELECT session_id FROM harness_sessions WHERE employee=? AND conversation=? AND thread=?", key.employee, key.conversation, key.thread);
+    if (row && sessionIds.includes(row.session_id)) this.drop(key);
   }
   drop(key) {
     for (const table of ["harness_session_messages", "harness_sessions"])
@@ -105,6 +120,7 @@ export class Sessions {
     if (conversation) used.push(["conversation", conversation]);
     if (thread !== undefined) used.push(["thread", thread || ""]);
     if (!used.length) throw new Error("Say which sessions to drop");
+    this.generation += 1;
     const clauses = used.map(([column]) => `${column}=?`);
     const args = used.map(([, value]) => value);
     let dropped = 0;

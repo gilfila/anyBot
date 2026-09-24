@@ -108,7 +108,11 @@ that does them. Section numbers (§) point into the plan.
 - [x] Live smoke `tests/live-sessions-smoke.mjs`, run on Tony's PC: **gate not
       met** for Claude or Codex → resume off by default
 - [x] Docs: `docs/architecture/sessions.md`, ADR-0003, `design.md` §6–7
-- [ ] Code checkpoint (focus: fallback paths)
+- [x] Code checkpoint (focus: fallback paths): `docs/reviews/2026-09-24-M2-code.md`,
+      4 findings; 3 fixed, 1 deferred
+- [ ] Before enabling resume for any harness: record only rendered message
+      ids as delivered, and budget undelivered older messages in resumed turns
+      (M2 code review finding 4); rerun the live gate
 - [ ] Owner's call: keep M2 as dormant infrastructure (merge), or park it
 
 ## M3: Incremental sync (0.3.24; three PRs in the plan's order)

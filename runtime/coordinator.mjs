@@ -164,6 +164,10 @@ export class Coordinator extends EventEmitter {
     this.active = new Map();
     this.installations = [];
     this.closed = false;
+    // A turn the app stopped mid-run may have been half-absorbed by its native
+    // session, so that session can't be resumed.
+    for (const run of this.store.all("SELECT employee,conversation,thread FROM runs WHERE status IN ('running','cancelling')"))
+      this.sessions.drop(Sessions.key(run));
     this.store.run(
       "UPDATE runs SET status='interrupted', error='Runtime stopped during execution. Review possible side effects before sending a new task.', ended=? WHERE status IN ('running','cancelling')",
       now(),
@@ -1163,11 +1167,13 @@ export class Coordinator extends EventEmitter {
   // permissions, folders, members, reports...) starts a fresh session.
   sessionPolicy(run, employee) {
     const conversation = this.store.one("SELECT * FROM conversations WHERE id=?", run.conversation);
+    const members = JSON.parse(conversation.members);
     return policyHash({
       employee,
       conversation,
-      members: JSON.parse(conversation.members),
-      reports: this.org.directReports(employee.id).map((r) => r.id),
+      members,
+      peers: this.store.all("SELECT id,name,role FROM employees WHERE archived=0").filter((e) => members.includes(e.id)),
+      reports: this.org.directReports(employee.id),
     });
   }
   // Retention (runtime/retention.mjs), at startup and after each stored
@@ -1403,7 +1409,9 @@ export class Coordinator extends EventEmitter {
   async execute(run, employee, controller) {
     let lastSave = 0;
     const sessionKey = Sessions.key(run);
-    let reportedSession = "";
+    const generation = this.sessions.generation;
+    let reportedSession = "",
+      usedSession = "";
     const term = (text) => {
       try {
         this.terminal.append(run.id, text);
@@ -1448,6 +1456,7 @@ export class Coordinator extends EventEmitter {
         // Claude takes an id we choose; Codex reports its own. Only an id
         // the harness itself reported is ever saved.
         const requested = session?.session_id || (resumable ? randomUUID() : "");
+        usedSession = session?.session_id || "";
         reportedSession = "";
         let usage = null;
         try {
@@ -1643,7 +1652,7 @@ export class Coordinator extends EventEmitter {
         // It's saved under the policy it was built with (captured before the
         // run), so an edit made while it ran still starts a fresh one.
         if (reportedSession && resumable)
-          this.sessions.save(sessionKey, { harness: employee.harness, sessionId: reportedSession, policy, delivered: context.seen });
+          this.sessions.save(sessionKey, { harness: employee.harness, sessionId: reportedSession, policy, delivered: context.seen, generation });
         this.activateMentions(run, visible || "", response);
         this.store.event("run.completed", { run: run.id });
       });
@@ -1651,7 +1660,7 @@ export class Coordinator extends EventEmitter {
       const status = controller.signal.aborted ? "cancelled" : "failed";
       // A turn that didn't finish may have been half-absorbed by the native
       // session; the next turn starts fresh with full context.
-      this.sessions.drop(sessionKey);
+      this.sessions.dropIf(sessionKey, [usedSession, reportedSession].filter(Boolean));
       this.store.run(
         "UPDATE runs SET status=?,error=?,ended=? WHERE id=?",
         status,
