@@ -171,7 +171,7 @@ Many problems have a button that takes you to the fix. **Copy report** gives you
 
 ## Also in development
 
-- A **phone companion** (Android/iOS, built with Capacitor) that pairs with the desktop app. See [docs/mobile.md](docs/mobile.md).
+- A **phone companion** (Android, built with Capacitor). Pair it by scanning one QR code from **Settings → Your phone**. It then works on Wi-Fi or mobile data, end-to-end encrypted. See [docs/mobile.md](docs/mobile.md).
 - A **headless server mode** for running the same coordinator on a private server. See [docs/server.md](docs/server.md).
 
 ## For developers

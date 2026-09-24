@@ -56,6 +56,8 @@ test("phone connects, creates a team conversation, sends once after an uncertain
     path: "test-results/mobile-connect.png",
     fullPage: true,
   });
+  // Scanning a QR code is the default; the server form sits under Advanced.
+  await page.getByText("Advanced: connect to a server").click();
   await page.getByLabel("Workspace address").fill(origin);
   await page.getByRole("textbox", { name: "Connection code", exact: true }).fill(gateway.createPairing().code);
   await page.getByRole("button", { name: "Connect to my team" }).click();
@@ -128,7 +130,7 @@ test("phone connects, creates a team conversation, sends once after an uncertain
     .getByRole("button", { name: "Disconnect and clear this device" })
     .click();
   await expect(
-    page.getByRole("heading", { name: "Connect your workspace" }),
+    page.getByRole("heading", { name: "Connect to your computer" }),
   ).toBeVisible();
   expect(gateway.devices()).toHaveLength(0);
   expect(errors).toEqual([]);
@@ -169,6 +171,8 @@ test("one-to-one voice chat sends a transcript and speaks the employee reply", a
     });
   });
   await page.goto("http://127.0.0.1:5174");
+  // Scanning a QR code is the default; the server form sits under Advanced.
+  await page.getByText("Advanced: connect to a server").click();
   await page.getByLabel("Workspace address").fill(origin);
   await page.getByRole("textbox", { name: "Connection code", exact: true }).fill(gateway.createPairing().code);
   await page.getByRole("button", { name: "Connect to my team" }).click();

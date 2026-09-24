@@ -1,6 +1,6 @@
 {
   "name": "anybot-desktop",
-  "version": "0.3.12",
+  "version": "0.3.13",
   "private": true,
   "description": "A local workspace for your team of AI employees",
   "author": "Any Bot contributors",
@@ -58,8 +58,11 @@
     "@vitejs/plugin-react": "^6.1.1",
     "electron": "^44.4.3",
     "electron-builder": "^26.15.3",
+    "jsqr": "^1.4.0",
     "prettier": "^3.9.8",
-    "vite": "^8.3.0"
+    "qrcode": "^1.5.4",
+    "vite": "^8.3.0",
+    "ws": "^8.21.3"
   },
   "build": {
     "appId": "dev.anybot.desktop",

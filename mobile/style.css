@@ -586,3 +586,97 @@ input[type="checkbox"] {
     scroll-behavior: auto !important;
   }
 }
+
+/* Pairing by QR code (link-client.mjs): scan first, the server form is Advanced. */
+.link-start {
+  padding: 22px 20px;
+  background: #fff;
+  border: 1px solid #e7eaf0;
+  border-radius: 20px;
+}
+.link-start h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+.link-start > p {
+  margin: 0 0 18px;
+  color: #4e5868;
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+.link-start .primary {
+  min-height: 54px;
+  font-size: 16px;
+}
+.text-button {
+  width: 100%;
+  margin-top: 6px;
+  color: #3263db;
+  font-weight: 600;
+  font-size: 14px;
+}
+.link-paste label {
+  margin: 14px 0 10px;
+}
+.link-paste textarea {
+  font-family: monospace;
+  font-size: 12px;
+}
+.advanced-connect {
+  margin-top: 22px;
+  color: #4e5868;
+}
+.advanced-connect > summary {
+  cursor: pointer;
+  padding: 10px 2px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.connect-resuming {
+  display: grid;
+  place-items: center;
+  gap: 14px;
+  min-height: 70vh;
+  color: #788396;
+}
+.scanner {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: #000;
+}
+.scanner video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.scanner-frame {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(70vw, 300px);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border: 3px solid #fff;
+  border-radius: 22px;
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.45);
+}
+.scanner-hint {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: calc(40px + env(safe-area-inset-bottom));
+  margin: 0;
+  color: #fff;
+  font-size: 15px;
+  text-align: center;
+}
+.scanner-close {
+  position: absolute;
+  top: calc(16px + env(safe-area-inset-top));
+  right: 16px;
+  width: 48px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+}

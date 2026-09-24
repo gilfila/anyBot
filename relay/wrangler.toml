@@ -1,0 +1,12 @@
+# Any Bot phone relay. Deploy with:  npx wrangler@4 deploy --config relay/wrangler.toml
+name = "anybot-relay"
+main = "worker.mjs"
+compatibility_date = "2025-09-01"
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]

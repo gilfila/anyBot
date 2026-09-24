@@ -166,6 +166,7 @@ const OrgPage = React.lazy(() => import("./components/org/OrgPage.jsx").then((m)
 import { DiagnosticsPanel } from "./components/DiagnosticsPanel.jsx";
 import { FloatingMenu } from "./components/FloatingMenu.jsx";
 import { AppearancePanel } from "./components/theme/AppearancePanel.jsx";
+import { PhoneLinkPanel } from "./components/PhoneLinkPanel.jsx";
 import { statusLabel } from "./components/board/meta.js";
 
 // A task being started posts its brief into the project chat. Render it as a
@@ -1728,6 +1729,7 @@ export function App() {
               </button>
             </div>
             <AppearancePanel />
+            <PhoneLinkPanel />
             <div className="settings-nav">
               <button
                 className="settings-nav-item"
