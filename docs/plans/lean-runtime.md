@@ -110,6 +110,33 @@ Unread team reports are marked read only when their content is actually
 delivered: in the prompt, or through a successful `report`/`org` tool read.
 A pointer ("2 unread reports") never marks anything read. (Review finding 5.)
 
+**Amended by the M1 design checkpoint** (`docs/reviews/2026-09-24-M1-design.md`):
+
+- **M1 is fresh mode only.** Every run is a new CLI session, so layers 1–4 go
+  into every prompt and layer 5 is always the trimmed window. The delta form
+  of layer 5 ships with M2's verified resume.
+- **Mandatory vs optional history.** Mandatory (never cut, own section
+  `thread`): the thread root, the assignment, the message that mentioned the
+  bot, and everything after the bot's last turn in this thread. A bot new to
+  the thread has no "since", so only the root, assignment, and mention are
+  mandatory and the rest is optional. Optional (`history` section, ≤ 12,000
+  chars including channel background): older messages newest first, with the
+  hygiene rules above; what doesn't fit is dropped with a count.
+- **Named authors stay whole.** An older message whose author the assignment
+  names (`@Name` or the plain name) is never clipped.
+- **The action guide stays everywhere** until M4: every action type is
+  accepted in every conversation. Layer 4's condition becomes "the harness
+  lacks confirmed Any Bot MCP tools".
+- **Delegation has its own condition**: the bot has direct reports (any
+  conversation, block with its reports), or it is in a project run that can't
+  use @mentions (no thread, e.g. task runs; block with peers, as today).
+- **Platform budget** covers the fixed rule text; workspace paths, allowed
+  folders, and the file list are appended whole and never cut.
+- **Reports** included in full are marked read in the run's success
+  transaction; failed or cancelled runs leave them unread.
+- **Mentions** need a unique bot name (checked on create and rename) and
+  don't count inside code or quoted lines.
+
 ### 3.2 Harness sessions (`runtime/sessions.mjs`, new; schema v15)
 
 A bot keeps one CLI session per (bot, conversation, thread). Turn 2 onward
@@ -548,4 +575,6 @@ Open questions for the owner:
 
 | Checkpoint | Result | Report |
 |---|---|---|
+| M0 code review (2026-09-24) | 4 findings (2 high, 2 medium): retention failure stopped runs, code-mode command rejected by Codex, events pruned only at startup, fixtures not captured. All fixed; Gemini and Cursor captures deferred (both CLIs unusable on the owner's PC). | `docs/reviews/2026-09-24-M0-code.md` |
+| M1 design review of §3.1 (2026-09-24) | 8 findings (1 critical, 4 high, 3 medium), all accepted; see the amendment at the end of §3.1. | `docs/reviews/2026-09-24-M1-design.md` |
 | 0: design review of this plan (Codex CLI, read-only, 2026-09-24) | 13 findings (11 high, 2 medium). 12 accepted and folded in above: clipping, delegation, delta eligibility, cursor commits, report read-marking, snapshot consumers, durable partial output, epochs, mobile paging, token files, MCP handshake, measurable gates. 1 rejected with evidence (the `codex review -` stdin form is documented in `--help`); **that rejection was wrong**: run for real in M0, `codex review --base` refuses a custom prompt, so the script now uses `codex exec` with the diff range. | `docs/reviews/2026-09-24-plan-design.md` |
