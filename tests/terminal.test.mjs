@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TerminalLog, formatEvent } from "../runtime/terminal.mjs";
@@ -53,8 +54,16 @@ test("a run's terminal log reads in chunks from an offset and keeps the newest l
   const tail = log.read("big");
   assert.ok(tail.skipped > 0 && tail.text.startsWith("row ") && tail.text.endsWith("row 39999"));
   assert.throws(() => log.read("../escape"), /Invalid run ID/);
-  for (let i = 0; i < 5; i++) log.append(`old${i}`, "x");
+  // Distinct times, oldest first (files written in the same millisecond tie).
+  const base = Date.now() / 1000 - 100;
+  utimesSync(log.file("r1"), base, base);
+  utimesSync(log.file("big"), base, base);
+  for (let i = 0; i < 5; i++) {
+    log.append(`old${i}`, "x");
+    utimesSync(log.file(`old${i}`), base + 10 + i, base + 10 + i);
+  }
   log.prune(2);
+  assert.equal(log.read("old3").size + log.read("old4").size, 2, "the two newest stay");
   assert.equal(log.read("old0").size + log.read("old1").size + log.read("old2").size, 0);
 });
 
