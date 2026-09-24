@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startRelay } from "../relay/node-server.mjs";
+import { onClose, onMessage, onOpen } from "../relay/room.mjs";
 import { createMobileGateway } from "../runtime/mobile-gateway.mjs";
 import { createPhoneLink } from "../runtime/phone-link.mjs";
 import { buildLink, createCipher, deriveSession, exportPublic, generateKeys, parseLink, randomToken } from "../runtime/link-protocol.mjs";
@@ -123,6 +124,34 @@ test("the pairing survives restarts on both ends, and removal on the desktop end
   await assert.rejects(resumed.request("/overview"), (e) => e.reason === "unpaired");
 });
 
+test("a request made while the phone says hello again waits for the new session", { skip: process.env.ANYBOT_TEST_RELAY && "reaches into the Node relay" }, async (t) => {
+  const env = await setup(t);
+  // Lets the test act the moment the phone has handled a frame.
+  let onFrame = () => {};
+  class Tapped extends WebSocket {
+    set onmessage(handler) {
+      super.onmessage = (event) => (handler(event), onFrame(event.data));
+    }
+  }
+  const phone = env.track(await pairWithLink(env.link.createPairing().link, { store: memoryStore(), WebSocketImpl: Tapped }));
+  // The relay says the desktop is online again, as it does when the desktop
+  // reconnects before the relay has seen its old connection close. The phone's
+  // session is gone, so it must say hello again.
+  let status;
+  const answer = new Promise((resolve, reject) => {
+    onFrame = (data) => {
+      if (data !== '{"relay":"online"}') return;
+      onFrame = () => {};
+      status = phone.status;
+      phone.request("/overview").then(resolve, reject);
+    };
+  });
+  for (const room of env.relay.rooms.values()) for (const entry of room.entries) if (entry.side === "phone") entry.ws.send('{"relay":"online"}');
+  assert.equal((await answer).employees.length, 1);
+  assert.equal(status, "connecting", "no session yet, so not online");
+  assert.equal(phone.status, "online");
+});
+
 test("pairing with the desktop offline says so", async (t) => {
   const { link } = await setup(t, { relayUp: false });
   const code = link.createPairing().link;
@@ -171,4 +200,47 @@ test("the relay keeps rooms to their desktop and caps frame size", async (t) => 
   phone.send("x".repeat(70 * 1024));
   assert.ok([1009, 1006].includes(await closed), "oversized frame closes the socket");
   owner.close();
+});
+
+test("the relay routes around connections that newer ones replaced", () => {
+  const sent = [];
+  const io = {
+    send: (ws, text) => sent.push([ws.name, text]),
+    close: (ws, code) => {
+      ws.readyState = 2; // closing, as a real socket is until its peer answers
+      sent.push([ws.name, code]);
+    },
+  };
+  const entries = [];
+  const open = (name, side, device = null) => {
+    const entry = { ws: { name, readyState: 1 }, side, device };
+    entries.push(entry);
+    onOpen(entry, entries, io);
+    return entry;
+  };
+  const close = (entry) => {
+    entries.splice(entries.indexOf(entry), 1);
+    onClose(entry, entries, io);
+  };
+  const device = "d".repeat(22);
+  const oldDesktop = open("old desktop", "desktop");
+  const phone = open("phone", "phone", device);
+  // The desktop reconnects before its old connection has finished closing:
+  // the phone hears it's online, and its frames reach the new connection.
+  sent.length = 0;
+  open("desktop", "desktop");
+  assert.deepEqual(sent, [["old desktop", 4000], ["phone", '{"relay":"online"}']]);
+  onMessage(phone, "hello", entries, io);
+  assert.deepEqual(sent.at(-1), ["desktop", JSON.stringify({ from: device, data: "hello" })]);
+  sent.length = 0;
+  close(oldDesktop);
+  assert.deepEqual(sent, [], "the old connection closing doesn't take the desktop offline");
+  // Likewise a phone's old connection closing late doesn't tell the desktop
+  // the phone left: it's still here on its new one.
+  const again = open("phone again", "phone", device);
+  sent.length = 0;
+  close(phone);
+  assert.deepEqual(sent, []);
+  close(again);
+  assert.deepEqual(sent, [["desktop", JSON.stringify({ relay: "left", device })]]);
 });

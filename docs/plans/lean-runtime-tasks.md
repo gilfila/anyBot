@@ -32,7 +32,7 @@ that does them. Section numbers (§) point into the plan.
   (bot menu, resets all its sessions) and per thread (thread header); M5 (A2A)
   is not started.
 
-## M0: Measure (0.3.20)
+## M0: Measure (0.3.21)
 
 - [x] Plan, ADR-0001, review prompts, `scripts/adversarial-review.mjs`,
       checkpoint 0 report (branch `claude/lean-runtime-plan`, rides in this PR)
@@ -59,7 +59,7 @@ that does them. Section numbers (§) point into the plan.
       run `adversarial-review.mjs code` once for real (M0 exit gate)
 - [ ] PR, CI green, ask Tony, merge
 
-## M1: Lean prompts (0.3.21)
+## M1: Lean prompts (0.3.22)
 
 - [ ] Design checkpoint on §3.1 before coding
 - [ ] `runtime/context.mjs`: pure `buildContext()` with layers 1–7 and budgets
@@ -80,7 +80,7 @@ that does them. Section numbers (§) point into the plan.
 - [ ] Code checkpoint (focus: lost context, prompt-injection framing)
 - [ ] PR, CI green, ask Tony, merge
 
-## M2: Harness sessions (0.3.22; split Claude/Codex from the spikes if large)
+## M2: Harness sessions (0.3.23; split Claude/Codex from the spikes if large)
 
 - [ ] Design checkpoint on §3.2
 - [ ] Schema: `harness_sessions` (§3.2)
@@ -102,7 +102,7 @@ that does them. Section numbers (§) point into the plan.
 - [ ] Code checkpoint (focus: fallback paths)
 - [ ] PR(s), CI green, ask Tony, merge
 
-## M3: Incremental sync (0.3.23; three PRs in the plan's order)
+## M3: Incremental sync (0.3.24; three PRs in the plan's order)
 
 - [ ] Design checkpoint on §3.3
 - [ ] Step 1: `read_cursors` table + unread from the server; thread summaries

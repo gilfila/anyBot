@@ -1,6 +1,6 @@
 # Lean runtime: efficient context, incremental sync, standard protocols
 
-Status: M0 in review (0.3.20) · Written 2026-09-24 against 0.3.19 (`9d394af`) · Owner: Tony
+Status: M0 in review (0.3.21) · Written 2026-09-24 against 0.3.19 (`9d394af`) · Owner: Tony
 
 This plan turns the 2026-09-24 architecture review into a design and a
 sequence of milestones. It replaces "Phase 5: live MCP tools" in the
@@ -305,7 +305,7 @@ user-facing CHANGELOG entry, and ships through the normal CI release. A
 milestone is done when its exit gate numbers are met on the benchmark corpus
 and the adversarial checkpoints are closed (section 7).
 
-### M0 — Measure (0.3.20)
+### M0 — Measure (0.3.21)
 
 Scope: usage metrics (3.5 fields), prompt section sizes in `run_inputs`,
 retention for `run_inputs` and `events`, the benchmark corpus, and the
@@ -329,7 +329,7 @@ adversarial review tooling. This PR also carries this plan and ADR-0001.
 - Checkpoints: design review of this plan (done, see section 9); code review of
   the M0 PR, focused on privacy (no message content in metrics or logs).
 
-### M1 — Lean prompts (0.3.21)
+### M1 — Lean prompts (0.3.22)
 
 Scope: `runtime/context.mjs` (3.1), layer order, conditional sections, history
 hygiene, handoff consolidation on @mentions (delegate block deprecated).
@@ -353,7 +353,7 @@ hygiene, handoff consolidation on @mentions (delegate block deprecated).
   context (anything a bot needs that no longer reaches it) and prompt-injection
   framing.
 
-### M2 — Session resume (0.3.22, may split into Claude/Codex then spikes)
+### M2 — Session resume (0.3.23, may split into Claude/Codex then spikes)
 
 Scope: `harness_sessions`, resume flow, invalidation, fallback, rotation,
 "Start fresh" control; Claude and Codex first; Gemini and Cursor spikes decide
@@ -384,7 +384,7 @@ support or fallback.
   divergence when another bot edits the same files); code review focused on
   the fallback paths.
 
-### M3 — Incremental sync (0.3.23)
+### M3 — Incremental sync (0.3.24)
 
 Scope: 3.3 end to end, in this order so nothing breaks midway:
 (1) server-side read cursors, thread summaries, run previews, and the mobile

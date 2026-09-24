@@ -1,6 +1,6 @@
 # Metrics: usage, prompt sizes, retention
 
-Added in 0.3.20 (lean-runtime M0, `docs/plans/lean-runtime.md` §3.5). These
+Added in 0.3.21 (lean-runtime M0, `docs/plans/lean-runtime.md` §3.5). These
 numbers are how every later milestone proves it made Any Bot leaner.
 
 **Privacy rule:** metrics hold numbers, hashes, and model ids. They never
@@ -50,7 +50,7 @@ Schema 15 adds `run_inputs.sections` (JSON, section → chars), `hash`
 prompt as named sections in order; `prompt()` is their concatenation, so the
 sizes always add up to `chars`.
 
-| Section | What it is today (0.3.20) |
+| Section | What it is today (0.3.21) |
 |---|---|
 | `instructions` | The bot's own instructions |
 | `platform` | Workspace, credentials, approvals, untrusted-data notice |
@@ -96,7 +96,7 @@ Both limits are `Coordinator` options (`keepPrompts`, `eventDays`).
 - `node scripts/bench-sync.mjs`: snapshot bytes and bytes per streaming push.
 - `node scripts/record-baseline.mjs`: both, into `baseline.json`.
 
-Baseline at 0.3.20 (`baseline.json`):
+Baseline at 0.3.21 (`baseline.json`):
 
 | Workspace | Prompt median | Prompt p95 | History median | Snapshot | Per streaming push |
 |---|---|---|---|---|---|
