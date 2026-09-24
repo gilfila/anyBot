@@ -167,6 +167,8 @@ import { DiagnosticsPanel } from "./components/DiagnosticsPanel.jsx";
 import { FloatingMenu } from "./components/FloatingMenu.jsx";
 import { AppearancePanel } from "./components/theme/AppearancePanel.jsx";
 import { PhoneLinkPanel } from "./components/PhoneLinkPanel.jsx";
+import { AttentionIcon } from "./components/AttentionIcon.jsx";
+import { botAttention } from "./lib/attention.js";
 import { statusLabel } from "./components/board/meta.js";
 
 // A task being started posts its brief into the project chat. Render it as a
@@ -605,6 +607,8 @@ export function App() {
             const isMenuOpen = openBotMenu === employee.id;
             const run = currentRun(employee.id);
             const waiting = (data.approvals || []).some((a) => a.status === "pending" && a.employee === employee.id);
+            // What this bot needs from you, shown right of its name.
+            const attention = botAttention(employee.id, data, { unread });
             return (
               <div
                 key={employee.id}
@@ -616,9 +620,18 @@ export function App() {
                 >
                   <RobotAvatar size={60} employee={employee} working={run?.status === "running"} />
                   <span className="bot-row-text">
-                    <span className="bot-row-name">{employee.name}</span>
-                    <small className={waiting || run?.status === "running" ? "live" : ""}>
-                      {waiting ? "Needs your approval" : run ? (run.status === "running" ? "Working…" : "Queued") : employee.role}
+                    <span className="bot-row-name">
+                      {employee.name}
+                      <AttentionIcon attention={attention} />
+                    </span>
+                    <small className={attention || run?.status === "running" ? "live" : ""}>
+                      {attention && attention.kind !== "done"
+                        ? attention.short
+                        : run
+                          ? run.status === "running"
+                            ? "Working…"
+                            : "Queued"
+                          : employee.role}
                     </small>
                   </span>
                   {unread && <i className="unread-dot" aria-label="Unread messages" />}

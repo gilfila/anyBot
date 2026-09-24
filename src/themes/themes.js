@@ -68,8 +68,8 @@ export const THEMES = [
       card: "oklch(0.99 0.004 85)",
       ink: "oklch(0.215 0.01 60)",
       "ink-2": "oklch(0.4 0.014 62)",
-      "ink-3": "oklch(0.53 0.016 68)",
-      "ink-4": "oklch(0.68 0.016 72)",
+      "ink-3": "oklch(0.49 0.016 68)",
+      "ink-4": "oklch(0.505 0.016 72)",
       rule: "oklch(0.885 0.014 80)",
       "rule-strong": "oklch(0.8 0.018 78)",
       accent: "oklch(0.56 0.185 35)",
@@ -111,7 +111,7 @@ export const THEMES = [
       ink: "oklch(0.9 0.17 145)",
       "ink-2": "oklch(0.82 0.15 145)",
       "ink-3": "oklch(0.7 0.12 145)",
-      "ink-4": "oklch(0.52 0.08 146)",
+      "ink-4": "oklch(0.61 0.08 146)",
       rule: "oklch(0.28 0.05 150)",
       "rule-strong": "oklch(0.4 0.08 148)",
       accent: "oklch(0.87 0.21 142)",
@@ -155,8 +155,8 @@ export const THEMES = [
       card: "oklch(0.99 0.012 95)",
       ink: "oklch(0.28 0.05 160)",
       "ink-2": "oklch(0.4 0.05 160)",
-      "ink-3": "oklch(0.5 0.05 155)",
-      "ink-4": "oklch(0.66 0.045 150)",
+      "ink-3": "oklch(0.49 0.05 155)",
+      "ink-4": "oklch(0.505 0.045 150)",
       rule: "oklch(0.9 0.035 120)",
       "rule-strong": "oklch(0.82 0.055 125)",
       accent: "oklch(0.56 0.15 45)",
@@ -200,7 +200,7 @@ export const THEMES = [
       ink: "oklch(0.96 0.025 250)",
       "ink-2": "oklch(0.86 0.06 240)",
       "ink-3": "oklch(0.72 0.08 250)",
-      "ink-4": "oklch(0.56 0.08 270)",
+      "ink-4": "oklch(0.635 0.08 270)",
       rule: "oklch(0.32 0.08 300)",
       "rule-strong": "oklch(0.46 0.14 320)",
       accent: "oklch(0.7 0.27 340)",
@@ -275,13 +275,23 @@ export function toHex(value) {
 }
 
 // Readability rules every theme must meet (WCAG AA for body text, AAA for
-// primary text). A custom theme import will run the same checks.
+// primary text). Every ink step is used for real text somewhere (ink-4 for
+// timestamps, counts, and hints), so every step clears 4.5:1. A custom theme
+// import will run the same checks.
 export const CONTRAST_RULES = [
   ["ink", "paper", 7],
   ["ink", "card", 7],
   ["ink-2", "paper", 4.5],
   ["ink-2", "card", 4.5],
-  ["ink-3", "paper", 3],
+  ["ink-3", "paper", 4.5],
+  ["ink-3", "card", 4.5],
+  ["ink-4", "paper", 4.5],
+  ["ink-4", "card", 4.5],
+  // Chips, counts, and the sidebar sit on the darker paper steps.
+  ["ink-3", "paper-2", 4.5],
+  ["ink-3", "paper-3", 4.5],
+  ["ink-4", "paper-2", 4.5],
+  ["ink-4", "paper-3", 4.5],
   ["paper", "ink", 7],
   ["accent-ink", "paper", 4.5],
   ["paper", "accent", 3],

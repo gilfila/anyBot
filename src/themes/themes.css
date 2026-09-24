@@ -15,14 +15,46 @@
   pointer-events: none;
 }
 
-/* Surfaces turn to glass so the backdrop shows through. */
+/* Surfaces turn to glass so the backdrop shows through. Text never sits on
+   the glass itself: a moving scene can put any color behind it, so every
+   run of text gets an opaque box (the theme's paper or card), and WCAG AA
+   holds whatever the scene shows. The scene fills the space between boxes. */
 :root:is([data-backdrop="rain"], [data-backdrop="meadow"], [data-backdrop="grid"]) main {
   background: var(--glass);
 }
-:root:is([data-backdrop="rain"], [data-backdrop="meadow"], [data-backdrop="grid"]) :is(.sidebar, .context-rail) {
-  background: var(--glass-2);
+:root:is([data-backdrop="rain"], [data-backdrop="meadow"], [data-backdrop="grid"])
+  :is(.sidebar, .context-rail, .chat-heading, .project-tabs, .org-heading, .kg-main) {
+  background: var(--paper);
 }
-:root:is([data-backdrop="rain"], [data-backdrop="meadow"], [data-backdrop="grid"]) :is(.chat-main, .project-tabs, .chat-heading, .page, .messages, .project-doc, .project-board, .org-page, .org-main, .kg-main) {
+/* A message's name, time, and status sit in a pill above its bubble. */
+:root:is([data-backdrop="rain"], [data-backdrop="meadow"], [data-backdrop="grid"])
+  :is(.message-meta, .composer-note, .org-hint, .message.from-system .message-content, .message.notice .message-body) {
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px 11px;
+  border-radius: 999px;
+  background: var(--paper);
+}
+:root:is([data-backdrop="rain"], [data-backdrop="meadow"], [data-backdrop="grid"]) .composer-note {
+  margin: 8px auto 12px;
+}
+:root:is([data-backdrop="rain"], [data-backdrop="meadow"], [data-backdrop="grid"]) :is(.message.from-system .message-content, .message.notice .message-body) {
+  border-radius: 12px;
+}
+/* Pages and the canvas become sheets floating on the scene. */
+:root:is([data-backdrop="rain"], [data-backdrop="meadow"], [data-backdrop="grid"]) .page {
+  margin: 14px;
+  border-radius: 18px;
+  background: var(--paper);
+  box-shadow: 0 18px 40px -30px oklch(0 0 0 / 0.6);
+}
+:root:is([data-backdrop="rain"], [data-backdrop="meadow"], [data-backdrop="grid"]) .project-doc .doc-page {
+  margin: 18px auto;
+  border-radius: 18px;
+  background: var(--paper);
+  box-shadow: 0 18px 40px -30px oklch(0 0 0 / 0.6);
+}
+:root:is([data-backdrop="rain"], [data-backdrop="meadow"], [data-backdrop="grid"]) :is(.chat-main, .messages, .project-doc, .project-board, .org-page, .org-main) {
   background: transparent;
 }
 
@@ -241,7 +273,8 @@
   border-color: oklch(0.7 0.27 340 / 0.55);
   background:
     repeating-linear-gradient(to bottom, oklch(0.7 0.27 340 / 0.08) 0 1px, transparent 1px 3px),
-    linear-gradient(135deg, oklch(0.7 0.27 340 / 0.3), oklch(0.55 0.2 300 / 0.25));
+    linear-gradient(135deg, oklch(0.7 0.27 340 / 0.3), oklch(0.55 0.2 300 / 0.25)),
+    var(--card);
   box-shadow: 0 0 24px -10px var(--neon-2), inset 0 0 22px -14px var(--neon-2);
 }
 /* Corner brackets, like a projected panel. */
