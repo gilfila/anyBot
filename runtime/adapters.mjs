@@ -494,8 +494,13 @@ export function extractEvent(harness, value, state = {}) {
         : { final: value.result || "" };
   }
   if (harness === "codex") {
-    if (value.type === "item.completed" && value.item?.type === "agent_message")
-      return { text: value.item.text };
+    // Each agent_message is a whole message ("I'll run ls." then the answer),
+    // so later ones start a new paragraph instead of running on.
+    if (value.type === "item.completed" && value.item?.type === "agent_message") {
+      const text = `${state.messages ? "\n\n" : ""}${value.item.text || ""}`;
+      state.messages = true;
+      return { text };
+    }
     if (value.type === "turn.started") state.turn = true;
     // Before the turn, error items are startup warnings (an unrecognized
     // config.toml key, an unreachable MCP server) and Codex carries on.

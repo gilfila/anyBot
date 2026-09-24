@@ -110,12 +110,9 @@ export class Coordinator extends EventEmitter {
     this.knowledge = new Knowledge(this.store);
     this.terminal = new TerminalLog(directory);
     this.keepPrompts = keepPrompts;
-    try {
-      prunePrompts(this.store, keepPrompts);
-      pruneEvents(this.store, eventDays, clock);
-    } catch {
-      // Retention only frees space; a failure here must not stop the app.
-    }
+    this.eventDays = eventDays;
+    this.clock = clock;
+    this.retain();
     try {
       this.terminal.prune();
     } catch {
@@ -1115,6 +1112,20 @@ export class Coordinator extends EventEmitter {
     this.send({ requestId: id(), conversation, recipients: [employee.id], body });
     return conversation;
   }
+  // Retention (runtime/retention.mjs), at startup and after each stored
+  // prompt. Events are pruned at most hourly, so an app left open for months
+  // still keeps only 90 days. It only frees space: a failure never stops a run.
+  retain() {
+    try {
+      prunePrompts(this.store, this.keepPrompts);
+      if (!(this.clock() - this.eventsPruned < 3_600_000)) {
+        pruneEvents(this.store, this.eventDays, this.clock);
+        this.eventsPruned = this.clock();
+      }
+    } catch {
+      // Keep going; the next run tries again.
+    }
+  }
   prompt(run, employee, files = []) {
     return this.promptParts(run, employee, files).text;
   }
@@ -1399,7 +1410,7 @@ export class Coordinator extends EventEmitter {
         promptHash(prompt),
         prompt.length,
       );
-      prunePrompts(this.store, this.keepPrompts);
+      this.retain();
       let usage = null;
       let result;
       try {

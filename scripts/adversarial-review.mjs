@@ -4,8 +4,9 @@
 //   node scripts/adversarial-review.mjs code --milestone M2 [--base main] [--focus "races between replies and deltas"]
 //   add --dry-run to print the command and prompt size without running Codex
 //
-// Codex runs read-only: `codex exec --sandbox read-only` for designs and
-// `codex review --base <branch>` for code. The report lands in
+// Codex runs read-only with `codex exec --sandbox read-only` in both modes.
+// (`codex review --base` refuses a custom prompt, so code reviews point Codex
+// at `git diff <base>...HEAD` instead.) The report lands in
 // docs/reviews/<date>-<milestone>-<mode>.md with a triage table to fill in.
 import { spawn, execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -46,7 +47,7 @@ const prompt =
     ? `${template}\n\n---\nMilestone: ${milestone}\n\n${milestoneText}\n\nDesign section under review:\n\n${section(flag("section", "3"))}\n\n${
         files.length ? `Check it against these files first: ${files.join(", ")}.` : "Check it against the code it changes."
       }\n`
-    : `${template}\n\n---\nMilestone: ${milestone}\n\n${milestoneText}\n${flag("focus") ? `\nFocus: ${flag("focus")}\n` : ""}`;
+    : `${template}\n\n---\nThe change under review is \`git diff ${flag("base", "main")}...HEAD\` in this repository. Start with \`git diff --stat ${flag("base", "main")}...HEAD\`, then read the diff and the code around it.\n\nMilestone: ${milestone}\n\n${milestoneText}\n${flag("focus") ? `\nFocus: ${flag("focus")}\n` : ""}`;
 
 const codex = await resolveExecutable("codex");
 // A dry run only shows what would run, so it works without Codex installed.
@@ -56,10 +57,7 @@ if (!codex && !dryRun) {
 }
 const scratch = mkdtempSync(join(tmpdir(), "anybot-review-"));
 const lastMessage = join(scratch, "last-message.md");
-const args =
-  mode === "design"
-    ? ["exec", "--sandbox", "read-only", "--skip-git-repo-check", "-C", root, "-o", lastMessage, "-"]
-    : ["review", "--base", flag("base", "main"), "-"];
+const args = ["exec", "--sandbox", "read-only", "--skip-git-repo-check", "-C", root, "-o", lastMessage, "-"];
 if (dryRun) {
   console.log([...(codex ? [codex.file, ...codex.prefix] : ["codex"]), ...args].join(" "));
   console.log(`prompt: ${prompt.length} chars`);

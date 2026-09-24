@@ -497,10 +497,12 @@ node scripts/adversarial-review.mjs design --milestone M2 --section "3.2"
 
 ```
 node scripts/adversarial-review.mjs code --milestone M2
-# runs: codex review --base main -
-#   stdin: docs/reviews/prompts/code.md + the milestone's risk list
-#   (`codex review --help`: "[PROMPT] Custom review instructions. If `-` is
-#   used, read from stdin". M0's exit gate runs it once for real.)
+# runs: codex exec --sandbox read-only --skip-git-repo-check -
+#   stdin: docs/reviews/prompts/code.md + "review git diff <base>...HEAD"
+#   + the milestone's risk list
+#   (`codex review --base` refuses a custom prompt: "the argument '--base
+#   <BRANCH>' cannot be used with '[PROMPT]'", found when M0's exit gate ran
+#   it for real. Pass `--base origin/main` when local main is behind.)
 ```
 
 The script writes `docs/reviews/<date>-<milestone>-<design|code>.md` with the
@@ -546,4 +548,4 @@ Open questions for the owner:
 
 | Checkpoint | Result | Report |
 |---|---|---|
-| 0: design review of this plan (Codex CLI, read-only, 2026-09-24) | 13 findings (11 high, 2 medium). 12 accepted and folded in above: clipping, delegation, delta eligibility, cursor commits, report read-marking, snapshot consumers, durable partial output, epochs, mobile paging, token files, MCP handshake, measurable gates. 1 rejected with evidence (the `codex review -` stdin form is documented in `--help`). | `docs/reviews/2026-09-24-plan-design.md` |
+| 0: design review of this plan (Codex CLI, read-only, 2026-09-24) | 13 findings (11 high, 2 medium). 12 accepted and folded in above: clipping, delegation, delta eligibility, cursor commits, report read-marking, snapshot consumers, durable partial output, epochs, mobile paging, token files, MCP handshake, measurable gates. 1 rejected with evidence (the `codex review -` stdin form is documented in `--help`); **that rejection was wrong**: run for real in M0, `codex review --base` refuses a custom prompt, so the script now uses `codex exec` with the diff range. | `docs/reviews/2026-09-24-plan-design.md` |

@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Any Bot keeps less on disk.** The full text of what was sent to a bot is now kept only for the newest 50 runs (older runs keep just its size). The internal event log keeps 90 days.
 
 ### Fixed
+- **Codex replies ran their sentences together.** Codex often says what it's about to do ("I'll run the tests.") before its answer, and the two were joined with no space ("I'll run the tests.All 12 pass."). Each Codex message now starts its own paragraph.
 - A thread's header and its "Goes to …" line now include bots whose turn failed.
 - The thread message box says "who is in this thread" when there's only one bot.
 

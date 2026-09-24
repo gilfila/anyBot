@@ -33,9 +33,10 @@ test("Claude usage counts cache reads and writes as input, cached separately", a
 
 test("Codex usage keeps its input total, which already includes cached tokens", async () => {
   const usage = await parse("codex", { model: "gpt-5.3-codex", durationMs: 61000 });
-  assert.equal(usage["gen_ai.usage.input_tokens"], 148409);
-  assert.equal(usage["gen_ai.usage.cached_input_tokens"], 12800);
-  assert.equal(usage["gen_ai.usage.output_tokens"], 1515);
+  assert.equal(usage["gen_ai.usage.input_tokens"], 47108);
+  assert.equal(usage["gen_ai.usage.cached_input_tokens"], 36096);
+  // reasoning_output_tokens are a subset of output_tokens, not added to them.
+  assert.equal(usage["gen_ai.usage.output_tokens"], 131);
   assert.equal(usage["gen_ai.request.model"], "gpt-5.3-codex");
   assert.equal(usage["gen_ai.system"], "openai");
   assert.equal(usage.turns, 1);
@@ -91,8 +92,9 @@ async function fakeCli(t, harness, lines, exit = 0) {
 
 test("runHarness reports usage from a real subprocess stream", async (t) => {
   const cli = await fakeCli(t, "codex", await events("codex"));
-  assert.equal(await cli.run, "ok");
-  assert.equal(cli.usage()["gen_ai.usage.input_tokens"], 148409);
+  // Codex's preamble and its answer are separate messages: kept as paragraphs.
+  assert.equal(await cli.run, "ok\n\nok");
+  assert.equal(cli.usage()["gen_ai.usage.input_tokens"], 47108);
   assert.ok(cli.usage().duration_ms >= 0);
 });
 

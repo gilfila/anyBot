@@ -80,6 +80,10 @@ test("built-in structured parsers expose text, final, and error semantics", () =
   }), { text: "Claude reply" });
   assert.deepEqual(extractEvent("claude", { type: "result", result: "Claude final", is_error: false }), { final: "Claude final" });
   assert.deepEqual(extractEvent("codex", { type: "item.completed", item: { type: "agent_message", text: "Codex reply" } }), { text: "Codex reply" });
+  // A later Codex message in the same run starts a new paragraph.
+  const codexMessages = {};
+  extractEvent("codex", { type: "item.completed", item: { type: "agent_message", text: "I'll run ls." } }, codexMessages);
+  assert.deepEqual(extractEvent("codex", { type: "item.completed", item: { type: "agent_message", text: "Done." } }, codexMessages), { text: "\n\nDone." });
   // Codex error items: startup warnings before the turn, failures during it.
   const codexRun = {};
   assert.deepEqual(extractEvent("codex", { type: "item.completed", item: { type: "error", message: "config.toml key is ignored" } }, codexRun), { warning: "config.toml key is ignored" });
