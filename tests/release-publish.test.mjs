@@ -14,6 +14,7 @@ function exercise(scenario) {
   try {
     mkdirSync(path.join(dir, 'release'));
     writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ version: '0.3.6' }));
+    writeFileSync(path.join(dir, 'CHANGELOG.md'), '# Changelog\n\n## [0.3.6] - 2026-09-01\n\n### Fixed\n- The thing\n\n## [0.3.5] - 2026-08-30\n\n- Older\n');
     const installer = Buffer.from('fake installer');
     const hash = createHash('sha512').update(installer).digest('base64');
     const files = {
@@ -73,6 +74,9 @@ test('publisher uploads only the three assets, verifies before promotion, and ta
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.state.tag.object.sha, sha);
   assert.equal(result.state.release.draft, false);
+  // The release notes are the version's CHANGELOG entry, then the download link.
+  assert.match(result.state.release.body, /^### Fixed\n- The thing\n\n\[Download the Windows installer\]/);
+  assert.ok(!result.state.release.body.includes('Older'));
   assert.deepEqual(result.state.release.assets.map(a => a.name), ['anyBot-Setup-0.3.6.exe', 'anyBot-Setup-0.3.6.exe.blockmap', 'latest.yml']);
   const promotion = result.state.calls.indexOf('PATCH /repos/gilfila/anyBot-updates/releases/1');
   assert.ok(promotion > result.state.calls.indexOf('POST /repos/gilfila/anyBot/git/refs'));

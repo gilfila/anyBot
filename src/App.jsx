@@ -174,6 +174,7 @@ import { AppearancePanel } from "./components/theme/AppearancePanel.jsx";
 import { PhoneLinkPanel } from "./components/PhoneLinkPanel.jsx";
 import { AttentionIcon } from "./components/AttentionIcon.jsx";
 import { botAttention } from "./lib/attention.js";
+import { plainNotes } from "./lib/update-notes.js";
 import { statusLabel } from "./components/board/meta.js";
 
 // A task being started posts its brief into the project chat. Render it as a
@@ -1574,12 +1575,8 @@ export function App() {
                     <>
                       <strong>Update available: v{data.update.version}</strong>
                       <p>A new version is ready to download.</p>
-                      {data.update.releaseNotes && (
-                        <p className="update-body">
-                          {data.update.releaseNotes.length > 200
-                            ? `${data.update.releaseNotes.slice(0, 200)}…`
-                            : data.update.releaseNotes}
-                        </p>
+                      {plainNotes(data.update.releaseNotes) && (
+                        <p className="update-body">{plainNotes(data.update.releaseNotes)}</p>
                       )}
                     </>
                   )}
