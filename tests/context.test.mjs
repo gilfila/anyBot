@@ -95,6 +95,24 @@ test("review finding: a 6,000-char teammate report that the assignment names rea
   assert.match(clipped.text, /chars omitted from this older message; ask Sam if you need them/);
 });
 
+test("code review: a named report behind a long newer owner message still arrives whole", () => {
+  const report = `${"Findings. ".repeat(600)}`.trim();
+  const messages = [msg("human", "Sam, analyse the logs"), msg("sam", report), msg("human", "O".repeat(8000)), msg("human", "P".repeat(5000)), msg("alex", "Noted.")];
+  const assignment = msg("human", "Alex, review Sam's report");
+  const { text } = buildContext(base({ messages: [...messages, assignment], assignment }));
+  assert.ok(text.includes(report));
+});
+
+test("code review: the owner's own example blocks are never stripped", () => {
+  const example = '```anybot-actions\n[{"type":"task.create","title":"Example"}]\n```';
+  const root = msg("human", `Is this block valid?\n${example}`);
+  const answer = msg("sam", `Yes.\n\`\`\`anybot-actions\n[{"type":"task.update","task":"zz-applied"}]\n\`\`\``, { thread: root.id });
+  const assignment = msg("human", "@Alex double-check the block in the first message", { thread: root.id });
+  const { text } = buildContext(base({ run: { thread: root.id }, messages: [root, answer, assignment], assignment }));
+  assert.ok(text.includes(example), "the owner's example reaches the bot");
+  assert.doesNotMatch(text, /zz-applied/, "a bot's applied block is still removed");
+});
+
 test("the owner's words are never clipped, only older bot messages", () => {
   const essay = "O".repeat(7000);
   const messages = [msg("human", essay), msg("alex", "Read it."), msg("human", "Thanks")];
@@ -169,6 +187,9 @@ test("mentions in code or quotes don't start anyone", () => {
   const bots = [{ id: "a", name: "Alex" }, { id: "m", name: "Morgan" }];
   assert.deepEqual(mentionedIds("> @Alex said it's done\n`@Morgan` is the syntax\n```\n@Alex\n```", bots), []);
   assert.deepEqual(mentionedIds("> quoting\n@Morgan please build it", bots), ["m"]);
+  // Code review: tilde fences and indented code are code too.
+  assert.deepEqual(mentionedIds("~~~js\n@Alex run this\n~~~", bots), []);
+  assert.deepEqual(mentionedIds("Example:\n\n    @Alex run this\n\tand @Morgan", bots), []);
 });
 
 async function coordinator(t, runner) {

@@ -18,6 +18,7 @@ export const BUDGETS = {
   actionGuide: 2000,
   history: 12000, // optional older messages plus channel background
   background: 3000, // part of `history`
+  named: 24000, // older messages from teammates the assignment names, on top of `history`
   reports: 4000, // unread reports included whole; the rest wait
 };
 
@@ -132,12 +133,18 @@ export function buildContext(input) {
   let lastTurn = -1;
   for (const m of messages) if (m.author === employee.id) lastTurn = Math.max(lastTurn, m.rowid);
   const mandatory = (m) => m.id === run.thread || m.id === assignment.id || (lastTurn >= 0 && m.rowid > lastTurn);
-  const exempt = (m) => m.author === "human" || m.author === employee.id || namedIn(assignment.body, names(m.author));
+  const isBot = (m) => m.author !== "human" && m.author !== "system";
+  // A teammate the assignment names ("look at Sam's report"): its messages
+  // are never clipped and get room before the budget fills.
+  const named = (m) => isBot(m) && m.author !== employee.id && namedIn(assignment.body, names(m.author));
+  const exempt = (m) => m.author === "human" || m.author === employee.id || named(m);
   const render = (m, older) => {
     if (m.id === assignment.id) return `${who(m)}: (your assignment, quoted in full below)`;
     if (m.kind === "notice") return `${who(m)}: ${oneLine(m.body, 300)}`;
-    let body = stripMachineBlocks(m.body);
-    if (older && m.author !== "human" && !exempt(m)) body = clipLong(clipFences(body), who(m));
+    // Machine blocks are removed only from bot replies (the coordinator
+    // already applied them); an owner's example block stays as written.
+    let body = isBot(m) ? stripMachineBlocks(m.body) : m.body;
+    if (older && !exempt(m)) body = clipLong(clipFences(body), who(m));
     return `${who(m)}: ${body}`;
   };
 
@@ -149,7 +156,7 @@ export function buildContext(input) {
     let used = 0;
     for (const { message, reply } of [...input.channel].reverse()) {
       const clip = (m) => {
-        const body = m.kind === "notice" ? oneLine(m.body, 300) : stripMachineBlocks(m.body);
+        const body = m.kind === "notice" ? oneLine(m.body, 300) : isBot(m) ? stripMachineBlocks(m.body) : m.body;
         return body.length > BACKGROUND_ITEM ? `${body.slice(0, BACKGROUND_ITEM)}…` : body;
       };
       const item = `${who(message)}: ${clip(message)}${reply ? `\n  (latest reply in its thread) ${who(reply)}: ${clip(reply)}` : ""}`;
@@ -167,14 +174,26 @@ export function buildContext(input) {
   const shown = (m) => !(skipAssignment && m.id === assignment.id);
   const root = run.thread ? messages.filter((m) => m.id === run.thread && shown(m)) : [];
   const older = messages.filter((m) => !mandatory(m));
-  const kept = [];
+  const chosen = new Set();
+  // Named teammates' messages first, newest first, in their own allowance.
+  // The newest one always fits, even at the 24,000-char message limit.
+  let reserve = BUDGETS.named;
+  for (const m of [...older].reverse().filter(named)) {
+    const size = render(m, true).length + 2;
+    if (size > reserve && chosen.size) break;
+    chosen.add(m.id);
+    reserve -= size;
+  }
+  // Then everything else, newest first, until the budget is used.
   let room = BUDGETS.history - background.length;
   for (const m of [...older].reverse()) {
-    const line = render(m, true);
-    if (line.length + 2 > room) break;
-    kept.unshift(line);
-    room -= line.length + 2;
+    if (chosen.has(m.id)) continue;
+    const size = render(m, true).length + 2;
+    if (size > room) break;
+    chosen.add(m.id);
+    room -= size;
   }
+  const kept = older.filter((m) => chosen.has(m.id)).map((m) => render(m, true));
   const dropped = older.length - kept.length;
   const recent = messages.filter((m) => mandatory(m) && m.id !== run.thread && shown(m)).map((m) => render(m, false));
   const join = (lines) => lines.join("\n\n");

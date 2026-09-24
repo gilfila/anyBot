@@ -48,10 +48,13 @@ assignment, and mention are mandatory for it.
 - Another bot's message over 2,000 chars keeps its first and last 800 chars
   and a note: `[… N chars omitted from this older message; ask Name if you
   need them]`. **Exception:** when the assignment names that bot (`@Sam` or
-  "Sam's analysis"), its messages stay whole.
+  "Sam's analysis"), its messages stay whole and are picked first, in their
+  own allowance of 24,000 chars on top of the budget (the newest one always
+  fits), so newer long messages can't push them out.
 - Code fences over 40 lines keep their first 10.
-- `anybot`, `anybot-actions`, and `anybot-artifacts` blocks are removed (the
-  coordinator already applied them).
+- `anybot`, `anybot-actions`, and `anybot-artifacts` blocks are removed from
+  bot replies (the coordinator already applied them). The owner's messages keep
+  them, so a bot can be asked about an example.
 - Coordinator notices collapse to their first line.
 
 **The assignment appears once**: in layer 7, in full. In the transcript it is

@@ -12,8 +12,10 @@ const WORD = /[\p{L}\p{N}_]/u;
 export function withoutQuotedText(text) {
   return String(text || "")
     .replace(/```[\s\S]*?(```|$)/g, " ")
+    .replace(/~~~[\s\S]*?(~~~|$)/g, " ")
     .replace(/`[^`\n]*`/g, " ")
-    .replace(/^[ \t]*>.*$/gm, " ");
+    .replace(/^[ \t]*>.*$/gm, " ")
+    .replace(/^(?: {4}|\t).*$/gm, " ");
 }
 
 export function mentionedIds(text, bots) {
