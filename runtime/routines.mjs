@@ -37,11 +37,12 @@ export class Routines {
   }
   validateTarget(conversationId, employeeId) {
     const conversation = this.store.one(
-      "SELECT members FROM conversations WHERE id=?",
+      "SELECT members,archived FROM conversations WHERE id=?",
       required(conversationId, 100, "Conversation"),
     );
     if (!conversation || !JSON.parse(conversation.members).includes(employeeId))
       throw new Error("Routine employee must belong to its conversation");
+    this.c.requireOpenProject(conversation);
     this.c.activeEmployee(employeeId);
   }
   create(payload) {

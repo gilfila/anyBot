@@ -3,6 +3,7 @@ import { Clock } from "lucide-react";
 
 export function RoutineForm({ data, busy, onSave }) {
   const eligible = data.conversations
+    .filter((c) => !c.archived)
     .map((c) => ({
       ...c,
       members: c.members.filter((id) =>

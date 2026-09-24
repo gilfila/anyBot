@@ -540,6 +540,7 @@ const methods = new Set([
   "conversations.create",
   "conversations.updateMembers",
   "conversations.updateSettings",
+  "conversations.setArchived",
   "messages.send",
   "runs.cancel",
   "runs.dismiss",

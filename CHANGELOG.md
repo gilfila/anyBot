@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.17] - 2026-09-24
+
+### Added
+- **Edit and delete projects, like bots.** Hover a project in the sidebar and click "…" for **Edit** and **Delete**. The **Settings** button in a project's channel opens the same Edit form, with Delete at the bottom.
+  - **Edit** changes the project's name and folders, and now also whether bots hand work to each other and bring teammates into threads (before, that could only be set when the project was created).
+  - **Delete** archives the project, the way deleting a bot does. It leaves the sidebar, and any work in progress stops. Its autopilot and routines are turned off. Its messages, board, canvas, and files are kept.
+  - **Archived** at the end of the Projects list shows deleted projects. Open one to read its history, or restore it from the list or from the banner in its channel.
+  - An archived project can't take new work until it's restored, from the desktop, the phone, a routine, or the board. It's hidden from the phone app and the knowledge graph.
+
 ## [0.3.16] - 2026-09-24
 
 ### Fixed

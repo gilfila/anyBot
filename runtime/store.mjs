@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 
 export const id = () => randomUUID();
 // Bump with each migration below. Newer workspaces are refused by older apps.
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 export const now = () => new Date().toISOString();
 
 export class Store {
@@ -366,6 +366,28 @@ export class Store {
         }
         this.db
           .prepare("UPDATE metadata SET value='13' WHERE key='schema'")
+          .run();
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        this.db.close();
+        throw error;
+      }
+    }
+    const archiveVersion = Number(
+      this.db.prepare("SELECT value FROM metadata WHERE key='schema'").get()
+        .value,
+    );
+    if (archiveVersion < 14) {
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
+        // Deleting a project archives it, like deleting a bot: it leaves the
+        // sidebar and stops taking work, and its history stays.
+        const columns = this.db.prepare("PRAGMA table_info(conversations)").all().map((c) => c.name);
+        if (!columns.includes("archived"))
+          this.db.exec("ALTER TABLE conversations ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
+        this.db
+          .prepare("UPDATE metadata SET value='14' WHERE key='schema'")
           .run();
         this.db.exec("COMMIT");
       } catch (error) {

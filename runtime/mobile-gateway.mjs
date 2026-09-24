@@ -314,7 +314,7 @@ export function createMobileGateway({
     };
     const state = await invoke("snapshot");
     if (!live()) return reply(401, { error: "Session revoked" });
-    const visibleConversations = state.conversations.filter(allowed),
+    const visibleConversations = state.conversations.filter((c) => allowed(c) && !c.archived),
       visibleIds = new Set(visibleConversations.map((conversation) => conversation.id));
     if (method === "GET" && url.pathname === "/v1/audit") {
       if (session.humanRole !== "owner" && session.role !== "operator")
@@ -388,10 +388,10 @@ export function createMobileGateway({
       /^\/v1\/conversations\/([\w-]+)(?:\/(messages))?$/,
     );
     if (match) {
-      const conversation = state.conversations.find(
+      const conversation = visibleConversations.find(
         (c) => c.id === match[1],
       );
-      if (!conversation || !allowed(conversation))
+      if (!conversation)
         return reply(404, { error: "Conversation not found" });
       if (method === "GET" && !match[2]) {
         const all = state.messages.filter(

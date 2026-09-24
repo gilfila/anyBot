@@ -1,8 +1,11 @@
 import React, { useState } from "react";
-import { Folder, Plus, Save, X } from "lucide-react";
+import { Folder, Plus, Save, Trash2, X } from "lucide-react";
 
-export function ProjectSettingsForm({ conversation, busy, onSave }) {
+// Edit a project: its name, whether bots hand work to each other, and its
+// folders. Deleting archives the project (like deleting a bot).
+export function ProjectSettingsForm({ conversation, busy, onSave, onDelete }) {
   const [title, setTitle] = useState(conversation.title || "");
+  const [delegation, setDelegation] = useState(Boolean(conversation.delegation));
   const [allowedFolders, setAllowedFolders] = useState(
     conversation.allowedFolders || []
   );
@@ -35,6 +38,7 @@ export function ProjectSettingsForm({ conversation, busy, onSave }) {
         onSave({
           conversation: conversation.id,
           title,
+          delegation,
           allowedFolders,
           artifactsFolder,
         });
@@ -50,6 +54,18 @@ export function ProjectSettingsForm({ conversation, busy, onSave }) {
           placeholder="e.g. Product launch"
           autoFocus
         />
+      </label>
+      <label className="checkbox trust">
+        <input
+          type="checkbox"
+          checked={delegation}
+          onChange={(e) => setDelegation(e.target.checked)}
+        />
+        <span>
+          Allow employees to hand work to one another within this project, and
+          to bring each other into threads with @mentions. Limited to 8 runs per
+          root task.
+        </span>
       </label>
       <div className="project-folders-section">
         <label>
@@ -116,8 +132,20 @@ export function ProjectSettingsForm({ conversation, busy, onSave }) {
       </div>
       <button className="primary full" disabled={busy || !title.trim()}>
         <Save size={16} />
-        Save settings
+        Save changes
       </button>
+      {onDelete && !conversation.archived && (
+        <div className="danger-zone">
+          <div>
+            <strong>Delete project</strong>
+            <small>Archives it and stops its work. Its history is kept, and you can restore it.</small>
+          </div>
+          <button type="button" className="danger" disabled={busy} onClick={() => onDelete(conversation)}>
+            <Trash2 size={14} />
+            Delete
+          </button>
+        </div>
+      )}
     </form>
   );
 }
