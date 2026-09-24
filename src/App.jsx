@@ -6,6 +6,7 @@ import {
   ArrowUpRight,
   Bot,
   Check,
+  ChevronDown,
   ChevronRight,
   CircleHelp,
   Columns3,
@@ -241,6 +242,8 @@ export function App() {
   const [openBotMenu, setOpenBotMenu] = useState(null);
   const botMenuAnchor = useRef(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [deleteProjectConfirm, setDeleteProjectConfirm] = useState(null);
+  const [showArchivedProjects, setShowArchivedProjects] = useState(false);
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(() => {
     try {
       const saved = localStorage.getItem("anybot-left-sidebar");
@@ -527,9 +530,22 @@ export function App() {
   const sidebarEmployees = data.employees
     .filter((employee) => !employee.archived)
     .filter((employee) => !sidebarTerm || `${employee.name} ${employee.role}`.toLowerCase().includes(sidebarTerm));
-  const groupConversations = data.conversations.filter(
+  const projectMatches = data.conversations.filter(
     (item) => item.members.length > 1 && (!sidebarTerm || item.title.toLowerCase().includes(sidebarTerm)),
   );
+  const groupConversations = projectMatches.filter((item) => !item.archived);
+  const archivedProjects = projectMatches.filter((item) => item.archived);
+  // Deleting a project archives it (like deleting a bot); leave it if it's open.
+  async function deleteProject(project) {
+    const result = await act("conversations.setArchived", { conversation: project.id, archived: true });
+    if (!result) return false;
+    if (project.id === conversationId) {
+      setConversationId(null);
+      setOpenThread(null);
+      setView("team");
+    }
+    return true;
+  }
   function getConversationForEmployee(employeeId) {
     return data.conversations.find(
       (c) => c.members.length === 1 && c.members[0] === employeeId,
@@ -727,21 +743,99 @@ export function App() {
           ) : (
             groupConversations.map((c) => {
               const unread = hasUnreadMessages(c.id);
+              const menuKey = `project:${c.id}`;
+              const isMenuOpen = openBotMenu === menuKey;
               return (
-                <button
+                <div
                   key={c.id}
-                  className={
-                    view === "chat" && c.id === conversationId ? "selected" : ""
-                  }
-                  onClick={() => openConversation(c)}
+                  className={`bot-row project-row${view === "chat" && c.id === conversationId ? " selected" : ""}`}
                 >
-                  <MessageSquare size={16} />
-                  <span>{c.title}</span>
-                  {unread && <i className="unread-dot" />}
-                </button>
+                  <button className="bot-row-main" onClick={() => openConversation(c)}>
+                    <MessageSquare size={16} />
+                    <span>{c.title}</span>
+                    {unread && <i className="unread-dot" />}
+                  </button>
+                  <button
+                    className="bot-row-menu-trigger"
+                    aria-label={`Actions for ${c.title}`}
+                    aria-expanded={isMenuOpen}
+                    aria-haspopup="menu"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      botMenuAnchor.current = e.currentTarget;
+                      setOpenBotMenu(isMenuOpen ? null : menuKey);
+                    }}
+                  >
+                    <MoreHorizontal size={14} />
+                  </button>
+                  {isMenuOpen && (
+                    <FloatingMenu
+                      className="bot-row-menu"
+                      anchor={botMenuAnchor.current}
+                      label={`Actions for ${c.title}`}
+                      onClose={() => setOpenBotMenu(null)}
+                    >
+                      <button
+                        role="menuitem"
+                        onClick={() => {
+                          setOpenBotMenu(null);
+                          setModal({ type: "project-settings", project: c.id });
+                        }}
+                      >
+                        <Pencil size={14} />
+                        Edit
+                      </button>
+                      <button
+                        role="menuitem"
+                        className="danger"
+                        onClick={() => {
+                          setOpenBotMenu(null);
+                          setDeleteProjectConfirm(c);
+                        }}
+                      >
+                        <Trash2 size={14} />
+                        Delete
+                      </button>
+                    </FloatingMenu>
+                  )}
+                </div>
               );
             })
           )}
+          {archivedProjects.length > 0 && (
+            <button
+              type="button"
+              className="archived-toggle"
+              aria-expanded={showArchivedProjects}
+              onClick={() => setShowArchivedProjects(!showArchivedProjects)}
+            >
+              <Archive size={14} />
+              <span>Archived</span>
+              <span className="archived-count">{archivedProjects.length}</span>
+              <ChevronDown size={14} className={showArchivedProjects ? "chevron open" : "chevron"} />
+            </button>
+          )}
+          {showArchivedProjects &&
+            archivedProjects.map((c) => (
+              <div
+                key={c.id}
+                className={`bot-row project-row is-archived${view === "chat" && c.id === conversationId ? " selected" : ""}`}
+              >
+                <button className="bot-row-main" onClick={() => openConversation(c)}>
+                  <Archive size={16} />
+                  <span>{c.title}</span>
+                </button>
+                <button
+                  className="bot-row-menu-trigger"
+                  aria-label={`Restore ${c.title}`}
+                  title="Restore project"
+                  disabled={busy}
+                  onClick={() => act("conversations.setArchived", { conversation: c.id, archived: false })}
+                >
+                  <RefreshCw size={14} />
+                </button>
+              </div>
+            ))}
         </div>
         <div className="sidebar-bottom">
           <div className="runtime-indicator">
@@ -1218,7 +1312,7 @@ export function App() {
               ) : (
               <>
               <div className="messages">
-                {!messages.length && (
+                {!messages.length && !conversation.archived && (
                   <div className="chat-empty">
                     <span className="empty-icon">
                       <MessageSquare size={28} />
@@ -1304,6 +1398,21 @@ export function App() {
                 employees={data.employees}
                 onStopAll={activeRuns.length > 0 ? () => act("runtime.stopAll") : null}
               />
+              {conversation.archived ? (
+                <div className="archived-banner" role="status">
+                  <Archive size={16} />
+                  <span>This project is archived. Its history is kept. Restore it to send work again.</span>
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() => act("conversations.setArchived", { conversation: conversation.id, archived: false })}
+                  >
+                    <RefreshCw size={14} />
+                    Restore
+                  </button>
+                </div>
+              ) : (
               <Composer
                 bots={bots}
                 draft={draft}
@@ -1315,6 +1424,7 @@ export function App() {
                 dictating={dictating}
                 onDictate={() => startDictation((text) => setDraft((current) => `${current}${current && !current.endsWith(" ") ? " " : ""}${text}`))}
               />
+              )}
               <div className="composer-note">
                 Local harnesses use your configured accounts and permissions.
               </div>
@@ -1923,7 +2033,7 @@ export function App() {
                   : modal.type === "conversation-members"
                     ? "Manage conversation bots"
                     : modal.type === "project-settings"
-                      ? "Project settings"
+                      ? "Edit project"
                       : "Create a project"
           }
           onClose={() => setModal(null)}
@@ -2008,11 +2118,15 @@ export function App() {
             />
           ) : modal.type === "project-settings" ? (
             <ProjectSettingsForm
-              conversation={conversation}
+              conversation={data.conversations.find((c) => c.id === (modal.project || conversationId))}
               busy={busy}
               onSave={async (settings) => {
                 const next = await act("conversations.updateSettings", settings);
                 if (next) setModal(null);
+              }}
+              onDelete={(project) => {
+                setModal(null);
+                setDeleteProjectConfirm(project);
               }}
             />
           ) : (
@@ -2069,6 +2183,38 @@ export function App() {
                     archived: true,
                   });
                   if (result) setDeleteConfirm(null);
+                }}
+              >
+                <Trash2 size={14} />
+                Delete
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      {deleteProjectConfirm && (
+        <Modal title="Delete project" onClose={() => setDeleteProjectConfirm(null)}>
+          {error && (
+            <p role="alert" className="banner error">
+              {error}
+            </p>
+          )}
+          <div className="delete-confirm-content">
+            <p>
+              Are you sure you want to delete <strong>{deleteProjectConfirm.title}</strong>?
+            </p>
+            <p className="delete-confirm-note">
+              This will archive the project and stop any work in progress. Its messages, board, canvas, and files are kept, and you can restore it from Archived under Projects.
+            </p>
+            <div className="delete-confirm-actions">
+              <button className="secondary" onClick={() => setDeleteProjectConfirm(null)}>
+                Cancel
+              </button>
+              <button
+                className="danger"
+                disabled={busy}
+                onClick={async () => {
+                  if (await deleteProject(deleteProjectConfirm)) setDeleteProjectConfirm(null);
                 }}
               >
                 <Trash2 size={14} />

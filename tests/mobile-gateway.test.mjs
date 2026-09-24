@@ -449,3 +449,19 @@ test("mobile messages are admitted once across retries and cancellation reaches 
     404,
   );
 });
+
+test("the phone doesn't list archived (deleted) projects", async (t) => {
+  const f = await fixture(t);
+  await f.c.command("employees.create", { name: "Second", role: "Helper", harness: "codex", trusted: true });
+  const members = f.c.snapshot().employees.map((e) => e.id);
+  await f.c.command("conversations.create", { title: "Launch", members });
+  const project = f.c.snapshot().conversations.at(-1);
+  const { token } = await f.pair();
+  const overview = async () =>
+    (await (await f.request("/overview", { headers: { Authorization: `Bearer ${token}` } })).json()).conversations.map((c) => c.id);
+  assert.ok((await overview()).includes(project.id));
+  await f.c.command("conversations.setArchived", { conversation: project.id, archived: true });
+  assert.ok(!(await overview()).includes(project.id));
+  const direct = await f.request(`/conversations/${project.id}`, { headers: { Authorization: `Bearer ${token}` } });
+  assert.notEqual(direct.status, 200);
+});

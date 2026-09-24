@@ -5398,3 +5398,81 @@ dialog .modal-form > .primary.full:last-child {
 .attention-done {
   color: var(--ok);
 }
+
+/* Project rows: the same "…" menu (Edit, Delete) as bot rows. */
+.project-row .bot-row-main {
+  flex: 1;
+  width: auto;
+  justify-content: flex-start;
+  text-align: left;
+  padding: 8px 10px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+  gap: 10px;
+}
+.project-row.selected .bot-row-main {
+  font-weight: 600;
+}
+.project-row.is-archived .bot-row-main {
+  color: var(--ink-3);
+}
+.conversation-list > .archived-toggle {
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.archived-toggle .archived-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.archived-toggle .chevron {
+  margin-left: auto;
+  transition: transform 150ms var(--ease-out);
+}
+.archived-toggle .chevron.open {
+  transform: rotate(180deg);
+}
+
+/* Edit project: deleting sits apart from saving. */
+.danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--danger-soft);
+  border-radius: 12px;
+}
+.danger-zone strong {
+  display: block;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.danger-zone small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+/* An archived project shows this in place of the message box. */
+.archived-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 32px 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 14px;
+  background: var(--card);
+  color: var(--ink-2);
+  font-size: 13.5px;
+}
+.archived-banner span {
+  flex: 1;
+}
+.project-row.is-archived .bot-row-menu-trigger {
+  opacity: 1;
+}

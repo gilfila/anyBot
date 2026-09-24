@@ -255,6 +255,9 @@ export class Coordinator extends EventEmitter {
       case "conversations.updateSettings":
         this.updateConversationSettings(payload);
         break;
+      case "conversations.setArchived":
+        await this.setConversationArchived(payload);
+        break;
       case "messages.send":
         this.send(payload);
         break;
@@ -632,16 +635,61 @@ export class Coordinator extends EventEmitter {
     const title = payload.title !== undefined
       ? text(payload.title, "Title", 100)
       : conversation.title;
+    if (payload.delegation !== undefined && typeof payload.delegation !== "boolean")
+      throw new Error("Handoffs must be on or off");
+    const delegation = payload.delegation === undefined ? conversation.delegation : payload.delegation ? 1 : 0;
     this.store.run(
-      "UPDATE conversations SET title=?, allowedFolders=?, artifactsFolder=? WHERE id=?",
+      "UPDATE conversations SET title=?, allowedFolders=?, artifactsFolder=?, delegation=? WHERE id=?",
       title,
       JSON.stringify(allowedFolders),
       artifactsFolder,
+      delegation,
       conversationId,
     );
     this.store.event("conversation.settings.updated", {
       conversation: conversationId,
     });
+  }
+  // Deleting a project archives it, the way deleting a bot does: it leaves
+  // the sidebar, its work stops, and its history, board, and canvas stay so
+  // it can be restored. Direct chats aren't projects and can't be archived.
+  async setConversationArchived(payload) {
+    const conversationId = text(payload.conversation, "Conversation ID", 100);
+    const conversation = requireRow(
+      this.store.one("SELECT * FROM conversations WHERE id=?", conversationId),
+      "Conversation",
+    );
+    if (typeof payload.archived !== "boolean")
+      throw new Error("Archived must be a boolean");
+    if (JSON.parse(conversation.members).length < 2)
+      throw new Error("Only projects can be deleted");
+    // Stop the project's work first (cancelling a run also stops its hand-offs).
+    if (payload.archived)
+      for (const { id: runId } of this.store.all(
+        "SELECT id FROM runs WHERE conversation=? AND status IN ('queued','running') ORDER BY rowid",
+        conversationId,
+      ))
+        if (["queued", "running"].includes(this.store.one("SELECT status FROM runs WHERE id=?", runId)?.status))
+          await this.cancel(runId);
+    this.store.transaction(() => {
+      this.store.run(
+        "UPDATE conversations SET archived=? WHERE id=?",
+        payload.archived ? 1 : 0,
+        conversationId,
+      );
+      if (payload.archived) {
+        this.store.run("UPDATE conversations SET autopilot=0 WHERE id=?", conversationId);
+        this.store.run("UPDATE routines SET enabled=0 WHERE conversation=?", conversationId);
+      }
+      this.store.event(payload.archived ? "conversation.archived" : "conversation.restored", {
+        conversation: conversationId,
+      });
+    });
+  }
+  // New work can't start in an archived project.
+  requireOpenProject(conversation) {
+    if (conversation?.archived)
+      throw new Error("This project is archived. Restore it before sending work.");
   }
   addMessage(conversation, author, kind, body, thread = null) {
     const messageId = id();
@@ -712,6 +760,7 @@ export class Coordinator extends EventEmitter {
       throw new Error("Assign at least one employee before starting this task");
     if (this.board.activeRuns(task.id).length)
       throw new Error("This task is already being worked on");
+    this.requireOpenProject(this.store.one("SELECT archived FROM conversations WHERE id=?", task.conversation));
     for (const employee of task.assignees) this.activeEmployee(employee);
     this.store.transaction(() => {
       if (task.status !== "in_progress")
@@ -769,7 +818,7 @@ export class Coordinator extends EventEmitter {
     );
     let started = false;
     for (const conversation of this.store.all(
-      "SELECT id,members FROM conversations WHERE autopilot=1",
+      "SELECT id,members FROM conversations WHERE autopilot=1 AND archived=0",
     )) {
       for (const employee of JSON.parse(conversation.members)) {
         if (busy.has(employee)) continue;
@@ -911,6 +960,7 @@ export class Coordinator extends EventEmitter {
       ),
       "Conversation",
     );
+    this.requireOpenProject(conversation);
     const members = JSON.parse(conversation.members);
     const explicit = payload.recipients === undefined ? [] : payload.recipients;
     if (!Array.isArray(explicit) || explicit.some((r) => !members.includes(r)))
@@ -1193,6 +1243,12 @@ export class Coordinator extends EventEmitter {
     const occupied = new Set([...this.active.values()].map((a) => a.workspace));
     const employees = new Set([...this.active.values()].map((a) => a.employee));
     let started = false;
+    // Follow-up work queued in a project after it was archived (a hand-off
+    // or @mention from a run that was already finishing) never starts.
+    const dropped = this.store.run(
+      "UPDATE runs SET status='cancelled',ended=? WHERE status='queued' AND conversation IN (SELECT id FROM conversations WHERE archived=1)",
+      now(),
+    );
     for (const run of this.store.all(
       "SELECT * FROM runs WHERE status='queued' ORDER BY rowid",
     )) {
@@ -1221,7 +1277,7 @@ export class Coordinator extends EventEmitter {
       started = true;
       state.promise = this.execute(run, employee, controller);
     }
-    if (started) this.notify();
+    if (started || dropped.changes) this.notify();
   }
   async execute(run, employee, controller) {
     let lastSave = 0;

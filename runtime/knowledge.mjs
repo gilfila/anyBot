@@ -53,7 +53,7 @@ export class Knowledge {
         edges.push({ id: `auto:rep:${e.id}`, src: `agent:${e.id}`, dst: `agent:${e.manager}`, relation: "reports_to", source: "auto" });
     }
     const projects = new Set();
-    for (const c of this.store.all("SELECT id,title,members FROM conversations")) {
+    for (const c of this.store.all("SELECT id,title,members FROM conversations WHERE archived=0")) {
       const members = JSON.parse(c.members);
       if (members.length < 2) continue;
       projects.add(c.id);
