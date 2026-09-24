@@ -4,8 +4,7 @@ import { Avatar } from "./Avatar.jsx";
 
 export function ConversationForm({ employees, busy, onSave }) {
   const [title, setTitle] = useState(""),
-    [members, setMembers] = useState([]),
-    [delegation, setDelegation] = useState(false);
+    [members, setMembers] = useState([]);
   const [allowedFolders, setAllowedFolders] = useState([]);
   const [artifactsFolder, setArtifactsFolder] = useState("");
 
@@ -31,7 +30,7 @@ export function ConversationForm({ employees, busy, onSave }) {
       className="modal-form"
       onSubmit={(e) => {
         e.preventDefault();
-        onSave({ title, members, delegation, allowedFolders, artifactsFolder });
+        onSave({ title, members, allowedFolders, artifactsFolder });
       }}
     >
       <label>
@@ -71,17 +70,6 @@ export function ConversationForm({ employees, busy, onSave }) {
           </label>
         ))}
       </div>
-      <label className="checkbox trust">
-        <input
-          type="checkbox"
-          checked={delegation}
-          onChange={(e) => setDelegation(e.target.checked)}
-        />
-        <span>
-          Allow employees to hand work to one another within this project.
-          Limited to 8 runs per root task.
-        </span>
-      </label>
       <div className="project-folders-section">
         <label>
           Allowed folders

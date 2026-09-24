@@ -43,27 +43,31 @@ async function workspace(t) {
   return { c, alex, morgan, project, direct, waitFor, say };
 }
 
-test("editing a project changes its name, handoffs, and folders", async (t) => {
+test("editing a project changes its name and folders", async (t) => {
   const { c, project } = await workspace(t);
   await c.command("conversations.updateSettings", {
     conversation: project.id,
     title: "Launch v2",
-    delegation: true,
     allowedFolders: ["C:/work/site"],
     artifactsFolder: "C:/work/out",
   });
-  let saved = c.snapshot().conversations.find((x) => x.id === project.id);
+  const saved = c.snapshot().conversations.find((x) => x.id === project.id);
   assert.equal(saved.title, "Launch v2");
-  assert.equal(saved.delegation, 1);
   assert.deepEqual(saved.allowedFolders, ["C:/work/site"]);
-  // Leaving handoffs out keeps them as they are.
-  await c.command("conversations.updateSettings", { conversation: project.id, title: "Launch v3" });
-  saved = c.snapshot().conversations.find((x) => x.id === project.id);
-  assert.equal(saved.delegation, 1);
-  await assert.rejects(
-    c.command("conversations.updateSettings", { conversation: project.id, delegation: "yes" }),
-    /Handoffs must be on or off/,
-  );
+  assert.equal(saved.artifactsFolder, "C:/work/out");
+});
+
+test("every project hands off between its bots; direct chats don't", async (t) => {
+  const { c, alex, morgan, project, direct } = await workspace(t);
+  // The project was created with the old switch off, and a stale client tries to turn it off.
+  await c.command("conversations.updateSettings", { conversation: project.id, title: "Launch", delegation: false });
+  let snap = c.snapshot();
+  assert.equal(snap.conversations.find((x) => x.id === project.id).delegation, 1);
+  assert.equal(snap.conversations.find((x) => x.id === direct.id).delegation, 0);
+  // A direct chat that gains a second bot becomes a project.
+  await c.command("conversations.updateMembers", { conversation: direct.id, members: [alex.id, morgan.id] });
+  snap = c.snapshot();
+  assert.equal(snap.conversations.find((x) => x.id === direct.id).delegation, 1);
 });
 
 test("deleting a project archives it, stops its work, and blocks new work until restored", async (t) => {

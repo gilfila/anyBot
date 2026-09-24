@@ -1189,10 +1189,8 @@ export function App() {
                   <h2>{conversation.title}</h2>
                   <p>
                     {conversation.members.length} employee
-                    {conversation.members.length === 1 ? "" : "s"} ·{" "}
-                    {conversation.delegation
-                      ? "Team handoffs enabled"
-                      : "Direct responses"}
+                    {conversation.members.length === 1 ? "" : "s"}
+                    {conversation.members.length > 1 ? " · Bots hand work to each other" : ""}
                   </p>
                 </div>
                 <div className="avatar-stack">

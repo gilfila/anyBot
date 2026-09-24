@@ -91,7 +91,7 @@ export function describeIssue(issue) {
     },
     "delegation.rejected": {
       title: `A handoff from ${who(c)} was refused`,
-      hint: "Bots can hand work to their reports, or to peers in a project with delegation on.",
+      hint: "Bots can hand work to their reports, or to teammates in the same project.",
     },
     "artifacts.not_collected": {
       title: `Files from ${who(c)} weren't collected`,

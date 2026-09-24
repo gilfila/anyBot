@@ -196,6 +196,8 @@ export class Coordinator extends EventEmitter {
         .map((c) => ({
           ...c,
           members: JSON.parse(c.members),
+          // Every project hands off; the stored flag is kept for old clients.
+          delegation: JSON.parse(c.members).length > 1 ? 1 : 0,
           allowedFolders: JSON.parse(c.allowedFolders || "[]"),
           artifactsFolder: c.artifactsFolder || "",
         })),
@@ -579,7 +581,7 @@ export class Coordinator extends EventEmitter {
       id(),
       title,
       JSON.stringify(members),
-      payload.delegation === true ? 1 : 0,
+      members.length > 1 ? 1 : 0,
       now(),
       JSON.stringify(allowedFolders),
       artifactsFolder,
@@ -612,8 +614,9 @@ export class Coordinator extends EventEmitter {
       conversationId,
     )) throw new Error("Stop or finish this conversation's active work before removing bots");
     this.store.run(
-      "UPDATE conversations SET members=? WHERE id=?",
+      "UPDATE conversations SET members=?, delegation=? WHERE id=?",
       JSON.stringify(members),
+      members.length > 1 ? 1 : 0,
       conversationId,
     );
     for (const member of previous.filter((member) => !members.includes(member)))
@@ -635,15 +638,11 @@ export class Coordinator extends EventEmitter {
     const title = payload.title !== undefined
       ? text(payload.title, "Title", 100)
       : conversation.title;
-    if (payload.delegation !== undefined && typeof payload.delegation !== "boolean")
-      throw new Error("Handoffs must be on or off");
-    const delegation = payload.delegation === undefined ? conversation.delegation : payload.delegation ? 1 : 0;
     this.store.run(
-      "UPDATE conversations SET title=?, allowedFolders=?, artifactsFolder=?, delegation=? WHERE id=?",
+      "UPDATE conversations SET title=?, allowedFolders=?, artifactsFolder=? WHERE id=?",
       title,
       JSON.stringify(allowedFolders),
       artifactsFolder,
-      delegation,
       conversationId,
     );
     this.store.event("conversation.settings.updated", {
@@ -685,6 +684,11 @@ export class Coordinator extends EventEmitter {
         conversation: conversationId,
       });
     });
+  }
+  // Every project (two or more bots) lets its bots hand work to each other
+  // and @mention teammates into threads. A direct chat has no one to hand to.
+  isProject(conversation) {
+    return JSON.parse(conversation.members).length > 1;
   }
   // New work can't start in an archived project.
   requireOpenProject(conversation) {
@@ -1116,16 +1120,16 @@ export class Coordinator extends EventEmitter {
     const mentionedBy = peers.find((p) => p.id === assigned.author && p.id !== employee.id)?.name;
     const teammates = peers.filter((p) => p.id !== employee.id);
     const collaborate =
-      run.thread && conversation.delegation && teammates.length
+      run.thread && this.isProject(conversation) && teammates.length
         ? `\n\nYou are working in a thread with your teammates. Reply in the thread. To bring a teammate in, write @Name followed by exactly what you need from them; they will read this thread and reply in it. Teammates: ${teammates.map((t) => `@${t.name} (${t.role})`).join(", ")}. Mention someone only when you need them; do not mention teammates just to thank or acknowledge them.`
         : "";
     const reports = this.org.directReports(employee.id);
     const delegateHow = `delegate one concrete task by ending with a fenced anybot block containing JSON: {"type":"delegate","employeeId":"exact ID","objective":"concrete assignment"}. Use only when useful. The coordinator validates and limits delegation, then returns the result to you. Do not claim a delegation succeeded before it runs.`;
-    const delegation = conversation.delegation
+    const delegation = this.isProject(conversation)
       ? `You may ${delegateHow} Peers: ${JSON.stringify(peers)}.${reports.length ? ` You may also delegate to your direct reports: ${JSON.stringify(reports)}.` : ""}`
       : reports.length
-        ? `Delegation to peers is disabled here, but as a manager you may ${delegateHow} Your direct reports: ${JSON.stringify(reports)}.`
-        : "Delegation is disabled in this conversation.";
+        ? `This is a direct chat with no peers, but as a manager you may ${delegateHow} Your direct reports: ${JSON.stringify(reports)}.`
+        : "This is a direct chat, so there is no one to delegate to.";
     const board =
       this.boardContext(run, conversation, peers) +
       this.orgContext(run, employee, assignment) +
@@ -1508,13 +1512,11 @@ export class Coordinator extends EventEmitter {
       run.conversation,
     );
     // Chain of command: anyone below the delegator can receive work from any
-    // conversation (running there as a guest). Peers need a shared project
-    // with delegation enabled.
+    // conversation (running there as a guest). Peers need a shared project.
     const isReport = this.org.isBelow(request.employeeId, run.employee);
     if (request.employeeId === run.employee)
       throw new Error("Target must be another employee");
     if (!isReport) {
-      if (!conversation.delegation) throw new Error("Delegation is disabled");
       if (!JSON.parse(conversation.members).includes(request.employeeId))
         throw new Error("Target must be another employee in this conversation or one of your reports");
     }
@@ -1544,12 +1546,12 @@ export class Coordinator extends EventEmitter {
     );
   }
   // A bot that @mentions a teammate in its reply pulls that teammate into the
-  // same thread (when the project allows handoffs). Bots can pass a thread
+  // same thread. Bots can pass a thread
   // around at most MENTION_HOPS times before the owner has to reply.
   activateMentions(run, text, message) {
     if (!run.thread) return;
     const conversation = this.store.one("SELECT * FROM conversations WHERE id=?", run.conversation);
-    if (!conversation?.delegation) return;
+    if (!conversation || !this.isProject(conversation)) return;
     const targets = mentionedIds(text, this.memberBots(conversation)).filter((id) => id !== run.employee);
     if (!targets.length) return;
     const busy = new Set(

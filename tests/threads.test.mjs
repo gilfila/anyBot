@@ -116,10 +116,11 @@ test("bots pull teammates into the thread by @mentioning them, and see the threa
   assert.match(morgan, /To bring a teammate in, write @Name/);
 });
 
-test("bot-to-bot mentions need team handoffs on, and can't loop forever", async (t) => {
-  const quiet = await project(t, { delegation: false, script: { Alex: ["@Morgan over to you"] } });
-  await quiet.say("@Alex go");
-  assert.equal(quiet.c.snapshot().runs.length, 1, "with handoffs off, a mention in a reply activates no one");
+test("bot-to-bot mentions work in every project, and can't loop forever", async (t) => {
+  // The old per-project handoffs switch is gone: a project made with it off still hands off.
+  const legacy = await project(t, { delegation: false, script: { Alex: ["@Morgan over to you"] } });
+  await legacy.say("@Alex go");
+  assert.deepEqual(legacy.c.snapshot().runs.map((r) => legacy.byId(r.employee)), ["Alex", "Morgan"]);
 
   const ping = Array.from({ length: 10 }, () => "@Morgan your turn");
   const pong = Array.from({ length: 10 }, () => "@Alex your turn");

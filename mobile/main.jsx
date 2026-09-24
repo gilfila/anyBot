@@ -475,9 +475,6 @@ function App() {
             <div className="thread-title">
               <h1>{conversation?.title || "Conversation"}</h1>
               <p>{conversation?.members.map(name).join(" · ")}</p>
-              {conversation?.delegation ? (
-                <span className="pill">Team handoffs enabled</span>
-              ) : null}
               {conversation?.members.length === 1 ? (
                 <button
                   className={`voice-chat ${voiceChat ? "active" : ""}`}
@@ -1090,7 +1087,6 @@ function NewChat({ employees, humanMembers = [], currentHuman = "", initial, onC
   const [members, setMembers] = useState(initial ? [initial] : []),
     [humanInvites, setHumanInvites] = useState([]),
     [title, setTitle] = useState(""),
-    [handoffs, setHandoffs] = useState(false),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   return (
@@ -1110,7 +1106,7 @@ function NewChat({ employees, humanMembers = [], currentHuman = "", initial, onC
             e.preventDefault();
             setBusy(true);
             try {
-              await onCreate({ title, members, humanMembers: humanInvites, delegation: handoffs });
+              await onCreate({ title, members, humanMembers: humanInvites });
             } catch (e) {
               setError(e.message);
             } finally {
@@ -1169,14 +1165,6 @@ function NewChat({ employees, humanMembers = [], currentHuman = "", initial, onC
               ))}
             </fieldset>
           )}
-          <label className="choice">
-            <input
-              type="checkbox"
-              checked={handoffs}
-              onChange={(e) => setHandoffs(e.target.checked)}
-            />
-            <span>Allow handoffs between these employees</span>
-          </label>
           {error && (
             <p role="alert" className="error">
               {error}

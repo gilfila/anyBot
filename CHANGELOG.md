@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.18] - 2026-09-24
+
+### Changed
+- **Bots in every project can pass work to each other.** There's no longer a setting for it: in any project with two or more bots, a bot can hand off a task or @mention a teammate into its thread. This applies to projects you've already made, including ones created with handoffs off.
+  - The switch is gone from New project and Edit project on the desktop, and from new chats on the phone.
+  - The project header now says "Bots hand work to each other".
+  - Direct chats with one bot are unchanged, and the limits stay: 8 runs per task, and 6 bot-to-bot @mentions in a thread before it waits for you.
+
 ## [0.3.17] - 2026-09-24
 
 ### Added

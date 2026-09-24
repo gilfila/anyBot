@@ -378,7 +378,7 @@ export function createMobileGateway({
         return reply(400, { error: "Unknown human member" });
       const next = await invoke(
         "conversations.create",
-        pick(input, ["title", "members", "delegation"]),
+        pick(input, ["title", "members"]),
       );
       const created = next.conversations.at(-1);
       setAccess(created.id, [session.memberId, ...humanMembers]);
