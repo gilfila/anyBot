@@ -144,6 +144,11 @@ import { RobotAvatar, AvatarActivityContext } from "./components/RobotAvatar.jsx
 import { employeeAvatarStates, parseAvatarConfig } from "./lib/avatar-config.js";
 import { bubbleStyle } from "./lib/bubbles.js";
 import { WorkingIndicator } from "./components/WorkingIndicator.jsx";
+import { ChatMessage, LiveRun } from "./components/chat/ChatMessage.jsx";
+import { Composer } from "./components/chat/Composer.jsx";
+import { ThreadPanel, ThreadSummary } from "./components/chat/ThreadPanel.jsx";
+import { threadIndex } from "./components/chat/threads.js";
+import "./components/chat/chat.css";
 import { ApprovalBar } from "./components/ApprovalBar.jsx";
 import { Status } from "./components/Status.jsx";
 import { Empty } from "./components/Empty.jsx";
@@ -221,8 +226,7 @@ export function App() {
       ),
     [data.employees],
   );
-  const [draft, setDraft] = useState(""),
-    [recipients, setRecipients] = useState([]);
+  const [draft, setDraft] = useState("");
   const [sidebarSearch, setSidebarSearch] = useState("");
   const [dictating, setDictating] = useState(false),
     [voiceAgent, setVoiceAgent] = useState(null);
@@ -255,6 +259,8 @@ export function App() {
   const [explorerPath, setExplorerPath] = useState('');
   const [projectTab, setProjectTab] = useState("chat");
   const [selectedTask, setSelectedTask] = useState(null);
+  // The thread open beside the channel (its first message's id).
+  const [openThread, setOpenThread] = useState(null);
   const [orgTab, setOrgTab] = useState("chart");
   const end = useRef(null);
   // Voice replies are awaited inside long-lived callbacks; read live data.
@@ -364,17 +370,18 @@ export function App() {
   const openTaskCount = (data.tasks || []).filter(
     (task) => task.conversation === conversationId && task.status !== "done",
   ).length;
-  const activeRecipients = recipients.filter((id) =>
-    conversation?.members.includes(id) &&
-      data.employees.some((e) => e.id === id && !e.archived),
-  );
+  // In a project, bots work in threads under the message that mentioned
+  // them; the channel shows first messages, each with its thread summary.
+  const bots = conversation
+    ? data.employees.filter((e) => conversation.members.includes(e.id) && !e.archived)
+    : [];
+  const threads = threadIndex(messages, runs);
+  const channel = isProject ? messages.filter((m) => !m.thread) : messages;
+  const channelRuns = isProject ? activeRuns.filter((r) => !r.thread) : activeRuns;
+  const thread = openThread && isProject ? messages.find((m) => m.id === openThread) : null;
   function openConversation(c) {
     setConversationId(c.id);
-    setRecipients(
-      c.members
-        .filter((id) => !data.employees.find((e) => e.id === id)?.archived)
-        .slice(0, 1),
-    );
+    if (c.id !== conversationId) setOpenThread(null);
     setView("chat");
     setDraft("");
     if (c.id !== conversationId) {
@@ -414,16 +421,28 @@ export function App() {
       document.removeEventListener("keydown", handleEscape);
     };
   }, [openBotMenu]);
-  async function send(event) {
-    event.preventDefault();
-    if (busy || !draft.trim() || !activeRecipients.length) return;
+  // @mentions in the text decide who works (runtime/mentions.mjs).
+  async function send() {
+    if (busy || !draft.trim()) return;
     const result = await act("messages.send", {
       conversation: conversationId,
       body: draft,
-      recipients: activeRecipients,
       requestId: crypto.randomUUID(),
     });
-    if (result) setDraft("");
+    if (!result) return;
+    setDraft("");
+    // Open the thread where the mentioned bots just started.
+    const sent = result.messages.filter((m) => m.conversation === conversationId && m.author === "human" && !m.thread).at(-1);
+    if (isProject && sent && result.runs.some((r) => r.thread === sent.id)) setOpenThread(sent.id);
+  }
+  async function sendInThread(body) {
+    const result = await act("messages.send", {
+      conversation: conversationId,
+      body,
+      thread: openThread,
+      requestId: crypto.randomUUID(),
+    });
+    return Boolean(result);
   }
   function startDictation(onText) {
     const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1205,12 +1224,13 @@ export function App() {
                     </span>
                     <h2>What are we working on?</h2>
                     <p>
-                      Give your team a clear objective. They’ll bring their
-                      progress and results back here.
+                      {isProject
+                        ? "Mention a bot with @ to put it to work. It answers in a thread under your message, and bots can @mention each other to pull teammates in."
+                        : "Give your team a clear objective. They’ll bring their progress and results back here."}
                     </p>
                   </div>
                 )}
-                {messages.map((m) => m.kind === "task" ? (
+                {channel.map((m) => m.kind === "task" ? (
                   <TaskStartMessage
                     key={m.id}
                     message={m}
@@ -1222,83 +1242,36 @@ export function App() {
                     }}
                   />
                 ) : (
-                  <div
-                    className={`message ${m.kind}${m.author === "human" ? " from-you" : m.author === "system" ? " from-system" : " from-bot"}`}
-                    style={bubbles.get(m.author)}
+                  <ChatMessage
                     key={m.id}
+                    message={m}
+                    employees={data.employees}
+                    bubbles={bubbles}
+                    onOpenPreview={openHtmlPreview}
+                    onOpenBrowser={(url) => {
+                      setBrowserUrl(url);
+                      setActiveToolsPanel("browser");
+                      setRightSidebarOpen(true);
+                    }}
                   >
-                    {m.author === "human" ? (
-                      <Avatar small employee={{ name: "Y" }} />
-                    ) : m.author === "system" ? null : (
-                      <RobotAvatar
-                        size={64}
-                        employee={data.employees.find((e) => e.id === m.author)}
+                    {isProject && threads.has(m.id) && (
+                      <ThreadSummary
+                        entry={threads.get(m.id)}
+                        employees={data.employees}
+                        open={openThread === m.id}
+                        onOpen={() => setOpenThread(openThread === m.id ? null : m.id)}
                       />
                     )}
-                    <div className="message-content">
-                      <div className="message-meta">
-                        <strong>
-                          {m.author === "human"
-                            ? "You"
-                            : data.employees.find((e) => e.id === m.author)
-                                ?.name || "Coordinator"}
-                        </strong>
-                        <span>{time(m.created)}</span>
-                        {m.kind === "handoff" && (
-                          <span className="handoff-label">
-                            <Workflow size={12} />
-                            Handoff
-                          </span>
-                        )}
-                      </div>
-                      <div className="message-body">
-                        <MessageContent 
-                          body={m.body} 
-                          onOpenPreview={openHtmlPreview}
-                          onOpenBrowser={(url) => {
-                            setBrowserUrl(url);
-                            setActiveToolsPanel('browser');
-                            setRightSidebarOpen(true);
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </div>
+                  </ChatMessage>
                 ))}
-                {activeRuns.map((r) => (
-                  <div className="message live-run from-bot" style={bubbles.get(r.employee)} key={r.id}>
-                    <RobotAvatar
-                      size={64}
-                      employee={data.employees.find((e) => e.id === r.employee)}
-                      working
-                    />
-                    <div className="message-content">
-                      <div className="message-meta">
-                        <strong>
-                          {
-                            data.employees.find((e) => e.id === r.employee)
-                              ?.name
-                          }
-                        </strong>
-                        <Status status={r.status} />
-                        <button
-                          className="mini"
-                          onClick={() => act("runs.cancel", { id: r.id })}
-                        >
-                          <Square size={12} />
-                          Stop
-                        </button>
-                      </div>
-                      <div className="message-body">
-                        {r.output || "Waiting for the harness…"}
-                      </div>
-                    </div>
-                  </div>
+                {channelRuns.map((r) => (
+                  <LiveRun key={r.id} run={r} employees={data.employees} bubbles={bubbles} onStop={(id) => act("runs.cancel", { id })} />
                 ))}
                 {runs
                   .filter((r) =>
                     ["failed", "interrupted", "cancelled"].includes(r.status) &&
-                    !r.dismissed,
+                    !r.dismissed &&
+                    !(isProject && r.thread),
                   )
                   .map((r) => (
                     <div className="run-notice" key={r.id}>
@@ -1330,77 +1303,46 @@ export function App() {
                 employees={data.employees}
                 onStopAll={activeRuns.length > 0 ? () => act("runtime.stopAll") : null}
               />
-              <form className="composer" onSubmit={send}>
-                <div className="recipient-row">
-                  <span>To</span>
-                  {conversation.members.map((id) => {
-                    const e = data.employees.find((e) => e.id === id);
-                    return (
-                      <button
-                        type="button"
-                        className={
-                          recipients.includes(id)
-                            ? "recipient chosen"
-                            : "recipient"
-                        }
-                        key={id}
-                        disabled={Boolean(e?.archived)}
-                        onClick={() =>
-                          setRecipients(
-                            recipients.includes(id)
-                              ? recipients.filter((r) => r !== id)
-                              : [...recipients, id],
-                          )
-                        }
-                      >
-                        {recipients.includes(id) && <Check size={12} />}{" "}
-                        {e?.name}
-                        {e?.archived ? " (archived)" : ""}
-                      </button>
-                    );
-                  })}
-                </div>
-                <textarea
-                  aria-label="Message your team"
-                  placeholder="Give your team something to work on…"
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                      e.preventDefault();
-                      send(e);
-                    }
-                  }}
-                />
-                <div className="composer-bottom">
-                  <span>Enter to send · Shift + Enter for a new line</span>
-                  <div className="composer-actions">
-                    <button
-                      type="button"
-                      className={dictating ? "dictation active" : "dictation"}
-                      aria-label={dictating ? "Stop dictation" : "Dictate message"}
-                      title="Dictate with Flow-compatible speech input"
-                      onClick={() => startDictation((text) => setDraft((current) => `${current}${current && !current.endsWith(" ") ? " " : ""}${text}`))}
-                    >
-                      <Mic size={17} />
-                    </button>
-                    <button
-                      className="send"
-                      aria-label="Send message"
-                      disabled={busy || !connected || !draft.trim() || !activeRecipients.length}
-                    >
-                      <ArrowUp size={19} />
-                    </button>
-                  </div>
-                </div>
-              </form>
+              <Composer
+                bots={bots}
+                draft={draft}
+                setDraft={setDraft}
+                onSend={send}
+                mode={isProject ? "project" : "direct"}
+                busy={busy}
+                connected={connected}
+                dictating={dictating}
+                onDictate={() => startDictation((text) => setDraft((current) => `${current}${current && !current.endsWith(" ") ? " " : ""}${text}`))}
+              />
               <div className="composer-note">
                 Local harnesses use your configured accounts and permissions.
               </div>
               </>
               )}
             </section>
-            {selectedTask && isProject && rightSidebarOpen && data.tasks.some((t) => t.id === selectedTask) ? (
+            {thread && projectTab === "chat" ? (
+              <ThreadPanel
+                key={thread.id}
+                root={thread}
+                entry={threads.get(thread.id) || { replies: [], participants: [], working: [], failed: [], last: null }}
+                runs={runs.filter((r) => r.thread === thread.id)}
+                employees={data.employees}
+                bots={bots}
+                bubbles={bubbles}
+                busy={busy}
+                connected={connected}
+                onClose={() => setOpenThread(null)}
+                onSend={sendInThread}
+                onStop={(id) => act("runs.cancel", { id })}
+                onDismiss={dismissRun}
+                onOpenPreview={openHtmlPreview}
+                onOpenBrowser={(url) => {
+                  setBrowserUrl(url);
+                  setActiveToolsPanel("browser");
+                  setRightSidebarOpen(true);
+                }}
+              />
+            ) : selectedTask && isProject && rightSidebarOpen && data.tasks.some((t) => t.id === selectedTask) ? (
               <TaskPeek
                 taskId={selectedTask}
                 data={data}

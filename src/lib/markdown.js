@@ -65,11 +65,30 @@ export function renderMarkdownInline(text, options) {
   }
 }
 
-function renderInline(text, { mentions = false } = {}) {
+// "@Name" for any of `people` (bot names), matched like runtime/mentions.mjs:
+// not inside a word or an email address, and the longest name wins.
+let peopleCache = { key: null, pattern: null };
+function peoplePattern(people) {
+  const key = people.join("\u0001");
+  if (peopleCache.key !== key) {
+    const names = [...new Set(people.map((name) => escapeHtml(String(name || "").trim())).filter(Boolean))]
+      .sort((a, b) => b.length - a.length)
+      .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    peopleCache = {
+      key,
+      pattern: names.length ? new RegExp(`(^|[^\\p{L}\\p{N}_@])@(${names.join("|")})(?![\\p{L}\\p{N}_])`, "giu") : null,
+    };
+  }
+  return peopleCache.pattern;
+}
+
+function renderInline(text, { mentions = false, people = [] } = {}) {
   const parked = [];
   const park = (html) => `\u0000${parked.push(html) - 1}\u0000`;
   let result = escapeHtml(text);
   result = result.replace(INLINE_CODE_PATTERN, (_, code) => park(`<code>${code}</code>`));
+  const named = people.length ? peoplePattern(people) : null;
+  if (named) result = result.replace(named, (_, lead, name) => lead + park(`<span class="mention mention-agent">@${name}</span>`));
   if (mentions)
     result = result.replace(MENTION_PATTERN, (_, label, kind, ref) =>
       park(`<span class="mention mention-${kind}" data-mention="${kind}:${ref}">@${label}</span>`),

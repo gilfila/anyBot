@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 
 export const id = () => randomUUID();
 // Bump with each migration below. Newer workspaces are refused by older apps.
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 export const now = () => new Date().toISOString();
 
 export class Store {
@@ -342,6 +342,30 @@ export class Store {
         this.db.exec("UPDATE employees SET permissionMode='auto' WHERE permissionMode='ask' OR permissionMode=''");
         this.db
           .prepare("UPDATE metadata SET value='12' WHERE key='schema'")
+          .run();
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        this.db.close();
+        throw error;
+      }
+    }
+    const threadsVersion = Number(
+      this.db.prepare("SELECT value FROM metadata WHERE key='schema'").get()
+        .value,
+    );
+    if (threadsVersion < 13) {
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
+        // Threads: a reply names its thread's first message. Runs record the
+        // thread they answer in, so their replies land there.
+        for (const table of ["messages", "runs"]) {
+          const columns = this.db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+          if (!columns.includes("thread")) this.db.exec(`ALTER TABLE ${table} ADD COLUMN thread TEXT`);
+          this.db.exec(`CREATE INDEX IF NOT EXISTS ${table}_thread ON ${table}(thread)`);
+        }
+        this.db
+          .prepare("UPDATE metadata SET value='13' WHERE key='schema'")
           .run();
         this.db.exec("COMMIT");
       } catch (error) {

@@ -23,7 +23,7 @@
   background: var(--glass);
 }
 :root:is([data-backdrop="rain"], [data-backdrop="meadow"], [data-backdrop="grid"])
-  :is(.sidebar, .context-rail, .chat-heading, .project-tabs, .org-heading, .kg-main) {
+  :is(.sidebar, .context-rail, .chat-heading, .project-tabs, .org-heading, .kg-main, .thread-panel) {
   background: var(--paper);
 }
 /* A message's name, time, and status sit in a pill above its bubble. */

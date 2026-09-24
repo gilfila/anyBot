@@ -19,6 +19,9 @@ export function asksQuestion(body) {
     .replace(CODE_BLOCK, "")
     .trim();
   const tail = prose.split(/\n+/).filter((line) => line.trim()).slice(-2).join(" ").slice(-280);
+  // A closing question to a teammate ("@Morgan can you build it?") isn't one for you.
+  const last = tail.split(/(?<=[.!?])\s+/).at(-1) || "";
+  if (/(^|[^\p{L}\p{N}_@])@\p{L}/u.test(last)) return false;
   return /\?\s*["')\]*_]*\s*$/.test(tail) || /\?[^.!?]*$/.test(tail.slice(-120));
 }
 export const pullRequestIn = (body) => String(body || "").match(PR_URL)?.[0] || null;

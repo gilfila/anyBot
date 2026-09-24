@@ -97,13 +97,13 @@ function HtmlPreviewCard({ html, onPreview }) {
   );
 }
 
-function MarkdownText({ text }) {
+function MarkdownText({ text, people }) {
   const lines = text.split('\n');
   const elements = [];
   let list = null;
   let quote = [];
 
-  const inline = (value) => ({ __html: renderMarkdownInline(value) });
+  const inline = (value) => ({ __html: renderMarkdownInline(value, { people }) });
   const flushList = () => {
     if (!list) return;
     const Tag = list.ordered ? "ol" : "ul";
@@ -208,7 +208,8 @@ function MarkdownText({ text }) {
   return <div className="markdown-content">{elements}</div>;
 }
 
-export function MessageContent({ body, onOpenPreview, onOpenBrowser }) {
+// `people`: bot names to highlight where the message @mentions them.
+export function MessageContent({ body, onOpenPreview, onOpenBrowser, people = [] }) {
   const content = useMemo(() => {
     if (!body || typeof body !== 'string') {
       return { type: 'text', content: String(body || '') };
@@ -273,7 +274,7 @@ export function MessageContent({ body, onOpenPreview, onOpenBrowser }) {
         const textBefore = content.content.slice(lastIndex, block.index);
         if (textBefore.trim()) {
           parts.push(
-            <MarkdownText key={`text-${lastIndex}`} text={textBefore} />
+            <MarkdownText key={`text-${lastIndex}`} text={textBefore} people={people} />
           );
         }
       }
@@ -292,7 +293,7 @@ export function MessageContent({ body, onOpenPreview, onOpenBrowser }) {
       const textAfter = content.content.slice(lastIndex);
       if (textAfter.trim()) {
         parts.push(
-          <MarkdownText key={`text-${lastIndex}`} text={textAfter} />
+          <MarkdownText key={`text-${lastIndex}`} text={textAfter} people={people} />
         );
       }
     }
@@ -301,7 +302,7 @@ export function MessageContent({ body, onOpenPreview, onOpenBrowser }) {
   }
 
   if (content.type === 'markdown') {
-    return <MarkdownText text={content.content} />;
+    return <MarkdownText text={content.content} people={people} />;
   }
 
   return <span>{content.content}</span>;
