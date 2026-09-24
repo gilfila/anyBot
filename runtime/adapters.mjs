@@ -476,7 +476,9 @@ export function invocation(harness, model = "", permissionMode = "auto", approva
   }
 }
 
-export function extractEvent(harness, value) {
+// `state` carries what a harness's earlier events said (Codex: whether its
+// turn has started). One object per run.
+export function extractEvent(harness, value, state = {}) {
   if (harness === "claude") {
     if (value.type === "assistant")
       return {
@@ -493,8 +495,13 @@ export function extractEvent(harness, value) {
   if (harness === "codex") {
     if (value.type === "item.completed" && value.item?.type === "agent_message")
       return { text: value.item.text };
+    if (value.type === "turn.started") state.turn = true;
+    // Before the turn, error items are startup warnings (an unrecognized
+    // config.toml key, an unreachable MCP server) and Codex carries on.
+    // During the turn they're provider failures: stop instead of waiting
+    // out Codex's retries.
     if (value.type === "item.completed" && value.item?.type === "error")
-      return { error: value.item.message || "Codex failed" };
+      return state.turn ? { error: value.item.message || "Codex failed" } : { warning: value.item.message || "" };
     if (value.type === "turn.failed" || value.type === "error")
       return { error: value.error?.message || value.message || "Codex failed" };
   }
@@ -690,6 +697,7 @@ export async function runHarness(
     bytes = 0,
     final;
   const decoder = new StringDecoder("utf8");
+  const eventState = {};
   const append = (text) => {
     output += text;
     onText(redact(output));
@@ -704,7 +712,7 @@ export async function runHarness(
       term(`${text}\n`);
     }
     try {
-      const event = extractEvent(harness, value ?? JSON.parse(text));
+      const event = extractEvent(harness, value ?? JSON.parse(text), eventState);
       if (event.text) append(event.text);
       if (event.final !== undefined) final = event.final;
       if (event.error) {

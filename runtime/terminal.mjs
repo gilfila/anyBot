@@ -149,7 +149,8 @@ export function formatEvent(harness, event) {
         return (item.changes || []).map((change) => `⏺ ${change.kind === "add" ? "Create" : change.kind === "delete" ? "Delete" : "Edit"}(${change.path})\n`).join("");
       if (item.type === "mcp_tool_call") return `⏺ ${item.server || "mcp"}.${item.tool || "tool"}\n`;
       if (item.type === "web_search") return `⏺ WebSearch(${clip(item.query, 160)})\n`;
-      if (item.type === "error") return `✖ ${item.message || "Error"}\n`;
+      // Before the turn these are warnings; a failure ends with turn.failed.
+      if (item.type === "error") return `⚠ ${item.message || "Warning"}\n`;
     }
     if (event.type === "turn.completed") return `✔ Turn done${tokens(event.usage)}\n`;
     if (event.type === "turn.failed" || event.type === "error") return `✖ ${event.error?.message || event.message || "Failed"}\n`;

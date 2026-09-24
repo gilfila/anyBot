@@ -80,7 +80,11 @@ test("built-in structured parsers expose text, final, and error semantics", () =
   }), { text: "Claude reply" });
   assert.deepEqual(extractEvent("claude", { type: "result", result: "Claude final", is_error: false }), { final: "Claude final" });
   assert.deepEqual(extractEvent("codex", { type: "item.completed", item: { type: "agent_message", text: "Codex reply" } }), { text: "Codex reply" });
-  assert.deepEqual(extractEvent("codex", { type: "item.completed", item: { type: "error", message: "Codex network failed" } }), { error: "Codex network failed" });
+  // Codex error items: startup warnings before the turn, failures during it.
+  const codexRun = {};
+  assert.deepEqual(extractEvent("codex", { type: "item.completed", item: { type: "error", message: "config.toml key is ignored" } }, codexRun), { warning: "config.toml key is ignored" });
+  extractEvent("codex", { type: "turn.started" }, codexRun);
+  assert.deepEqual(extractEvent("codex", { type: "item.completed", item: { type: "error", message: "Codex network failed" } }, codexRun), { error: "Codex network failed" });
   assert.deepEqual(extractEvent("gemini", { type: "message", role: "assistant", content: "Gemini reply" }), { text: "Gemini reply" });
   assert.deepEqual(extractEvent("gemini", { type: "result", status: "error", error: { message: "Gemini failed" } }), { error: "Gemini failed" });
   assert.deepEqual(extractEvent("cursor", { type: "assistant", message: { content: [{ type: "text", text: "Cursor reply" }] } }), { text: "Cursor reply" });
@@ -302,9 +306,25 @@ test("real subprocess malformed output fails even after a valid answer", async (
 test("structured provider errors cancel a retrying Codex process promptly", async (t) => {
   const f = await fixture(
     t,
-    `process.stdout.write(JSON.stringify({type:'item.completed',item:{type:'error',message:'Codex network failed'}})+'\\n'); setInterval(() => {},1000);`,
+    `process.stdout.write(JSON.stringify({type:'turn.started'})+'\\n'+JSON.stringify({type:'item.completed',item:{type:'error',message:'Codex network failed'}})+'\\n'); setInterval(() => {},1000);`,
   );
   await assert.rejects(f.run(), /Codex network failed/);
+});
+
+test("a Codex startup warning (an unrecognized config.toml key) doesn't fail the run", async (t) => {
+  const warning = "Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings.";
+  const f = await fixture(
+    t,
+    [
+      `const say = (e) => process.stdout.write(JSON.stringify(e) + '\\n');`,
+      `say({type:'thread.started',thread_id:'t1'});`,
+      `say({type:'item.completed',item:{id:'item_0',type:'error',message:${JSON.stringify(warning)}}});`,
+      `say({type:'turn.started'});`,
+      `say({type:'item.completed',item:{id:'item_1',type:'agent_message',text:'OK'}});`,
+      `say({type:'turn.completed',usage:{input_tokens:5,output_tokens:1}});`,
+    ].join(" "),
+  );
+  assert.equal(await f.run(), "OK");
 });
 
 test("real subprocess output overflow reports its limit instead of a generic killed-process error", async (t) => {

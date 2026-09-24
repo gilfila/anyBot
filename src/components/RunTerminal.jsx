@@ -15,6 +15,7 @@ function kind(line) {
   if (line.startsWith("  ⎿") || line.startsWith("    ")) return "output";
   if (line.startsWith("✔")) return "ok";
   if (line.startsWith("✖") || /^\[exit [1-9]/.test(line)) return "error";
+  if (line.startsWith("⚠")) return "warn";
   if (line.startsWith("●") || line.startsWith("✻") || line.startsWith("[exit")) return "meta";
   return "text";
 }
