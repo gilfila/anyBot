@@ -166,3 +166,6 @@
 .run-open .error-text {
   display: block;
 }
+.run-terminal .t-warn {
+  color: var(--block-accent);
+}

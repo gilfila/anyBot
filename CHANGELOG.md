@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.19] - 2026-09-24
+
+### Fixed
+- **Codex bots failed every run within two seconds** ("Codex is ignoring 1 unrecognized configuration setting"). Codex reports startup warnings, such as a `config.toml` setting it doesn't recognize, as error items. It then carries on, but Any Bot stopped the run at the first one. Warnings before Codex starts its turn now show in the bot's terminal as ⚠ lines, and the run continues. An error during the turn still stops it right away.
+  - This also let bots confer again: when Dario @mentioned Altman, Altman's turn had been failing the same way.
+
 ## [0.3.18] - 2026-09-24
 
 ### Added
