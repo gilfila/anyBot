@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.15] - 2026-09-24
+
+### Added
+- **Threads.** In a project, a message that puts bots to work opens a thread under it. The bots work and reply there, so the channel stays a list of topics.
+  - Under each message, a summary shows who is in the thread, how many replies it has, who is working now, and any failed runs. Click it to open the thread beside the channel.
+  - The thread keeps its own reply box. A reply with no @mention goes to the bots already in the thread.
+  - A bot in a thread sees the whole thread, plus the latest few channel topics (each with its latest reply) as background.
+- **@mentions decide who works.** Type `@` for a menu of your bots (arrow keys, then Enter or Tab), or click a bot under "To", which now adds or removes its @mention in the message.
+  - A project message with no @mention posts as a note, and no bot runs. The hint under the box says so before you send, or lists who the message goes to.
+  - Direct chats are unchanged: the bot always answers.
+  - @mentions of your bots are highlighted in messages.
+- **Bots collaborate in threads.** When "Let bots delegate" is on for a project, a bot can bring in a teammate by writing `@Name` in its reply. The teammate joins the same thread with the reply as its assignment.
+  - A bot that's already working isn't started twice.
+  - After six bot-to-bot hand-offs without a message from you, the thread pauses and asks you to reply to keep it going.
+
+### Fixed
+- **"Has a question" no longer shows when a bot's closing question is to a teammate** ("@Morgan can you build the page?").
+
 ## [0.3.14] - 2026-09-24
 
 ### Fixed

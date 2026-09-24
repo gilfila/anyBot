@@ -53,3 +53,14 @@ test("doc mentions render as inert chips only when enabled", () => {
 test("escapeHtml covers quotes and ampersands", () => {
   assert.equal(escapeHtml(`&<>"'`), "&amp;&lt;&gt;&quot;&#39;");
 });
+
+test("bot @mentions are highlighted, but not emails, code, or unknown names", () => {
+  const people = ["Alex", "Alex Kim", "Morgan"];
+  assert.equal(
+    renderMarkdownInline("@Alex Kim and @morgan, ping @Sage", { people }),
+    '<span class="mention mention-agent">@Alex Kim</span> and <span class="mention mention-agent">@morgan</span>, ping @Sage',
+  );
+  assert.equal(renderMarkdownInline("mail alex@Alex.dev", { people }), "mail alex@Alex.dev");
+  assert.equal(renderMarkdownInline("`@Alex` @Alexander", { people }), "<code>@Alex</code> @Alexander");
+  assert.match(renderMarkdownInline('@<b>Alex</b>', { people: ["<b>Alex</b>"] }), /@&lt;b&gt;Alex&lt;\/b&gt;<\/span>$/);
+});

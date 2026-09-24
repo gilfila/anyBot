@@ -11,6 +11,8 @@ test("a closing question needs an answer; one mid-report doesn't", () => {
   assert.equal(asksQuestion("Why did sign-ups dip? Churn from the old plan.\n\nThe page is live."), false);
   assert.equal(asksQuestion("Done.\n```js\nconst ok = a ? b : c?.d;\n```"), false);
   assert.equal(asksQuestion('Want me to continue?\n```anybot-actions\n[{"type":"task.update"}]\n```'), true);
+  assert.equal(asksQuestion("Plan is ready.\n\n@Morgan can you build the pricing page?"), false, "a question to a teammate");
+  assert.equal(asksQuestion("@Morgan is building it. Should I also draft the email?"), true, "an earlier mention doesn't hide a question to you");
 });
 
 test("pull request links are recognised on the common hosts", () => {
