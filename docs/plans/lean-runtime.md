@@ -157,8 +157,22 @@ Capability matrix (flags verified locally 2026-09-24 unless marked):
 
 | Harness | Resume | Session id comes from | Plan |
 |---|---|---|---|
-| Claude Code | `-p --resume <id>` | `system/init` `session_id` | M2 |
+| Claude Code | `-p --resume <id>` | chosen up front with `--session-id <uuid>` (fresh turn); `system/init` `session_id` confirms | M2 |
 | Codex CLI | `exec resume <id> -` (prompt on stdin) | `thread.started` `thread_id` | M2 |
+
+Live spikes on Tony's PC (2026-09-24, Claude Code 2.1.282, Codex 0.155.0-alpha.16):
+
+- **Claude:** `claude -p --session-id <uuid>` then `claude -p --resume <uuid>` in
+  the same cwd keeps the same session id and remembers the first turn (asked
+  for a code word from turn 1: correct). An unknown id exits 1 with a `result`
+  event `is_error: true`, `errors: ["No conversation found with session ID:
+  …"]`, which is the resume-rejected signal.
+- **Codex:** `codex exec resume <id> -` keeps the same `thread_id` and
+  remembers turn 1. **`exec resume` has no `--sandbox` flag**; the sandbox is
+  passed as `-c sandbox_mode="workspace-write"` (verified: the resumed turn
+  wrote a file in its workspace). `--json` and `--skip-git-repo-check` work
+  on resume. Uncached input on the resumed turn: 11,628 of 71,788 (the rest
+  cached).
 | Gemini CLI | `--resume latest\|<index>`, `--session-file <json>` | spike: index is per workspace, not per thread | M2 spike; fresh-mode fallback |
 | Cursor Agent | `--resume <chatId>` (vendor docs, not installed here) | spike | fallback until verified |
 | Hermes, custom CLIs | none | — | fresh mode with trimmed window |
