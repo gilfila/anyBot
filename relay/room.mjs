@@ -50,7 +50,11 @@ export async function admit(join, { storage, entries }) {
 }
 
 const note = (value) => JSON.stringify({ relay: value.relay, ...(value.device ? { device: value.device } : {}) });
-const desktopOf = (entries) => entries.find((e) => e.side === "desktop");
+// A socket that is closing (readyState 2) or closed (3) no longer counts, such
+// as a connection a newer one replaced. It can linger here until its peer
+// answers the close, which a peer that went away without closing never does.
+const closing = (entry) => entry.ws.readyState >= 2;
+const desktopOf = (entries) => entries.find((e) => e.side === "desktop" && !closing(e));
 
 export function onOpen(entry, entries, io) {
   // A newer connection from the same desktop or phone replaces the old one.
@@ -93,6 +97,8 @@ export function onClose(entry, entries, io) {
     if (!desktopOf(others)) for (const phone of others) if (phone.side === "phone") io.send(phone.ws, note({ relay: "offline" }));
   } else {
     const desktop = desktopOf(others);
-    if (desktop) io.send(desktop.ws, note({ relay: "left", device: entry.device }));
+    // A replaced connection closing late: the phone is still here on its newer one.
+    const stillHere = others.some((e) => e.side === "phone" && e.device === entry.device && !closing(e));
+    if (desktop && !stillHere) io.send(desktop.ws, note({ relay: "left", device: entry.device }));
   }
 }
