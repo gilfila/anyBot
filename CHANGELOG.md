@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.23] - 2026-09-24
+
+### Changed
+- **Groundwork for bots that continue their own CLI session**, switched off. Any Bot can now resume a Claude Code or Codex session from one turn to the next and send only what's new. Measured on real runs, it didn't use fewer tokens: every Claude Code run spends about 31,000 tokens on its own setup whether it continues a session or not, and continuing a Codex session cost more than starting fresh. Bots keep starting a fresh session each turn, as before.
+- If your Claude Code or Codex is too old to support sessions, Any Bot notices and keeps starting fresh.
+
 ## [0.3.22] - 2026-09-24
 
 ### Changed

@@ -542,6 +542,7 @@ const methods = new Set([
   "conversations.updateSettings",
   "conversations.setArchived",
   "messages.send",
+  "sessions.startFresh",
   "runs.cancel",
   "runs.dismiss",
   "runs.terminal",

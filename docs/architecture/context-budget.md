@@ -5,8 +5,11 @@ get. Added in 0.3.22 (lean-runtime M1, `docs/plans/lean-runtime.md` §3.1,
 ADR-0002). The builder is `runtime/context.mjs` (`buildContext`), a pure
 function; `Coordinator.promptParts()` gathers the rows and calls it.
 
-Every run is still a fresh CLI session (harness session resume is M2), so all
-layers are sent on every run.
+A fresh CLI session gets every layer below (every run, today). When session
+resume is on (`docs/architecture/sessions.md`; off by default), a resumed turn
+leaves out the stable layers (1–4), history is only what the session hasn't
+been sent (whole, never the bot's own replies), and the per-turn layers and
+the assignment are sent as usual.
 
 ## Layers, in order
 
@@ -19,13 +22,14 @@ last. Section names are what `run_inputs.sections` records (sizes only).
 | 2 | `platform` | Name, workspace, allowed folders, credentials, approvals, untrusted-data notice | always | ≤ 900 chars of fixed text; paths appended whole |
 | 3 | `team` | Teammates by name and the @mention rule | project runs in a thread | ≤ 400 chars of fixed text |
 |   | `delegation` | The `anybot` delegate block, with direct reports or peers | the bot has direct reports, or a project run outside a thread (task runs) | — |
-|   | `artifacts` | The `anybot-artifacts` contract and supplied files | always | — |
+|   | `artifacts` | The `anybot-artifacts` contract | always | — |
 | 4 | `actionGuide` | The `anybot-actions` guide | always, until M4's MCP tools are confirmed per harness | ≤ 2,000 |
 | 5 | `background` | "Conversation:" header and, for thread runs, recent channel messages each with its latest reply | when there is any history | ≤ 3,000 (part of the 12,000) |
 |   | `root` | "The thread you are replying in:" and the thread's first message | thread runs | mandatory |
 |   | `history` | Older messages, newest first, with hygiene; "[N earlier messages not shown]" | when there are older messages | ≤ 12,000 with `background` |
 |   | `thread` | Everything after the bot's last turn | when there is any | mandatory, never cut |
-| 6 | `board` | Task card, canvas excerpt (≤ 3,000), open tasks | when the conversation has them | per-item caps |
+| 6 | `files` | Files supplied for this turn (per-turn since 0.3.23, so the stable layers don't change) | when there are any | — |
+|   | `board` | Task card, canvas excerpt (≤ 3,000), open tasks | when the conversation has them | per-item caps |
 |   | `org` | Chain of command, unread reports, recalled memories | always (chain line) | reports ≤ 4,000 |
 |   | `knowledge` | Knowledge-graph facts | when any match | recall's own budget |
 | 7 | `assignment` | Who mentioned the bot, the assignment, the closing instruction | always | as written |

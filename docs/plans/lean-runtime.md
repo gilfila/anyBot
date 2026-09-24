@@ -432,6 +432,15 @@ hygiene, handoff consolidation on @mentions (delegate block deprecated).
 
 ### M2 — Session resume (0.3.23, may split into Claude/Codex then spikes)
 
+**Result (2026-09-24): built and tested, live gate not met, resume off by
+default; draft PR for the owner's call.** Both harnesses resume correctly
+and remember earlier turns, but neither sends fewer uncached tokens: every
+Claude Code process writes ~31k tokens of its own context to the provider
+cache whether it resumes or not (resumed 47,750 vs fresh 47,622 median over
+3 runs), and a resumed Codex turn cost 17,788 vs 2,365 fresh. The harness's
+own per-process overhead dwarfs what Any Bot sends after M1. Details:
+`docs/architecture/sessions.md`.
+
 Scope: `harness_sessions`, resume flow, invalidation, fallback, rotation,
 "Start fresh" control; Claude and Codex first; Gemini and Cursor spikes decide
 support or fallback.
@@ -626,5 +635,7 @@ Open questions for the owner:
 | Checkpoint | Result | Report |
 |---|---|---|
 | M0 code review (2026-09-24) | 4 findings (2 high, 2 medium): retention failure stopped runs, code-mode command rejected by Codex, events pruned only at startup, fixtures not captured. All fixed; Gemini and Cursor captures deferred (both CLIs unusable on the owner's PC). | `docs/reviews/2026-09-24-M0-code.md` |
+| M2 design review of §3.2 (2026-09-24) | 9 findings (3 critical, 4 high, 2 medium), all accepted; see the amendment at the end of §3.2. | `docs/reviews/2026-09-24-M2-design.md` |
+| M2 live gate (2026-09-24) | Not met for Claude or Codex (numbers under M2); resume off by default. | `docs/architecture/sessions.md` |
 | M1 design review of §3.1 (2026-09-24) | 8 findings (1 critical, 4 high, 3 medium), all accepted; see the amendment at the end of §3.1. | `docs/reviews/2026-09-24-M1-design.md` |
 | 0: design review of this plan (Codex CLI, read-only, 2026-09-24) | 13 findings (11 high, 2 medium). 12 accepted and folded in above: clipping, delegation, delta eligibility, cursor commits, report read-marking, snapshot consumers, durable partial output, epochs, mobile paging, token files, MCP handshake, measurable gates. 1 rejected with evidence (the `codex review -` stdin form is documented in `--help`); **that rejection was wrong**: run for real in M0, `codex review --base` refuses a custom prompt, so the script now uses `codex exec` with the diff range. | `docs/reviews/2026-09-24-plan-design.md` |

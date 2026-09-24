@@ -187,6 +187,8 @@ type HarnessEvent =
 
 Capability flags cover structured streaming, native resume, interactive approvals, cancellation, tool interception, workspace sandboxing, MCP support, image inputs, usage reporting, and model selection. They describe the detected adapter/version combination, not a provider-wide assumption. Unknown capabilities default to unavailable. The UI shows limitations before a run starts.
 
+**As built (0.3.23), sessions in the adapter:** `invocation(harness, model, mode, approvals, session)` takes `{id, resume}`. Claude gets `--session-id <id>` on a fresh turn and `--resume <id>` later, with every other flag unchanged; Codex resumes with `exec resume --json --skip-git-repo-check -c sandbox_mode=workspace-write <id> -` (`exec resume` has no `--sandbox`). `runHarness` reports the id the harness itself announced (`onSession`: Claude's `system/init`, Codex's `thread.started`) and throws a typed `ResumeRejected` only for a refusal recognized before the turn starts. Details: `docs/architecture/sessions.md`.
+
 ### Initial integration paths
 
 | Harness | Initial path to evaluate | Required validation before shipping |
@@ -211,6 +213,8 @@ Do not copy desktop OAuth credentials to a VPS by default. Authenticate remote w
 ## 7. Agent execution and durability
 
 An employee is persistent even when no model process is running. The coordinator is always available while the runtime is active; harness processes can be launched on demand and resumed when needed. Keeping idle CLIs alive is an optimization, not the definition of a persistent employee.
+
+**Built, off by default (M2):** later turns can resume the bot's native session for that conversation and thread (`runtime/sessions.mjs`, schema 16), so the prompt carries only what's new. A session is saved only when a run succeeds, dropped on any failure, and replaced whenever the bot's policy (instructions, permissions, folders, members, reports, harness, model, workspace) changes; a resume the harness refuses before starting is retried once, fresh. It is off for every harness because the live gate found no token saving (see `docs/architecture/sessions.md`, ADR-0003).
 
 ```mermaid
 stateDiagram-v2

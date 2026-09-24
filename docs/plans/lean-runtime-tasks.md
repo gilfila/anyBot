@@ -90,25 +90,26 @@ that does them. Section numbers (§) point into the plan.
 
 ## M2: Harness sessions (0.3.23; split Claude/Codex from the spikes if large)
 
-- [ ] Design checkpoint on §3.2
-- [ ] Schema: `harness_sessions` (§3.2)
-- [ ] `runtime/sessions.mjs`: lookup, capability probe from `--help`, resume
-      args per harness (Claude `-p --resume <id>`, Codex `exec resume <id> -`)
-- [ ] Delta = today's eligibility rule after the cursor; commit cursor and
-      session id only with a successful result; failures invalidate
-- [ ] Invalidation triggers (harness/model/workspace change, member removed,
-      archive, 40 turns, "Start fresh"); resume-rejected → one fresh retry +
-      `session.resume_failed` diagnostic (add to `describeIssue`)
-- [ ] "Start fresh" in the bot menu and the thread header
-- [ ] Spikes: Gemini (`--resume` index vs `--session-file`), Cursor
-      (`--resume <chatId>`); write findings into the plan's matrix
-- [ ] Tests: fake CLIs per harness recording argv/stdin; all cases listed
-      under M2 in the plan
-- [ ] Live smoke scripts for Claude and Codex (pending on Tony's PC); record
-      the live gate numbers in the PR
-- [ ] Docs: `docs/architecture/sessions.md`, ADR-0003, `design.md` §6–7
+- [x] Design checkpoint on §3.2 (`docs/reviews/2026-09-24-M2-design.md`: 9
+      findings, all accepted)
+- [x] Schema v16: `harness_sessions` + `harness_session_messages`, non-null
+      thread key; v15 fixture and migration test
+- [x] `runtime/sessions.mjs`: lookup, policy hash, delivered-message tracking;
+      `probeSessionSupport()` from `--help`; full resume argv per harness
+- [x] Sessions saved only on success with the harness-reported id; any
+      failure drops; verified pre-turn `ResumeRejected` → one fresh retry +
+      `session.resume_failed` (in `describeIssue`)
+- [x] Invalidation: policy hash, archive, 40 turns, `sessions.startFresh`
+- [~] "Start fresh" UI: built, then left out while resume is off
+- [ ] Spikes: Gemini and Cursor: not possible on Tony's PC (Gemini CLI sign-in
+      refused, Cursor Agent install broken)
+- [x] Tests: `tests/sessions.test.mjs` (fake CLIs, argv, rejections, every
+      review case, deterministic gate)
+- [x] Live smoke `tests/live-sessions-smoke.mjs`, run on Tony's PC: **gate not
+      met** for Claude or Codex → resume off by default
+- [x] Docs: `docs/architecture/sessions.md`, ADR-0003, `design.md` §6–7
 - [ ] Code checkpoint (focus: fallback paths)
-- [ ] PR(s), CI green, ask Tony, merge
+- [ ] Owner's call: keep M2 as dormant infrastructure (merge), or park it
 
 ## M3: Incremental sync (0.3.24; three PRs in the plan's order)
 

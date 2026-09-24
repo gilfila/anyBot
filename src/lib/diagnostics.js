@@ -99,6 +99,10 @@ export function describeIssue(issue) {
     },
     "autopilot.start_failed": { title: "Autopilot couldn't start a task", hint: "The reason is below. The task stays in Backlog." },
     "task.settle_failed": { title: "A task didn't update after its run", hint: "This is a bug in Any Bot.", bug: true },
+    "session.resume_failed": {
+      title: `${tool(c)} couldn't continue ${who(c)}'s earlier session`,
+      hint: "Any Bot started a fresh session and the turn went ahead with the full conversation, so nothing was lost. This happens when the CLI's saved sessions were cleared or it was reinstalled.",
+    },
     "update.failed": {
       title: "An update failed",
       hint: "Retry from Check for updates. If it keeps failing, copy the report.",

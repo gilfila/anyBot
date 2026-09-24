@@ -1,10 +1,11 @@
 import { EventEmitter } from "node:events";
+import { randomUUID } from "node:crypto";
 import { mkdirSync, realpathSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Store, id, now, promptHash } from "./store.mjs";
 import { KEEP_PROMPTS, EVENT_DAYS, prunePrompts, pruneEvents } from "./retention.mjs";
 import { parseUsage } from "./usage.mjs";
-import { harnesses, loadModelCatalog, probeAll, probeModels, runHarness } from "./adapters.mjs";
+import { harnesses, loadModelCatalog, probeAll, probeModels, probeSessionSupport, runHarness } from "./adapters.mjs";
 import { mentionedIds } from "./mentions.mjs";
 
 // Bot-to-bot @mentions a thread allows before the owner has to reply.
@@ -21,6 +22,7 @@ import { Approvals } from "./approvals.mjs";
 import { TerminalLog } from "./terminal.mjs";
 import { actionsFrom, withoutActions } from "./actions.mjs";
 import { buildContext } from "./context.mjs";
+import { RESUMABLE, Sessions, policyHash } from "./sessions.mjs";
 import packageMetadata from "../package.json" with { type: "json" };
 import {
   loadCustomHarnesses,
@@ -98,6 +100,12 @@ export class Coordinator extends EventEmitter {
     clock = Date.now,
     keepPrompts = KEEP_PROMPTS,
     eventDays = EVENT_DAYS,
+    // Harnesses whose native sessions are resumed (runtime/sessions.mjs).
+    // The live smoke passes [] to measure fresh mode, or ["codex"] to measure Codex.
+    resumable = RESUMABLE,
+    // Checks the installed CLI takes the session flags. With an injected
+    // runner (tests) there is no real CLI, so sessions stay off unless given.
+    sessionProbe = runner ? async () => false : probeSessionSupport,
   }) {
     super();
     this.directory = directory;
@@ -109,6 +117,10 @@ export class Coordinator extends EventEmitter {
     this.board.onMove = (task, from, to, author) => this.onTaskMoved(task, from, to, author);
     this.docs = new Docs(this.store);
     this.knowledge = new Knowledge(this.store);
+    this.sessions = new Sessions(this.store);
+    this.resumable = new Set(resumable);
+    this.sessionProbe = sessionProbe;
+    this.sessionSupport = new Map();
     this.terminal = new TerminalLog(directory);
     this.keepPrompts = keepPrompts;
     this.eventDays = eventDays;
@@ -292,6 +304,9 @@ export class Coordinator extends EventEmitter {
         break;
       case "messages.send":
         this.send(payload);
+        break;
+      case "sessions.startFresh":
+        this.startFresh(payload);
         break;
       case "runs.cancel":
         await this.cancel(payload.id);
@@ -610,11 +625,13 @@ export class Coordinator extends EventEmitter {
         payload.archived ? 1 : 0,
         employee.id,
       );
-      if (payload.archived)
+      if (payload.archived) {
         this.store.run(
           "UPDATE routines SET enabled=0 WHERE employee=?",
           employee.id,
         );
+        this.sessions.dropWhere({ employee: employee.id });
+      }
       this.store.event(
         payload.archived ? "employee.archived" : "employee.restored",
         { employeeId: employee.id },
@@ -736,6 +753,7 @@ export class Coordinator extends EventEmitter {
       if (payload.archived) {
         this.store.run("UPDATE conversations SET autopilot=0 WHERE id=?", conversationId);
         this.store.run("UPDATE routines SET enabled=0 WHERE conversation=?", conversationId);
+        this.sessions.dropWhere({ conversation: conversationId });
       }
       this.store.event(payload.archived ? "conversation.archived" : "conversation.restored", {
         conversation: conversationId,
@@ -1121,6 +1139,37 @@ export class Coordinator extends EventEmitter {
     this.send({ requestId: id(), conversation, recipients: [employee.id], body });
     return conversation;
   }
+  // "Start fresh": the owner drops a bot's native sessions (bot menu, every
+  // conversation) or one thread's (thread header, every bot in it). The next
+  // turn gets full context again.
+  startFresh(payload) {
+    if (payload.employee) {
+      this.activeEmployee(text(payload.employee, "Employee ID", 100));
+      return this.sessions.dropWhere({ employee: payload.employee });
+    }
+    const conversation = text(payload.conversation, "Conversation ID", 100);
+    requireRow(this.store.one("SELECT id FROM conversations WHERE id=?", conversation), "Conversation");
+    const thread = payload.thread ? text(payload.thread, "Thread ID", 100) : "";
+    return this.sessions.dropWhere({ conversation, thread });
+  }
+  // Once per harness per app start (the CLI can be updated underneath us, and
+  // a restart re-checks).
+  supportsSessions(harness) {
+    if (!this.sessionSupport.has(harness))
+      this.sessionSupport.set(harness, Promise.resolve(this.sessionProbe(harness)).catch(() => false));
+    return this.sessionSupport.get(harness);
+  }
+  // The policy a native session was built under. Any change (instructions,
+  // permissions, folders, members, reports...) starts a fresh session.
+  sessionPolicy(run, employee) {
+    const conversation = this.store.one("SELECT * FROM conversations WHERE id=?", run.conversation);
+    return policyHash({
+      employee,
+      conversation,
+      members: JSON.parse(conversation.members),
+      reports: this.org.directReports(employee.id).map((r) => r.id),
+    });
+  }
   // Retention (runtime/retention.mjs), at startup and after each stored
   // prompt. Events are pruned at most hourly, so an app left open for months
   // still keeps only 90 days. It only frees space: a failure never stops a run.
@@ -1142,7 +1191,7 @@ export class Coordinator extends EventEmitter {
   // (never their text) are stored per run for the usage metrics
   // (docs/architecture/metrics.md). Building it has no side effects: reports
   // it delivers are marked read only when the run succeeds.
-  promptParts(run, employee, files = []) {
+  promptParts(run, employee, files = [], session = null) {
     const conversation = this.store.one(
       "SELECT * FROM conversations WHERE id=?",
       run.conversation,
@@ -1190,7 +1239,21 @@ export class Coordinator extends EventEmitter {
           .reverse()
           .map((message) => ({
             message,
-            reply: this.store.one("SELECT * FROM messages WHERE thread=? ORDER BY rowid DESC LIMIT 1", message.id),
+            // The same eligibility rule as the history: replies up to this
+            // run's assignment, plus bots' answers to earlier assignments, but
+            // never a human message posted while this run waited.
+            reply: this.store.one(
+              `SELECT m.* FROM messages m WHERE m.thread=? AND (
+                m.rowid <= (SELECT rowid FROM messages WHERE id=?) OR m.id IN (
+                  SELECT rr.message FROM run_responses rr JOIN runs r ON rr.run=r.id
+                  JOIN messages assignment ON assignment.id=r.message
+                  WHERE r.conversation=? AND assignment.rowid <= (SELECT rowid FROM messages WHERE id=?)
+                )) ORDER BY m.rowid DESC LIMIT 1`,
+              message.id,
+              run.message,
+              run.conversation,
+              run.message,
+            ),
           }))
       : [];
     const assignment = requireRow(this.store.one("SELECT id,body,author FROM messages WHERE id=?", run.message), "Assignment");
@@ -1214,6 +1277,7 @@ export class Coordinator extends EventEmitter {
       board: this.boardContext(run, conversation, peers),
       ...org,
       knowledge: this.knowledge.recall(topic),
+      session,
     });
   }
   // Chain of command, unread team reports, and recalled memories, as data for
@@ -1338,6 +1402,8 @@ export class Coordinator extends EventEmitter {
   }
   async execute(run, employee, controller) {
     let lastSave = 0;
+    const sessionKey = Sessions.key(run);
+    let reportedSession = "";
     const term = (text) => {
       try {
         this.terminal.append(run.id, text);
@@ -1350,7 +1416,6 @@ export class Coordinator extends EventEmitter {
     try {
       const files = await this.artifacts.materialize(run, employee);
       if (controller.signal.aborted) throw new Error("Run cancelled");
-      const { text: prompt, sections, deliveredReports } = this.promptParts(run, employee, files);
       // Built-in Claude runs route risky actions to the owner (runtime/approvals.mjs).
       let approval = null;
       if (employee.harness === "claude" && !this.custom.adapters.some((a) => a.id === "claude")) {
@@ -1358,47 +1423,86 @@ export class Coordinator extends EventEmitter {
         if (controller.signal.aborted) throw new Error("Run cancelled");
         approval = this.approvals.register(run);
       }
-      this.store.run(
-        "INSERT INTO run_inputs(run,prompt,created,sections,hash,chars) VALUES (?,?,?,?,?,?)",
-        run.id,
-        prompt,
-        now(),
-        JSON.stringify(sections),
-        promptHash(prompt),
-        prompt.length,
-      );
-      this.retain();
-      let usage = null;
-      let result;
-      try {
-        result = await this.runner({
-          harness: employee.harness,
-          model: employee.model,
-          timeoutMs: employee.timeoutMinutes * 60_000,
-          workspace: employee.workspace,
+      // Native session (runtime/sessions.mjs): resume the one this bot has for
+      // this thread when nothing about its policy changed; otherwise fresh.
+      const resumable =
+        this.resumable.has(employee.harness) &&
+        !this.custom.adapters.some((a) => a.id === employee.harness) &&
+        (await this.supportsSessions(employee.harness));
+      const policy = resumable ? this.sessionPolicy(run, employee) : "";
+      let session = resumable ? this.sessions.lookup(sessionKey, { harness: employee.harness, policy }) : null;
+      let context, result;
+      for (let attempt = 0; ; attempt += 1) {
+        context = this.promptParts(run, employee, files, session);
+        const prompt = context.text;
+        this.store.run(
+          "INSERT OR REPLACE INTO run_inputs(run,prompt,created,sections,hash,chars) VALUES (?,?,?,?,?,?)",
+          run.id,
           prompt,
-          signal: controller.signal,
-          permissionMode: employee.permissionMode || "auto",
-          approvals: approval ? { configPath: approval.configPath } : undefined,
-          onTerminal: term,
-          onUsage: (value) => {
-            usage = value;
-          },
-          onText: (output) => {
-            if (
-              this.closed ||
-              controller.signal.aborted ||
-              Date.now() - lastSave < 150
-            )
-              return;
-            lastSave = Date.now();
-            this.store.run("UPDATE runs SET output=? WHERE id=?", output, run.id);
-            this.notify();
-          },
-        });
-      } finally {
-        this.saveUsage(run.id, usage);
+          now(),
+          JSON.stringify(context.sections),
+          promptHash(prompt),
+          prompt.length,
+        );
+        this.retain();
+        // Claude takes an id we choose; Codex reports its own. Only an id
+        // the harness itself reported is ever saved.
+        const requested = session?.session_id || (resumable ? randomUUID() : "");
+        reportedSession = "";
+        let usage = null;
+        try {
+          result = await this.runner({
+            harness: employee.harness,
+            model: employee.model,
+            timeoutMs: employee.timeoutMinutes * 60_000,
+            workspace: employee.workspace,
+            prompt,
+            signal: controller.signal,
+            permissionMode: employee.permissionMode || "auto",
+            approvals: approval ? { configPath: approval.configPath } : undefined,
+            session: requested ? { id: requested, resume: Boolean(session) } : undefined,
+            onSession: (value) => {
+              reportedSession = value;
+            },
+            onTerminal: term,
+            onUsage: (value) => {
+              usage = value;
+            },
+            onText: (output) => {
+              if (
+                this.closed ||
+                controller.signal.aborted ||
+                Date.now() - lastSave < 150
+              )
+                return;
+              lastSave = Date.now();
+              this.store.run("UPDATE runs SET output=? WHERE id=?", output, run.id);
+              this.notify();
+            },
+          });
+          break;
+        } catch (error) {
+          // The harness refused the resume before starting its turn, so
+          // nothing ran: drop the session and retry once, fresh.
+          if (error?.code === "RESUME_REJECTED" && session && attempt === 0 && !controller.signal.aborted) {
+            this.sessions.drop(sessionKey);
+            this.diagnostic({
+              level: "warn",
+              source: "harness",
+              code: "session.resume_failed",
+              message: String(error.message).slice(0, 600),
+              context: this.runContext(run, employee),
+            });
+            term("── the harness couldn't resume its session; starting a fresh one ──\n");
+            session = null;
+            continue;
+          }
+          throw error;
+        } finally {
+          this.saveUsage(run.id, usage);
+        }
       }
+      const { deliveredReports } = context;
       if (controller.signal.aborted) throw new Error("Run cancelled");
       let artifacts = [],
         artifactError;
@@ -1535,11 +1639,19 @@ export class Coordinator extends EventEmitter {
         if (!delegated && run.parent) this.returnToParent(run, result);
         // Reports this run's prompt carried whole are read now that it succeeded.
         this.org.markRead(deliveredReports);
+        // The session continues from here next turn, knowing what it was sent.
+        // It's saved under the policy it was built with (captured before the
+        // run), so an edit made while it ran still starts a fresh one.
+        if (reportedSession && resumable)
+          this.sessions.save(sessionKey, { harness: employee.harness, sessionId: reportedSession, policy, delivered: context.seen });
         this.activateMentions(run, visible || "", response);
         this.store.event("run.completed", { run: run.id });
       });
     } catch (error) {
       const status = controller.signal.aborted ? "cancelled" : "failed";
+      // A turn that didn't finish may have been half-absorbed by the native
+      // session; the next turn starts fresh with full context.
+      this.sessions.drop(sessionKey);
       this.store.run(
         "UPDATE runs SET status=?,error=?,ended=? WHERE id=?",
         status,

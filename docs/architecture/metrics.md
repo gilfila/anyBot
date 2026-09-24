@@ -50,18 +50,19 @@ Schema 15 adds `run_inputs.sections` (JSON, section → chars), `hash`
 prompt as named sections in order; `prompt()` is their concatenation, so the
 sizes always add up to `chars`.
 
-| Section | What it is (0.3.22, `runtime/context.mjs`) |
+| Section | What it is (0.3.23, `runtime/context.mjs`) |
 |---|---|
 | `instructions` | The bot's own instructions |
 | `platform` | Workspace, credentials, approvals, untrusted-data notice |
 | `team` | Teammates and the @mention rule (project threads) |
 | `delegation` | The `anybot` delegate block with direct reports, or peers for project runs outside a thread |
-| `artifacts` | The `anybot-artifacts` contract and supplied files |
+| `artifacts` | The `anybot-artifacts` contract |
 | `actionGuide` | The `anybot-actions` guide (every run until M4) |
 | `background` | "Conversation:" header plus channel background for thread runs |
 | `root` | The thread header and its first message |
 | `history` | Optional older messages within the 12,000-char budget |
-| `thread` | Mandatory messages after the bot's last turn (never cut) |
+| `thread` | Mandatory messages after the bot's last turn (never cut); in a resumed session, everything it hasn't been sent |
+| `files` | Files supplied for this turn (0.3.23; before, part of `artifacts`) |
 | `board` | Current task card, canvas excerpt, open board tasks |
 | `org` | Chain of command, unread team reports, recalled memories |
 | `knowledge` | Knowledge-graph facts |
@@ -75,7 +76,7 @@ Runs recorded by 0.3.21 use the older names (no `root`/`thread`; history before 
 |---|---|---|
 | `run_inputs.prompt` (full text) | newest 50 runs (`KEEP_PROMPTS`) | at startup and after each run starts |
 | `run_inputs.sections`, `hash`, `chars` | forever | never |
-| `events` (audit log) | 90 days (`EVENT_DAYS`) | at startup |
+| `events` (audit log) | 90 days (`EVENT_DAYS`) | at startup, then at most hourly while the app is open |
 | Terminal logs | newest 300 runs | at startup (unchanged, `runtime/terminal.mjs`) |
 
 Both limits are `Coordinator` options (`keepPrompts`, `eventDays`).

@@ -5,7 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 export const id = () => randomUUID();
 // Bump with each migration below. Newer workspaces are refused by older apps.
-export const SCHEMA_VERSION = 15;
+export const SCHEMA_VERSION = 16;
 export const now = () => new Date().toISOString();
 export const promptHash = (prompt) => createHash("sha256").update(prompt).digest("hex");
 
@@ -422,6 +422,34 @@ export class Store {
         this.db.exec("CREATE INDEX IF NOT EXISTS events_created ON events(created)");
         this.db
           .prepare("UPDATE metadata SET value='15' WHERE key='schema'")
+          .run();
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        this.db.close();
+        throw error;
+      }
+    }
+    const sessionsVersion = Number(
+      this.db.prepare("SELECT value FROM metadata WHERE key='schema'").get()
+        .value,
+    );
+    if (sessionsVersion < 16) {
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
+        // Harness sessions (runtime/sessions.mjs): one native CLI session per
+        // bot, conversation, and thread ('' for direct chats, so the key is
+        // never NULL), and the messages each session has already been sent.
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS harness_sessions (employee TEXT NOT NULL, conversation TEXT NOT NULL,
+            thread TEXT NOT NULL, harness TEXT NOT NULL, session_id TEXT NOT NULL, policy_hash TEXT NOT NULL,
+            turns INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL, updated TEXT NOT NULL,
+            PRIMARY KEY (employee, conversation, thread));
+          CREATE TABLE IF NOT EXISTS harness_session_messages (employee TEXT NOT NULL, conversation TEXT NOT NULL,
+            thread TEXT NOT NULL, message TEXT NOT NULL,
+            PRIMARY KEY (employee, conversation, thread, message));`);
+        this.db
+          .prepare("UPDATE metadata SET value='16' WHERE key='schema'")
           .run();
         this.db.exec("COMMIT");
       } catch (error) {

@@ -23,13 +23,13 @@ async function v14(t, close) {
   return directory;
 }
 
-test("schema 14 workspaces upgrade to 15 with usage and prompt metrics", async (t) => {
+test("schema 14 workspaces upgrade with usage and prompt metrics", async (t) => {
   const close = {};
   const directory = await v14(t, close);
   const store = new Store(directory);
   close.current = () => store.close();
-  assert.equal(SCHEMA_VERSION, 15);
-  assert.equal(store.one("SELECT value FROM metadata WHERE key='schema'").value, "15");
+  assert.equal(SCHEMA_VERSION, 16);
+  assert.equal(store.one("SELECT value FROM metadata WHERE key='schema'").value, "16");
   const runs = store.all("SELECT id,status,output,usage FROM runs ORDER BY id");
   assert.deepEqual(
     runs.map((r) => ({ ...r })),
@@ -73,4 +73,34 @@ test("an upgraded workspace opens in the coordinator and prunes by the retention
   );
   assert.equal(c.snapshot().runs.length, 2);
   assert.equal(c.snapshot().runs[0].usage, null);
+});
+
+// A workspace written by 0.3.22 (schema 15), from tests/fixtures/schema-v15.sql.
+async function v15(t, close) {
+  const directory = await mkdtemp(join(tmpdir(), "anybot-v15-"));
+  t.after(async () => {
+    await close.current?.();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const db = new DatabaseSync(join(directory, "anybot.sqlite"));
+  db.exec(await readFile(new URL("./fixtures/schema-v15.sql", import.meta.url), "utf8"));
+  db.close();
+  return directory;
+}
+
+test("schema 15 workspaces upgrade to 16 with harness sessions keyed without NULLs", async (t) => {
+  const close = {};
+  const directory = await v15(t, close);
+  const store = new Store(directory);
+  close.current = () => store.close();
+  assert.equal(store.one("SELECT value FROM metadata WHERE key='schema'").value, "16");
+  const columns = store.all("PRAGMA table_info(harness_sessions)");
+  for (const key of ["employee", "conversation", "thread"])
+    assert.equal(columns.find((c) => c.name === key).notnull, 1, `${key} is NOT NULL`);
+  assert.throws(() =>
+    store.run("INSERT INTO harness_sessions(employee,conversation,thread,harness,session_id,policy_hash,created,updated) VALUES ('e1','c1',NULL,'codex','s','p','t','t')"),
+  );
+  // Existing data, including 0.3.22's usage metrics, is untouched.
+  assert.equal(JSON.parse(store.one("SELECT usage FROM runs WHERE id='r1'").usage)["gen_ai.usage.input_tokens"], 1200);
+  assert.equal(store.one("SELECT body FROM messages WHERE id='m2'").body, "Synthetic reply");
 });

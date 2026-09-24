@@ -148,7 +148,7 @@ test("a run stores its usage and its prompt's section sizes, not their text", as
     // Stable layers first, then history, per-turn context, and the assignment
     // (runtime/context.mjs).
     "instructions", "platform", "team", "delegation", "artifacts", "actionGuide",
-    "background", "root", "history", "thread", "board", "org", "knowledge", "assignment",
+    "background", "root", "history", "thread", "files", "board", "org", "knowledge", "assignment",
   ]);
   assert.ok(Object.values(sections).every((n) => Number.isInteger(n) && n >= 0));
   assert.equal(Object.values(sections).reduce((a, b) => a + b, 0), input.prompt.length);

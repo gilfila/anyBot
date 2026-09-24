@@ -14,7 +14,7 @@ const json = async (path) => JSON.parse(await readFile(new URL(path, import.meta
 
 const ORDER = [
   "instructions", "platform", "team", "delegation", "artifacts", "actionGuide",
-  "background", "root", "history", "thread", "board", "org", "knowledge", "assignment",
+  "background", "root", "history", "thread", "files", "board", "org", "knowledge", "assignment",
 ];
 const people = { alex: "Alex", sam: "Sam", lead: "Lead" };
 let rowid = 0;

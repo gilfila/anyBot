@@ -407,8 +407,25 @@ export function childEnvironment(env = process.env) {
   );
 }
 
-export function invocation(harness, model = "", permissionMode = "auto", approvals = undefined) {
-  if (model) return [...invocation(harness, "", permissionMode, approvals), "--model", model];
+// The harness refused to resume a native session before starting its turn,
+// so nothing ran and the turn can be retried fresh.
+export class ResumeRejected extends Error {
+  constructor(message) {
+    super(message);
+    this.code = "RESUME_REJECTED";
+  }
+}
+
+// `session` ({id, resume}) continues a native CLI session (runtime/sessions.mjs)
+// for the harnesses in RESUMABLE; every other run control stays the same.
+export function invocation(harness, model = "", permissionMode = "auto", approvals = undefined, session = undefined) {
+  if (model) return [...invocation(harness, "", permissionMode, approvals, session), "--model", model];
+  if (session?.id && harness === "claude")
+    return [...invocation(harness, "", permissionMode, approvals), session.resume ? "--resume" : "--session-id", session.id];
+  // `codex exec resume` has no --sandbox flag; the same sandbox goes in as
+  // config (verified live, docs/plans/lean-runtime.md §3.2).
+  if (session?.id && session.resume && harness === "codex")
+    return ["exec", "resume", "--json", "--skip-git-repo-check", "-c", "sandbox_mode=workspace-write", session.id, "-"];
   switch (harness) {
     case "claude": {
       // anyBot modes → Claude Code permission modes:
@@ -667,8 +684,45 @@ export async function probeAll(modelCatalog = {}) {
   );
 }
 
+// Does the installed CLI take the session flags Any Bot uses? Read from its
+// help text (docs/architecture/sessions.md); an older CLI without them keeps
+// running fresh instead of failing on an unknown flag.
+const SESSION_FLAGS = {
+  claude: { args: ["--help"], needles: ["--resume", "--session-id"] },
+  codex: { args: ["exec", "resume", "--help"], needles: ["SESSION_ID", "--json"] },
+};
+export async function probeSessionSupport(harnessId, resolve = resolveExecutable) {
+  const spec = SESSION_FLAGS[harnessId];
+  const command = harnesses.find((h) => h.id === harnessId)?.command;
+  if (!spec || !command) return false;
+  const executable = await resolve(command);
+  if (!executable) return false;
+  return new Promise((done) => {
+    let text = "";
+    const child = spawn(executable.file, [...executable.prefix, ...spec.args], { windowsHide: true, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+    const timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        /* already exited */
+      }
+      done(false);
+    }, 5000);
+    child.stdout.on("data", (chunk) => (text += chunk));
+    child.stderr.on("data", (chunk) => (text += chunk));
+    child.once("error", () => {
+      clearTimeout(timer);
+      done(false);
+    });
+    child.once("close", () => {
+      clearTimeout(timer);
+      done(spec.needles.every((needle) => text.includes(needle)));
+    });
+  });
+}
+
 export async function runHarness(
-  { harness, model, workspace, prompt, signal, onText, onTerminal, onUsage, timeoutMs = 600000, permissionMode = "auto", approvals },
+  { harness, model, workspace, prompt, signal, onText, onTerminal, onUsage, onSession, session, timeoutMs = 600000, permissionMode = "auto", approvals },
   { resolve = resolveExecutable, args, outputFormat, pipeGraceMs = 2000 } = {},
 ) {
   // The raw CLI view for the Activity terminal: redacted, never parsed for results.
@@ -681,7 +735,7 @@ export async function runHarness(
       `${harness} is not installed or its launcher is unsupported. Open Harnesses for setup instructions.`,
     );
   if (signal.aborted) throw new Error("Run cancelled");
-  const argv = [...executable.prefix, ...(args ?? invocation(harness, model, permissionMode, approvals))];
+  const argv = [...executable.prefix, ...(args ?? invocation(harness, model, permissionMode, approvals, session))];
   const quote = (part) => (/[\s"]/.test(part) ? `"${String(part).replace(/"/g, '\\"')}"` : part);
   term(`$ ${[executable.file, ...argv].map(quote).join(" ")}  < prompt (${prompt.length.toLocaleString("en-US")} chars)\n`);
   const child = spawn(
@@ -711,13 +765,34 @@ export async function runHarness(
     output += text;
     onText(redact(output));
   };
+  // Native sessions: the id the harness reports, and whether it refused to
+  // resume before doing anything (the only case that may be retried fresh).
+  let events = 0,
+    rejected = false;
+  const sessionEvent = (value) => {
+    if (harness === "claude" && value.type === "system" && value.subtype === "init" && value.session_id)
+      onSession?.(String(value.session_id));
+    if (harness === "codex" && value.type === "thread.started" && value.thread_id) onSession?.(String(value.thread_id));
+    if (
+      session?.resume &&
+      harness === "claude" &&
+      value.type === "result" &&
+      value.is_error &&
+      !value.num_turns &&
+      !output &&
+      /No conversation found with session ID/i.test([value.result, ...(value.errors || [])].join(" "))
+    )
+      rejected = true;
+  };
   const line = (text) => {
     if (!text.trim()) return;
     let value;
     try {
       value = JSON.parse(text);
+      events += 1;
       term(formatEvent(harness, value));
       readUsage(harness, value, usage);
+      sessionEvent(value);
     } catch {
       term(`${text}\n`);
     }
@@ -804,6 +879,10 @@ export async function runHarness(
     if (signal.aborted) throw new Error("Run cancelled");
     if (timedOut)
       throw new Error(`Run exceeded its configured ${Math.round(timeoutMs / 60000)}-minute time limit`);
+    // Codex refuses an unknown session before printing any event.
+    if (session?.resume && harness === "codex" && code !== 0 && !events && /no rollout found|thread\/resume failed/i.test(diagnostics))
+      rejected = true;
+    if (rejected) throw new ResumeRejected(redact(diagnostics || parseError || "The harness could not resume its session"));
     if (parseError) throw new Error(redact(parseError));
     if (code !== 0)
       throw new Error(
