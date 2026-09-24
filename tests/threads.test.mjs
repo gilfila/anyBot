@@ -116,10 +116,11 @@ test("bots pull teammates into the thread by @mentioning them, and see the threa
   assert.match(morgan, /To bring a teammate in, write @Name/);
 });
 
-test("bot-to-bot mentions need team handoffs on, and can't loop forever", async (t) => {
-  const quiet = await project(t, { delegation: false, script: { Alex: ["@Morgan over to you"] } });
-  await quiet.say("@Alex go");
-  assert.equal(quiet.c.snapshot().runs.length, 1, "with handoffs off, a mention in a reply activates no one");
+test("bot-to-bot mentions work in every project, and can't loop forever", async (t) => {
+  // The old per-project handoffs switch is gone: a project made with it off still hands off.
+  const legacy = await project(t, { delegation: false, script: { Alex: ["@Morgan over to you"] } });
+  await legacy.say("@Alex go");
+  assert.deepEqual(legacy.c.snapshot().runs.map((r) => legacy.byId(r.employee)), ["Alex", "Morgan"]);
 
   const ping = Array.from({ length: 10 }, () => "@Morgan your turn");
   const pong = Array.from({ length: 10 }, () => "@Alex your turn");
@@ -145,4 +146,23 @@ test("explicit recipients still work and still thread; retries stay idempotent",
   assert.equal(runs.length, 1);
   assert.ok(runs[0].thread);
   await assert.rejects(c.command("messages.send", { ...request, body: "Something else" }), /already used/);
+});
+
+test("bots asked together can confer: a mention to a teammate that's still working waits for it", async (t) => {
+  // Alex answers at once and asks Morgan; Morgan is still on its own reply.
+  const later = (text, ms) => new Promise((resolve) => setTimeout(() => resolve(text), ms));
+  const { c, say, prompts, byId } = await project(t, {
+    script: { Alex: ["My part is done. @Morgan what's your status?"], Morgan: [later("Still building the page.", 600), "@Alex the page is live."] },
+  });
+  await say("@Alex @Morgan status update, and confer with each other");
+  const snap = c.snapshot();
+  assert.deepEqual(
+    snap.runs.map((r) => [byId(r.employee), r.status]),
+    [["Alex", "succeeded"], ["Morgan", "succeeded"], ["Morgan", "succeeded"], ["Alex", "succeeded"]],
+    "Morgan answers Alex after its own reply, then Alex hears back",
+  );
+  assert.equal(new Set(snap.runs.map((r) => r.thread)).size, 1, "all in one thread");
+  const second = prompts.filter((p) => p.name === "Morgan")[1].prompt;
+  assert.match(second, /Alex mentioned you: My part is done\. @Morgan what's your status\?/);
+  assert.match(second, /Morgan: Still building the page\./, "it sees its own first reply in the thread");
 });

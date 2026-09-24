@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.18] - 2026-09-24
+
+### Added
+- **Watch a bot's terminal.** In **Activity**, click a bot's row to open its terminal underneath and see exactly what its CLI is doing, live:
+  - the command it ran
+  - each tool call (commands, file reads and edits, searches) with the start of its output
+  - the model's text as it writes
+  - warnings the CLI prints
+  - the exit, and at the end the turns, time, cost, and tokens used
+  - It works for Claude Code, Codex, Gemini, Cursor, Hermes, and custom CLIs. Secrets in the output are hidden, as in replies.
+  - Each run's log is kept on this computer (the newest 300 runs).
+
+### Fixed
+- **Bots stopped doing any work, and everything sat in the queue.** The **Stop all** button above the message box also paused new work for the whole workspace, and the only sign was a small "New work paused" line at the bottom of the sidebar.
+  - **Stop all** in a chat now stops only that chat's work.
+  - When new work is paused, a banner says so in the chat and on Activity, and the sidebar has a **Resume** button. **Stop the team** in Runtime & privacy still stops everything and pauses on purpose.
+  - A queued run's terminal says when it's waiting because new work is paused.
+  - Workspaces that the old **Stop all** left paused are resumed once when you update, so work already waiting in the queue starts.
+- **Bots asked together couldn't confer.** When two bots worked on the same thread at once, the first to finish could @mention the other, but that mention was dropped because the other bot was still busy. Now the mention waits: the teammate answers it as soon as its own reply is done, with the whole thread in view.
+- **Up to 8 bots work at the same time**, up from 2. Each bot still works on one assignment at a time.
+
+### Changed
+- **Bots in every project can pass work to each other.** There's no longer a setting for it: in any project with two or more bots, a bot can hand off a task or @mention a teammate into its thread. This applies to projects you've already made, including ones created with handoffs off.
+  - The switch is gone from New project and Edit project on the desktop, and from new chats on the phone.
+  - The project header now says "Bots hand work to each other".
+  - Direct chats with one bot are unchanged, and the limits stay: 8 runs per task, and 6 bot-to-bot @mentions in a thread before it waits for you.
+
 ## [0.3.17] - 2026-09-24
 
 ### Added

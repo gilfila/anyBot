@@ -1,11 +1,10 @@
 import React, { useState } from "react";
 import { Folder, Plus, Save, Trash2, X } from "lucide-react";
 
-// Edit a project: its name, whether bots hand work to each other, and its
-// folders. Deleting archives the project (like deleting a bot).
+// Edit a project: its name and folders. Deleting archives the project (like
+// deleting a bot). Bots in every project hand work to each other.
 export function ProjectSettingsForm({ conversation, busy, onSave, onDelete }) {
   const [title, setTitle] = useState(conversation.title || "");
-  const [delegation, setDelegation] = useState(Boolean(conversation.delegation));
   const [allowedFolders, setAllowedFolders] = useState(
     conversation.allowedFolders || []
   );
@@ -38,7 +37,6 @@ export function ProjectSettingsForm({ conversation, busy, onSave, onDelete }) {
         onSave({
           conversation: conversation.id,
           title,
-          delegation,
           allowedFolders,
           artifactsFolder,
         });
@@ -54,18 +52,6 @@ export function ProjectSettingsForm({ conversation, busy, onSave, onDelete }) {
           placeholder="e.g. Product launch"
           autoFocus
         />
-      </label>
-      <label className="checkbox trust">
-        <input
-          type="checkbox"
-          checked={delegation}
-          onChange={(e) => setDelegation(e.target.checked)}
-        />
-        <span>
-          Allow employees to hand work to one another within this project, and
-          to bring each other into threads with @mentions. Limited to 8 runs per
-          root task.
-        </span>
       </label>
       <div className="project-folders-section">
         <label>

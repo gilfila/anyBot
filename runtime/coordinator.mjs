@@ -16,6 +16,7 @@ import { Memory } from "./memory.mjs";
 import { Knowledge } from "./knowledge.mjs";
 import { classifyRunError } from "./diagnostics.mjs";
 import { Approvals } from "./approvals.mjs";
+import { TerminalLog } from "./terminal.mjs";
 import { ACTION_GUIDE, actionsFrom, withoutActions } from "./actions.mjs";
 import packageMetadata from "../package.json" with { type: "json" };
 import {
@@ -88,7 +89,8 @@ export class Coordinator extends EventEmitter {
     runner,
     probe = probeAll,
     probeModels: modelProbe = probeModels,
-    concurrency = 2,
+    // Up to 8 bots work at once (each bot still runs one task at a time).
+    concurrency = 8,
     stuckCancelMs = 20000,
     clock = Date.now,
   }) {
@@ -102,6 +104,12 @@ export class Coordinator extends EventEmitter {
     this.board.onMove = (task, from, to, author) => this.onTaskMoved(task, from, to, author);
     this.docs = new Docs(this.store);
     this.knowledge = new Knowledge(this.store);
+    this.terminal = new TerminalLog(directory);
+    try {
+      this.terminal.prune();
+    } catch {
+      // Old logs are only a disk-space concern.
+    }
     this.approvals = new Approvals(this.store, directory, {
       onRequest: (approval) => {
         const name = this.store.one("SELECT name FROM employees WHERE id=?", approval.employee)?.name || "A bot";
@@ -142,6 +150,17 @@ export class Coordinator extends EventEmitter {
     this.paused =
       this.store.one("SELECT value FROM metadata WHERE key='paused'").value ===
       "true";
+    // Before 0.3.18 the chat's "Stop all" also paused all new work, with
+    // only a small note in the sidebar, so workspaces sat paused without
+    // anyone meaning it. Resume once; a pause set from now on is kept.
+    if (!this.store.one("SELECT value FROM metadata WHERE key='pauseReset'")) {
+      this.store.run("INSERT OR IGNORE INTO metadata VALUES ('pauseReset', '1')");
+      if (this.paused) {
+        this.paused = false;
+        this.store.run("UPDATE metadata SET value='false' WHERE key='paused'");
+        this.store.event("runtime.resumed", { reason: "stop-all-pause-reset" });
+      }
+    }
     this.routines = new Routines(this, clock);
     this.routines.recover();
     this.timer = setInterval(() => {
@@ -196,6 +215,8 @@ export class Coordinator extends EventEmitter {
         .map((c) => ({
           ...c,
           members: JSON.parse(c.members),
+          // Every project hands off; the stored flag is kept for old clients.
+          delegation: JSON.parse(c.members).length > 1 ? 1 : 0,
           allowedFolders: JSON.parse(c.allowedFolders || "[]"),
           artifactsFolder: c.artifactsFolder || "",
         })),
@@ -214,6 +235,7 @@ export class Coordinator extends EventEmitter {
       runtime: {
         paused: this.paused,
         active: this.active.size,
+        concurrency: this.concurrency,
         directory: this.directory,
         mode: "local-owner",
         version: packageMetadata.version,
@@ -267,6 +289,25 @@ export class Coordinator extends EventEmitter {
       case "runs.dismiss":
         this.dismissRun(payload.id);
         break;
+      // A bot's CLI as a terminal shows it, from a byte offset (Activity).
+      case "runs.terminal": {
+        const runId = text(payload.id, "Run ID", 100);
+        const run = requireRow(this.store.one("SELECT status FROM runs WHERE id=?", runId), "Run");
+        const offset = Number.isInteger(payload.offset) ? payload.offset : 0;
+        return { ...this.terminal.read(runId, offset), status: run.status };
+      }
+      // Stop one conversation's work. Unlike runtime.stopAll, this doesn't
+      // pause the workspace, so other bots and new messages keep running.
+      case "runs.stopConversation": {
+        const conversationId = text(payload.conversation, "Conversation ID", 100);
+        for (const { id: runId } of this.store.all(
+          "SELECT id FROM runs WHERE conversation=? AND status IN ('queued','running') ORDER BY rowid",
+          conversationId,
+        ))
+          if (["queued", "running"].includes(this.store.one("SELECT status FROM runs WHERE id=?", runId)?.status))
+            await this.cancel(runId);
+        break;
+      }
       case "tasks.get":
         return this.board.detail(payload.id);
       case "tasks.create":
@@ -579,7 +620,7 @@ export class Coordinator extends EventEmitter {
       id(),
       title,
       JSON.stringify(members),
-      payload.delegation === true ? 1 : 0,
+      members.length > 1 ? 1 : 0,
       now(),
       JSON.stringify(allowedFolders),
       artifactsFolder,
@@ -612,8 +653,9 @@ export class Coordinator extends EventEmitter {
       conversationId,
     )) throw new Error("Stop or finish this conversation's active work before removing bots");
     this.store.run(
-      "UPDATE conversations SET members=? WHERE id=?",
+      "UPDATE conversations SET members=?, delegation=? WHERE id=?",
       JSON.stringify(members),
+      members.length > 1 ? 1 : 0,
       conversationId,
     );
     for (const member of previous.filter((member) => !members.includes(member)))
@@ -635,15 +677,11 @@ export class Coordinator extends EventEmitter {
     const title = payload.title !== undefined
       ? text(payload.title, "Title", 100)
       : conversation.title;
-    if (payload.delegation !== undefined && typeof payload.delegation !== "boolean")
-      throw new Error("Handoffs must be on or off");
-    const delegation = payload.delegation === undefined ? conversation.delegation : payload.delegation ? 1 : 0;
     this.store.run(
-      "UPDATE conversations SET title=?, allowedFolders=?, artifactsFolder=?, delegation=? WHERE id=?",
+      "UPDATE conversations SET title=?, allowedFolders=?, artifactsFolder=? WHERE id=?",
       title,
       JSON.stringify(allowedFolders),
       artifactsFolder,
-      delegation,
       conversationId,
     );
     this.store.event("conversation.settings.updated", {
@@ -685,6 +723,11 @@ export class Coordinator extends EventEmitter {
         conversation: conversationId,
       });
     });
+  }
+  // Every project (two or more bots) lets its bots hand work to each other
+  // and @mention teammates into threads. A direct chat has no one to hand to.
+  isProject(conversation) {
+    return JSON.parse(conversation.members).length > 1;
   }
   // New work can't start in an archived project.
   requireOpenProject(conversation) {
@@ -1116,16 +1159,16 @@ export class Coordinator extends EventEmitter {
     const mentionedBy = peers.find((p) => p.id === assigned.author && p.id !== employee.id)?.name;
     const teammates = peers.filter((p) => p.id !== employee.id);
     const collaborate =
-      run.thread && conversation.delegation && teammates.length
+      run.thread && this.isProject(conversation) && teammates.length
         ? `\n\nYou are working in a thread with your teammates. Reply in the thread. To bring a teammate in, write @Name followed by exactly what you need from them; they will read this thread and reply in it. Teammates: ${teammates.map((t) => `@${t.name} (${t.role})`).join(", ")}. Mention someone only when you need them; do not mention teammates just to thank or acknowledge them.`
         : "";
     const reports = this.org.directReports(employee.id);
     const delegateHow = `delegate one concrete task by ending with a fenced anybot block containing JSON: {"type":"delegate","employeeId":"exact ID","objective":"concrete assignment"}. Use only when useful. The coordinator validates and limits delegation, then returns the result to you. Do not claim a delegation succeeded before it runs.`;
-    const delegation = conversation.delegation
+    const delegation = this.isProject(conversation)
       ? `You may ${delegateHow} Peers: ${JSON.stringify(peers)}.${reports.length ? ` You may also delegate to your direct reports: ${JSON.stringify(reports)}.` : ""}`
       : reports.length
-        ? `Delegation to peers is disabled here, but as a manager you may ${delegateHow} Your direct reports: ${JSON.stringify(reports)}.`
-        : "Delegation is disabled in this conversation.";
+        ? `This is a direct chat with no peers, but as a manager you may ${delegateHow} Your direct reports: ${JSON.stringify(reports)}.`
+        : "This is a direct chat, so there is no one to delegate to.";
     const board =
       this.boardContext(run, conversation, peers) +
       this.orgContext(run, employee, assignment) +
@@ -1281,6 +1324,15 @@ export class Coordinator extends EventEmitter {
   }
   async execute(run, employee, controller) {
     let lastSave = 0;
+    const term = (text) => {
+      try {
+        this.terminal.append(run.id, text);
+      } catch {
+        // The terminal view is best effort; the run itself carries on.
+      }
+    };
+    const harnessName = this.harnesses.find((h) => h.id === employee.harness)?.name || employee.harness;
+    term(`── ${employee.name} · ${harnessName}${employee.model ? ` · ${employee.model}` : ""} · started ${new Date().toLocaleTimeString()} ──\n${employee.workspace}\n`);
     try {
       const files = await this.artifacts.materialize(run, employee);
       if (controller.signal.aborted) throw new Error("Run cancelled");
@@ -1307,6 +1359,7 @@ export class Coordinator extends EventEmitter {
         signal: controller.signal,
         permissionMode: employee.permissionMode || "auto",
         approvals: approval ? { configPath: approval.configPath } : undefined,
+        onTerminal: term,
         onText: (output) => {
           if (
             this.closed ||
@@ -1363,6 +1416,7 @@ export class Coordinator extends EventEmitter {
           now(),
           run.id,
         );
+        term(`── finished ${new Date().toLocaleTimeString()} ──\n`);
         const actionNotes = [];
         let actions = null;
         try {
@@ -1464,6 +1518,7 @@ export class Coordinator extends EventEmitter {
         now(),
         run.id,
       );
+      term(status === "cancelled" ? `── stopped ${new Date().toLocaleTimeString()} ──\n` : `── failed: ${String(error.message).slice(0, 600)} ──\n`);
       this.store.event("run.failed", { run: run.id, status });
       if (status === "failed")
         this.diagnostic({
@@ -1508,13 +1563,11 @@ export class Coordinator extends EventEmitter {
       run.conversation,
     );
     // Chain of command: anyone below the delegator can receive work from any
-    // conversation (running there as a guest). Peers need a shared project
-    // with delegation enabled.
+    // conversation (running there as a guest). Peers need a shared project.
     const isReport = this.org.isBelow(request.employeeId, run.employee);
     if (request.employeeId === run.employee)
       throw new Error("Target must be another employee");
     if (!isReport) {
-      if (!conversation.delegation) throw new Error("Delegation is disabled");
       if (!JSON.parse(conversation.members).includes(request.employeeId))
         throw new Error("Target must be another employee in this conversation or one of your reports");
     }
@@ -1544,17 +1597,21 @@ export class Coordinator extends EventEmitter {
     );
   }
   // A bot that @mentions a teammate in its reply pulls that teammate into the
-  // same thread (when the project allows handoffs). Bots can pass a thread
+  // same thread. Bots can pass a thread
   // around at most MENTION_HOPS times before the owner has to reply.
   activateMentions(run, text, message) {
     if (!run.thread) return;
     const conversation = this.store.one("SELECT * FROM conversations WHERE id=?", run.conversation);
-    if (!conversation?.delegation) return;
+    if (!conversation || !this.isProject(conversation)) return;
     const targets = mentionedIds(text, this.memberBots(conversation)).filter((id) => id !== run.employee);
     if (!targets.length) return;
-    const busy = new Set(
+    // A teammate that's still working on its own reply gets the mention as
+    // its next turn (it reads the thread when that turn starts). Only one
+    // that already has a turn waiting in this thread is skipped: that turn
+    // will read this reply too.
+    const waiting = new Set(
       this.store
-        .all("SELECT employee FROM runs WHERE thread=? AND status IN ('queued','running','cancelling')", run.thread)
+        .all("SELECT employee FROM runs WHERE thread=? AND status='queued'", run.thread)
         .map((r) => r.employee),
     );
     const since =
@@ -1570,7 +1627,7 @@ export class Coordinator extends EventEmitter {
       since,
     ).n;
     for (const target of targets) {
-      if (busy.has(target)) continue;
+      if (waiting.has(target)) continue;
       if (hops >= MENTION_HOPS) {
         this.addMessage(
           run.conversation,

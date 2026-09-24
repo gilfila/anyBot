@@ -340,3 +340,21 @@ test("adapter boundaries preserve structured failures and exclude supervisor sec
     "Authorization: Bearer [redacted]",
   );
 });
+
+test("a workspace paused before 0.3.18 resumes once on update; a pause set after that is kept", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "anybot-pause-reset-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const open = () => new Coordinator({ directory, probe: async () => [], runner: async () => "ok" });
+  let c = open();
+  await c.command("runtime.pause");
+  // An older app never wrote the reset marker.
+  c.store.run("DELETE FROM metadata WHERE key='pauseReset'");
+  await c.close();
+  c = open();
+  assert.equal(c.snapshot().runtime.paused, false, "the stale pause is cleared once");
+  await c.command("runtime.pause");
+  await c.close();
+  c = open();
+  assert.equal(c.snapshot().runtime.paused, true, "a pause set now survives restarts");
+  await c.close();
+});
