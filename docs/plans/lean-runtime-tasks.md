@@ -85,7 +85,8 @@ that does them. Section numbers (§) point into the plan.
 - [x] Measure against `baseline.json`: project2 median 46,264 → 14,896
       (−68%), asserted in CI
 - [x] Docs: `docs/architecture/context-budget.md`, ADR-0002, `design.md` §8–9
-- [ ] Code checkpoint (focus: lost context, prompt-injection framing)
+- [x] Code checkpoint (focus: lost context, prompt-injection framing):
+      `docs/reviews/2026-09-24-M1-code.md`, 3 high findings, all fixed
 - [ ] PR, CI green, ask Tony, merge
 
 ## M2: Harness sessions (0.3.23; split Claude/Codex from the spikes if large)

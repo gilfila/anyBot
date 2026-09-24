@@ -258,3 +258,31 @@ test("exit gate: the 2-bot corpus's median first-turn prompt is at least 60% bel
     assert.deepEqual(Object.keys(s), ORDER, `${name} section order`);
   }
 });
+
+test("channel background follows the history's rule: no human reply posted while the run waited", async (t) => {
+  let release;
+  const gate = new Promise((resolve) => (release = resolve));
+  const seen = [];
+  const c = await coordinator(t, async ({ prompt }) => {
+    seen.push(prompt);
+    if (seen.length === 1) return "Topic A answer";
+    if (seen.length === 2) await gate;
+    return "ok";
+  });
+  for (const name of ["Alex", "Sam"]) await c.command("employees.create", { name, role: "Engineer", harness: "codex", trusted: true });
+  await c.command("conversations.create", { title: "Room", members: c.snapshot().employees.map((e) => e.id) });
+  const room = c.snapshot().conversations[0].id;
+  const send = (body, extra = {}) => c.command("messages.send", { conversation: room, body, requestId: crypto.randomUUID(), ...extra });
+  await send("@Alex topic A");
+  await settled(c);
+  const topicA = c.snapshot().runs[0].thread;
+  await send("@Sam something slow"); // holds the only slot (concurrency 1)
+  await new Promise((r) => setTimeout(r, 30));
+  await send("@Alex topic B"); // queued behind Sam
+  await send("Owner's later note in topic A", { thread: topicA, recipients: [] });
+  release();
+  await settled(c);
+  const topicB = seen.find((prompt) => /Your current assignment:\n@Alex topic B/.test(prompt));
+  assert.match(topicB, /Topic A answer/, "the earlier answer is background");
+  assert.doesNotMatch(topicB, /Owner's later note/, "a human reply posted after the assignment is not");
+});

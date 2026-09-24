@@ -1190,7 +1190,21 @@ export class Coordinator extends EventEmitter {
           .reverse()
           .map((message) => ({
             message,
-            reply: this.store.one("SELECT * FROM messages WHERE thread=? ORDER BY rowid DESC LIMIT 1", message.id),
+            // The same eligibility rule as the history: replies up to this
+            // run's assignment, plus bots' answers to earlier assignments, but
+            // never a human message posted while this run waited.
+            reply: this.store.one(
+              `SELECT m.* FROM messages m WHERE m.thread=? AND (
+                m.rowid <= (SELECT rowid FROM messages WHERE id=?) OR m.id IN (
+                  SELECT rr.message FROM run_responses rr JOIN runs r ON rr.run=r.id
+                  JOIN messages assignment ON assignment.id=r.message
+                  WHERE r.conversation=? AND assignment.rowid <= (SELECT rowid FROM messages WHERE id=?)
+                )) ORDER BY m.rowid DESC LIMIT 1`,
+              message.id,
+              run.message,
+              run.conversation,
+              run.message,
+            ),
           }))
       : [];
     const assignment = requireRow(this.store.one("SELECT id,body,author FROM messages WHERE id=?", run.message), "Assignment");
