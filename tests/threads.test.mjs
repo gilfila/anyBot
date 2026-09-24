@@ -112,7 +112,10 @@ test("bots pull teammates into the thread by @mentioning them, and see the threa
   assert.equal(runs[1].thread, runs[0].thread, "Morgan works in the same thread");
   const morgan = prompts.find((p) => p.name === "Morgan").prompt;
   assert.match(morgan, /Alex mentioned you: Plan is ready/);
-  assert.match(morgan, /The thread you are replying in:[\s\S]*Human: @Alex plan the launch[\s\S]*Alex: Plan is ready/);
+  assert.match(morgan, /The thread you are replying in:\nHuman: @Alex plan the launch/);
+  // Alex's message is the assignment: quoted once, in full, at the end.
+  assert.equal(morgan.split("Plan is ready").length - 1, 1);
+  assert.match(morgan, /Your current assignment:\nAlex mentioned you: Plan is ready\. @Morgan please build the page from it\./);
   assert.match(morgan, /To bring a teammate in, write @Name/);
 });
 

@@ -1,6 +1,6 @@
 {
   "name": "anybot-desktop",
-  "version": "0.3.21",
+  "version": "0.3.22",
   "private": true,
   "description": "A local workspace for your team of AI employees",
   "author": "Any Bot contributors",
@@ -24,6 +24,7 @@
     "test:live:hermes": "node tests/live-hermes-smoke.mjs",
     "test:live:cursor": "node tests/live-cursor-smoke.mjs",
     "test:runtime": "electron tests/electron-runtime.cjs",
+    "test:e2e": "electron tests/electron-threads.cjs",
     "verify:local": "node scripts/verify-local.mjs",
     "mobile:web": "vite build --config mobile/vite.config.mjs",
     "mobile:sync": "npm run mobile:web && npx cap sync",

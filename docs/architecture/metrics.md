@@ -50,22 +50,24 @@ Schema 15 adds `run_inputs.sections` (JSON, section → chars), `hash`
 prompt as named sections in order; `prompt()` is their concatenation, so the
 sizes always add up to `chars`.
 
-| Section | What it is today (0.3.21) |
+| Section | What it is (0.3.22, `runtime/context.mjs`) |
 |---|---|
 | `instructions` | The bot's own instructions |
 | `platform` | Workspace, credentials, approvals, untrusted-data notice |
-| `delegation` | Peers and the `anybot` delegate block, or the direct-chat line |
+| `team` | Teammates and the @mention rule (project threads) |
+| `delegation` | The `anybot` delegate block with direct reports, or peers for project runs outside a thread |
 | `artifacts` | The `anybot-artifacts` contract and supplied files |
+| `actionGuide` | The `anybot-actions` guide (every run until M4) |
+| `background` | "Conversation:" header plus channel background for thread runs |
+| `root` | The thread header and its first message |
+| `history` | Optional older messages within the 12,000-char budget |
+| `thread` | Mandatory messages after the bot's last turn (never cut) |
 | `board` | Current task card, canvas excerpt, open board tasks |
-| `actionGuide` | The `anybot-actions` guide (sent to every run today) |
 | `org` | Chain of command, unread team reports, recalled memories |
 | `knowledge` | Knowledge-graph facts |
-| `team` | Thread collaboration and @mention guidance (projects) |
-| `background` | "Conversation:" header plus channel background for thread runs |
-| `history` | The re-sent transcript (thread or conversation) |
 | `assignment` | The assignment and the closing instruction |
 
-M1 replaces these with the layers of §3.1; the section names will follow.
+Runs recorded by 0.3.21 use the older names (no `root`/`thread`; history before board). Layers and budgets: `docs/architecture/context-budget.md`.
 
 ## Retention (`runtime/retention.mjs`)
 

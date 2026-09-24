@@ -243,7 +243,9 @@ Retries apply only to classified transient failures and remain bounded. Authenti
 
 All employee-to-employee communication goes through the coordinator. Employees cannot read arbitrary conversations or address another harness process directly. A human can send to a selected employee, mention several employees, or ask a designated lead to coordinate a task.
 
-Distinguish conversational mentions from executable delegation. Merely printing `@Research` does not trigger a run. Delegation uses a typed tool such as `delegate_work`, exposed through an adapter-supported tool/MCP bridge. A compatibility adapter may submit a validated structured action envelope; parsing natural-language prose for commands is prohibited.
+**As built (0.3.15–0.3.22):** in a project thread, an `@Name` in a bot's reply starts that teammate's turn in the same thread, capped at `MENTION_HOPS` bot-to-bot hand-offs per human message. Mentions inside code, inline code, or quoted lines don't count, and bot names are unique among active bots, so a mention addresses exactly one bot. Project-thread prompts list teammates by name for @mentions; the `anybot` delegate block (below) remains for direct reports from any conversation and for project runs outside a thread.
+
+Distinguish conversational mentions from executable delegation. Outside a project thread, merely printing `@Research` does not trigger a run. Delegation uses a typed tool such as `delegate_work`, exposed through an adapter-supported tool/MCP bridge. A compatibility adapter may submit a validated structured action envelope; parsing natural-language prose for commands is prohibited.
 
 ```typescript
 type Delegation = {
@@ -272,6 +274,8 @@ Issue short-lived, run-scoped capabilities to a dedicated tool broker, not a reu
 ## 9. Context, memory, and artifacts
 
 Build each prompt from versioned employee instructions, current execution policy, the authorized conversation slice, selected scoped memory, permitted artifacts, and the current work objective. Record references/hashes so the context assembly is explainable without unnecessarily duplicating sensitive content in logs.
+
+**As built (0.3.22):** `runtime/context.mjs` builds the prompt as ordered layers: stable ones first (instructions, platform rules, team, delegation, artifacts contract, action guide), then history, then per-turn context (task card, canvas, board, chain of command, reports, memories, knowledge facts), then the assignment. History is split into mandatory messages (thread root, assignment, mention, everything after the bot's last turn; never cut) and optional older messages (≤ 12,000 chars, newest first; other bots' long messages keep head and tail unless the assignment names them; machine blocks removed). `run_inputs` stores each layer's size and the prompt's hash; full text is kept for the newest 50 runs. Building a prompt has no side effects: reports it carries are marked read only when the run succeeds. See `docs/architecture/context-budget.md` and ADR-0002.
 
 Memory scopes:
 

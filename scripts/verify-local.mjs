@@ -5,6 +5,7 @@ const steps = [
   ["unit and integration tests", ["test"]],
   ["desktop renderer build", ["run", "build"]],
   ["Electron runtime smoke", ["run", "test:runtime"]],
+  ["Electron thread collaboration e2e", ["run", "test:e2e"]],
   ["mobile web build and Capacitor sync", ["run", "mobile:sync"]],
   ["installed harness and model discovery", ["run", "doctor"]],
 ];

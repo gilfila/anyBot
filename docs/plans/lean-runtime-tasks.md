@@ -64,22 +64,27 @@ that does them. Section numbers (§) point into the plan.
 
 ## M1: Lean prompts (0.3.22)
 
-- [ ] Design checkpoint on §3.1 before coding
-- [ ] `runtime/context.mjs`: pure `buildContext()` with layers 1–7 and budgets
-      from `tests/budgets.json`; `Coordinator.prompt()` delegates to it
-- [ ] Layer order: stable → history → per-turn → assignment
-- [ ] Conditional sections: action guide only with a board and no MCP tools;
-      delegation text only to bots with direct reports; peers by name in
-      projects
-- [ ] History hygiene per §3.1 (never clip what the bot is asked about or new
-      to it; head+tail for older long messages; strip machine blocks; collapse
-      notices)
-- [ ] Reports marked read only when delivered (§3.1)
-- [ ] Tests: golden section order per corpus scenario; budget tests; the three
-      review-derived tests listed under M1 in the plan; existing suites green
-- [ ] Measure against `baseline.json`; gate: first-turn prompt on the 2-bot
-      corpus down ≥ 60%
-- [ ] Docs: `docs/architecture/context-budget.md`, ADR-0002, `design.md` §8–9
+- [x] Design checkpoint on §3.1 before coding
+      (`docs/reviews/2026-09-24-M1-design.md`: 8 findings, all accepted and
+      folded into §3.1's amendment)
+- [x] `runtime/context.mjs`: pure `buildContext()` with layers 1–7 and budgets
+      (`BUDGETS`, mirrored in `tests/budgets.json`); `Coordinator.promptParts()`
+      delegates to it
+- [x] Layer order: stable → history → per-turn → assignment
+- [x] Conditional sections (as amended): action guide in every run until M4;
+      delegation block for bots with direct reports and for project runs
+      outside a thread; peers by name in project threads
+- [x] History hygiene per §3.1 (mandatory vs optional; head+tail for older
+      long bot messages unless named; strip machine blocks; collapse notices;
+      assignment sent once)
+- [x] Reports marked read only when the run that carried them succeeds
+- [x] Unique bot names; mentions ignore code and quotes (review finding 5)
+- [x] Tests: `tests/context.test.mjs` (order, budgets, the three
+      review-derived cases, hygiene, regressions); `npm run test:e2e`
+      (Electron thread collaboration with a fake harness, in CI)
+- [x] Measure against `baseline.json`: project2 median 46,264 → 14,896
+      (−68%), asserted in CI
+- [x] Docs: `docs/architecture/context-budget.md`, ADR-0002, `design.md` §8–9
 - [ ] Code checkpoint (focus: lost context, prompt-injection framing)
 - [ ] PR, CI green, ask Tony, merge
 
