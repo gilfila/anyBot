@@ -4,6 +4,7 @@ import { readFileSync, statSync } from "node:fs";
 import { constants } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import { formatEvent } from "./terminal.mjs";
 
 export const harnesses = [
   {
@@ -654,18 +655,25 @@ export async function probeAll(modelCatalog = {}) {
 }
 
 export async function runHarness(
-  { harness, model, workspace, prompt, signal, onText, timeoutMs = 600000, permissionMode = "auto", approvals },
+  { harness, model, workspace, prompt, signal, onText, onTerminal, timeoutMs = 600000, permissionMode = "auto", approvals },
   { resolve = resolveExecutable, args, outputFormat, pipeGraceMs = 2000 } = {},
 ) {
+  // The raw CLI view for the Activity terminal: redacted, never parsed for results.
+  const term = (text) => {
+    if (text) onTerminal?.(redact(text));
+  };
   const executable = await resolve(harness);
   if (!executable)
     throw new Error(
       `${harness} is not installed or its launcher is unsupported. Open Harnesses for setup instructions.`,
     );
   if (signal.aborted) throw new Error("Run cancelled");
+  const argv = [...executable.prefix, ...(args ?? invocation(harness, model, permissionMode, approvals))];
+  const quote = (part) => (/[\s"]/.test(part) ? `"${String(part).replace(/"/g, '\\"')}"` : part);
+  term(`$ ${[executable.file, ...argv].map(quote).join(" ")}  < prompt (${prompt.length.toLocaleString("en-US")} chars)\n`);
   const child = spawn(
     executable.file,
-    [...executable.prefix, ...(args ?? invocation(harness, model, permissionMode, approvals))],
+    argv,
     {
       cwd: workspace,
       env: childEnvironment(),
@@ -688,8 +696,15 @@ export async function runHarness(
   };
   const line = (text) => {
     if (!text.trim()) return;
+    let value;
     try {
-      const event = extractEvent(harness, JSON.parse(text));
+      value = JSON.parse(text);
+      term(formatEvent(harness, value));
+    } catch {
+      term(`${text}\n`);
+    }
+    try {
+      const event = extractEvent(harness, value ?? JSON.parse(text));
       if (event.text) append(event.text);
       if (event.final !== undefined) final = event.final;
       if (event.error) {
@@ -719,7 +734,10 @@ export async function runHarness(
       return;
     }
     const text = decoder.write(data);
-    if (harness === "hermes" || outputFormat === "text") append(text);
+    if (harness === "hermes" || outputFormat === "text") {
+      term(text);
+      append(text);
+    }
     else {
       buffer += text;
       let index;
@@ -731,6 +749,7 @@ export async function runHarness(
   });
   child.stderr.on("data", (data) => {
     diagnostics = (diagnostics + data.toString()).slice(-8000);
+    term(data.toString());
   });
   child.stdin.on("error", () => {});
   child.stdin.end(prompt);
@@ -751,7 +770,11 @@ export async function runHarness(
       });
     });
     const tail = decoder.end();
-    if (harness === "hermes" || outputFormat === "text") append(tail);
+    term(`[exit ${code ?? "?"}]\n`);
+    if (harness === "hermes" || outputFormat === "text") {
+      term(tail);
+      append(tail);
+    }
     else buffer += tail;
     if (
       !parseError &&

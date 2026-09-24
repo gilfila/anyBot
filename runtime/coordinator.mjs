@@ -16,6 +16,7 @@ import { Memory } from "./memory.mjs";
 import { Knowledge } from "./knowledge.mjs";
 import { classifyRunError } from "./diagnostics.mjs";
 import { Approvals } from "./approvals.mjs";
+import { TerminalLog } from "./terminal.mjs";
 import { ACTION_GUIDE, actionsFrom, withoutActions } from "./actions.mjs";
 import packageMetadata from "../package.json" with { type: "json" };
 import {
@@ -88,7 +89,8 @@ export class Coordinator extends EventEmitter {
     runner,
     probe = probeAll,
     probeModels: modelProbe = probeModels,
-    concurrency = 2,
+    // Up to 8 bots work at once (each bot still runs one task at a time).
+    concurrency = 8,
     stuckCancelMs = 20000,
     clock = Date.now,
   }) {
@@ -102,6 +104,12 @@ export class Coordinator extends EventEmitter {
     this.board.onMove = (task, from, to, author) => this.onTaskMoved(task, from, to, author);
     this.docs = new Docs(this.store);
     this.knowledge = new Knowledge(this.store);
+    this.terminal = new TerminalLog(directory);
+    try {
+      this.terminal.prune();
+    } catch {
+      // Old logs are only a disk-space concern.
+    }
     this.approvals = new Approvals(this.store, directory, {
       onRequest: (approval) => {
         const name = this.store.one("SELECT name FROM employees WHERE id=?", approval.employee)?.name || "A bot";
@@ -216,6 +224,7 @@ export class Coordinator extends EventEmitter {
       runtime: {
         paused: this.paused,
         active: this.active.size,
+        concurrency: this.concurrency,
         directory: this.directory,
         mode: "local-owner",
         version: packageMetadata.version,
@@ -269,6 +278,25 @@ export class Coordinator extends EventEmitter {
       case "runs.dismiss":
         this.dismissRun(payload.id);
         break;
+      // A bot's CLI as a terminal shows it, from a byte offset (Activity).
+      case "runs.terminal": {
+        const runId = text(payload.id, "Run ID", 100);
+        const run = requireRow(this.store.one("SELECT status FROM runs WHERE id=?", runId), "Run");
+        const offset = Number.isInteger(payload.offset) ? payload.offset : 0;
+        return { ...this.terminal.read(runId, offset), status: run.status };
+      }
+      // Stop one conversation's work. Unlike runtime.stopAll, this doesn't
+      // pause the workspace, so other bots and new messages keep running.
+      case "runs.stopConversation": {
+        const conversationId = text(payload.conversation, "Conversation ID", 100);
+        for (const { id: runId } of this.store.all(
+          "SELECT id FROM runs WHERE conversation=? AND status IN ('queued','running') ORDER BY rowid",
+          conversationId,
+        ))
+          if (["queued", "running"].includes(this.store.one("SELECT status FROM runs WHERE id=?", runId)?.status))
+            await this.cancel(runId);
+        break;
+      }
       case "tasks.get":
         return this.board.detail(payload.id);
       case "tasks.create":
@@ -1285,6 +1313,15 @@ export class Coordinator extends EventEmitter {
   }
   async execute(run, employee, controller) {
     let lastSave = 0;
+    const term = (text) => {
+      try {
+        this.terminal.append(run.id, text);
+      } catch {
+        // The terminal view is best effort; the run itself carries on.
+      }
+    };
+    const harnessName = this.harnesses.find((h) => h.id === employee.harness)?.name || employee.harness;
+    term(`── ${employee.name} · ${harnessName}${employee.model ? ` · ${employee.model}` : ""} · started ${new Date().toLocaleTimeString()} ──\n${employee.workspace}\n`);
     try {
       const files = await this.artifacts.materialize(run, employee);
       if (controller.signal.aborted) throw new Error("Run cancelled");
@@ -1311,6 +1348,7 @@ export class Coordinator extends EventEmitter {
         signal: controller.signal,
         permissionMode: employee.permissionMode || "auto",
         approvals: approval ? { configPath: approval.configPath } : undefined,
+        onTerminal: term,
         onText: (output) => {
           if (
             this.closed ||
@@ -1367,6 +1405,7 @@ export class Coordinator extends EventEmitter {
           now(),
           run.id,
         );
+        term(`── finished ${new Date().toLocaleTimeString()} ──\n`);
         const actionNotes = [];
         let actions = null;
         try {
@@ -1468,6 +1507,7 @@ export class Coordinator extends EventEmitter {
         now(),
         run.id,
       );
+      term(status === "cancelled" ? `── stopped ${new Date().toLocaleTimeString()} ──\n` : `── failed: ${String(error.message).slice(0, 600)} ──\n`);
       this.store.event("run.failed", { run: run.id, status });
       if (status === "failed")
         this.diagnostic({

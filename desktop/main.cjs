@@ -544,6 +544,8 @@ const methods = new Set([
   "messages.send",
   "runs.cancel",
   "runs.dismiss",
+  "runs.terminal",
+  "runs.stopConversation",
   "tasks.get",
   "tasks.create",
   "tasks.update",

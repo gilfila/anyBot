@@ -8,6 +8,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  CirclePause,
   CircleHelp,
   Columns3,
   Clock,
@@ -36,6 +37,7 @@ import {
   Settings2,
   ShieldCheck,
   Square,
+  SquareTerminal,
   Trash2,
   Users,
   Workflow,
@@ -176,6 +178,7 @@ import { PhoneLinkPanel } from "./components/PhoneLinkPanel.jsx";
 import { AttentionIcon } from "./components/AttentionIcon.jsx";
 import { botAttention } from "./lib/attention.js";
 import { plainNotes } from "./lib/update-notes.js";
+import { RunTerminal } from "./components/RunTerminal.jsx";
 import { statusLabel } from "./components/board/meta.js";
 
 // A task being started posts its brief into the project chat. Render it as a
@@ -244,6 +247,7 @@ export function App() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [deleteProjectConfirm, setDeleteProjectConfirm] = useState(null);
   const [showArchivedProjects, setShowArchivedProjects] = useState(false);
+  const [openTerminal, setOpenTerminal] = useState(null);
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(() => {
     try {
       const saved = localStorage.getItem("anybot-left-sidebar");
@@ -847,6 +851,11 @@ export function App() {
                   ? "New work paused"
                   : "Local runtime online"}
             </span>
+            {connected && data.runtime.paused && (
+              <button type="button" className="resume-link" onClick={() => act("runtime.resume")}>
+                Resume
+              </button>
+            )}
           </div>
           <p>
             {data.runtime.keepRunningInTray === false
@@ -1394,8 +1403,18 @@ export function App() {
               <WorkingIndicator
                 runs={activeRuns}
                 employees={data.employees}
-                onStopAll={activeRuns.length > 0 ? () => act("runtime.stopAll") : null}
+                onStopAll={activeRuns.length > 0 ? () => act("runs.stopConversation", { conversation: conversation.id }) : null}
               />
+              {data.runtime.paused && !conversation.archived && (
+                <div className="paused-banner" role="status">
+                  <CirclePause size={18} />
+                  <span>New work is paused, so bots won't start anything you send until you resume.</span>
+                  <button type="button" className="secondary" disabled={busy} onClick={() => act("runtime.resume")}>
+                    <Play size={14} />
+                    Resume
+                  </button>
+                </div>
+              )}
               {conversation.archived ? (
                 <div className="archived-banner" role="status">
                   <Archive size={16} />
@@ -1516,6 +1535,21 @@ export function App() {
                 <span>Completed</span>
               </div>
             </div>
+            {data.runtime.paused && (
+              <div className="paused-banner" role="status">
+                <CirclePause size={18} />
+                <span>
+                  New work is paused
+                  {data.runs.some((r) => r.status === "queued")
+                    ? `, so ${data.runs.filter((r) => r.status === "queued").length} queued assignment${data.runs.filter((r) => r.status === "queued").length === 1 ? " is" : "s are"} waiting.`
+                    : ". Bots won't start new work until you resume."}
+                </span>
+                <button type="button" className="secondary" disabled={busy} onClick={() => act("runtime.resume")}>
+                  <Play size={14} />
+                  Resume
+                </button>
+              </div>
+            )}
             {!data.runs.length ? (
               <Empty
                 title="A clear view of progress"
@@ -1523,24 +1557,31 @@ export function App() {
               />
             ) : (
               <div className="run-list">
-                {[...data.runs].reverse().map((r) => (
-                  <article className="run-row" key={r.id}>
-                    <RobotAvatar
-                      size={52}
-                      employee={data.employees.find((e) => e.id === r.employee)}
-                      working={r.status === "running"}
-                    />
-                    <div className="run-description">
-                      <strong>
-                        {data.employees.find((e) => e.id === r.employee)?.name}
-                      </strong>
-                      <p>
-                        {data.messages.find((m) => m.id === r.message)?.body}
-                      </p>
-                      {r.error && (
-                        <small className="error-text">{r.error}</small>
-                      )}
-                    </div>
+                {[...data.runs].reverse().map((r) => {
+                  const bot = data.employees.find((e) => e.id === r.employee);
+                  const open = openTerminal === r.id;
+                  return (
+                  <React.Fragment key={r.id}>
+                  <article className={`run-row${open ? " is-open" : ""}`}>
+                    <button
+                      type="button"
+                      className="run-open"
+                      aria-expanded={open}
+                      aria-controls={open ? `terminal-${r.id}` : undefined}
+                      title={open ? "Hide the terminal" : `See ${bot?.name || "the bot"}'s terminal`}
+                      onClick={() => setOpenTerminal(open ? null : r.id)}
+                    >
+                      <RobotAvatar size={52} employee={bot} working={r.status === "running"} />
+                      <span className="run-description">
+                        <strong>{bot?.name}</strong>
+                        <span className="run-body">{data.messages.find((m) => m.id === r.message)?.body}</span>
+                        {r.error && <small className="error-text">{r.error}</small>}
+                        <span className="terminal-hint">
+                          <SquareTerminal size={13} aria-hidden="true" />
+                          {open ? "Hide terminal" : r.status === "running" ? "Watch live in the terminal" : "Terminal"}
+                        </span>
+                      </span>
+                    </button>
                     <Status status={r.status} />
                     {["running", "queued"].includes(r.status) && (
                       <button
@@ -1563,7 +1604,14 @@ export function App() {
                       <ArrowUpRight size={19} />
                     </button>
                   </article>
-                ))}
+                  {open && (
+                    <div id={`terminal-${r.id}`}>
+                      <RunTerminal run={r} paused={data.runtime.paused} name={bot?.name || "Bot"} />
+                    </div>
+                  )}
+                  </React.Fragment>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1830,6 +1878,10 @@ export function App() {
                   tray when the window closes. Use Quit when you want to stop
                   the runtime completely. Your computer must stay awake for
                   employees to keep working.
+                </p>
+                <p>
+                  Up to {data.runtime.concurrency || 8} bots work at the same time; each bot takes one assignment at a time.
+                  {data.runtime.paused ? " New work is paused right now, so nothing new starts until you resume." : ""}
                 </p>
               </div>
               <div className="settings-actions">
