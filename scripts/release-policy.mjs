@@ -41,3 +41,13 @@ export function downloadReadme(version) {
   compareVersions(version, version);
   return `# anyBot for Windows\n\n[**Download anyBot ${version} — Windows installer**](https://github.com/gilfila/anyBot-updates/releases/download/v${version}/anyBot-Setup-${version}.exe)\n\nRun the installer. Existing installations can use **Check for updates** inside anyBot.\n\nThis repository hosts installation and update files only.\n`;
 }
+
+// The CHANGELOG entry for a version ("## [0.3.15] - date" up to the next
+// "## ["), used as the release notes the in-app updater shows.
+export function changelogSection(changelog, version) {
+  const lines = String(changelog || '').split(/\r?\n/);
+  const start = lines.findIndex(line => line.startsWith(`## [${version}]`));
+  if (start < 0) return '';
+  const end = lines.findIndex((line, index) => index > start && line.startsWith('## ['));
+  return lines.slice(start + 1, end < 0 ? undefined : end).join('\n').trim().slice(0, 6000);
+}

@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.16] - 2026-09-24
+
+### Fixed
+- **The welcome in a new, empty project was hard to read over the Solarpunk and Cyberpunk scenes** (as low as 2.2:1). It now sits on a card. The contrast audit now also checks empty projects and open threads.
+- **Update notes showed raw HTML** (`<p>Windows installer…`). The update card now shows what changed in the new version as plain text. Each release's notes on the update feed are now that version's entry from this changelog.
+
 ## [0.3.15] - 2026-09-24
 
 ### Added

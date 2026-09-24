@@ -1,6 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { compareVersions, releaseFiles, verifyPublicAssets, verifyUpdateMetadata, downloadReadme } from './release-policy.mjs';
+import { changelogSection, compareVersions, releaseFiles, verifyPublicAssets, verifyUpdateMetadata, downloadReadme } from './release-policy.mjs';
 
 const sourceRepo = 'gilfila/anyBot';
 const publicRepo = 'gilfila/anyBot-updates';
@@ -43,11 +43,13 @@ verifyUpdateMetadata(version, buffers['latest.yml'].toString(), buffers[files[0]
 const hashes = Object.fromEntries(files.map(name => [name, createHash('sha256').update(buffers[name]).digest('hex')]));
 const audit = JSON.parse(readFileSync('release/private-release-audit.json'));
 if (audit.version !== version || audit.sourceCommit !== sha || files.some(name => audit.files[name] !== hashes[name])) throw Error('Build provenance does not match the publishing commit and assets');
+// What changed, shown by the in-app updater.
+const notes = existsSync('CHANGELOG.md') ? changelogSection(readFileSync('CHANGELOG.md', 'utf8'), version) : '';
 let release = await api(publicRepo, `releases/tags/${tag}`, { missing: true });
 if (release && !release.body?.includes(marker)) throw Error('Existing public version belongs to a different source commit');
 if (!release) release = await api(publicRepo, 'releases', { method: 'POST', body: {
   tag_name: tag, target_commitish: target.default_branch, name: `anyBot ${version}`, draft: true,
-  body: `Windows installer and automatic update files.\n\n[Download the Windows installer](https://github.com/${publicRepo}/releases/download/${tag}/${files[0]})\n\n${marker}`,
+  body: `${notes ? `${notes}\n\n` : ''}[Download the Windows installer](https://github.com/${publicRepo}/releases/download/${tag}/${files[0]})\n\n${marker}`,
 } });
 if (release.draft) {
   // A retry may replace only unpublished assets belonging to this exact commit.

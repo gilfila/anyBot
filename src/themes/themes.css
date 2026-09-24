@@ -41,6 +41,13 @@
 :root:is([data-backdrop="rain"], [data-backdrop="meadow"], [data-backdrop="grid"]) :is(.message.from-system .message-content, .message.notice .message-body) {
   border-radius: 12px;
 }
+/* An empty chat's welcome is a card on the scene. */
+:root:is([data-backdrop="rain"], [data-backdrop="meadow"], [data-backdrop="grid"]) .chat-empty {
+  padding: 28px 32px 30px;
+  border-radius: 18px;
+  background: var(--paper);
+  box-shadow: 0 18px 40px -30px oklch(0 0 0 / 0.6);
+}
 /* Pages and the canvas become sheets floating on the scene. */
 :root:is([data-backdrop="rain"], [data-backdrop="meadow"], [data-backdrop="grid"]) .page {
   margin: 14px;
