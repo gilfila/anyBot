@@ -206,6 +206,42 @@ control); 40 turns (rotation keeps harness-side compaction from ballooning).
 A queued turn builds its context when it starts, so it sees everything posted
 while it waited (today's behavior, kept).
 
+**Amended by the M2 design checkpoint** (`docs/reviews/2026-09-24-M2-design.md`),
+superseding the table and steps above where they differ:
+
+```
+harness_sessions(                       -- schema v16
+  employee TEXT NOT NULL, conversation TEXT NOT NULL,
+  thread TEXT NOT NULL,                 -- '' for direct chats
+  harness, session_id, policy_hash,     -- rotate when the policy hash changes
+  turns, created, updated,
+  PRIMARY KEY (employee, conversation, thread))
+harness_session_messages(employee, conversation, thread, message,
+  PRIMARY KEY (employee, conversation, thread, message))
+```
+
+- **Delivered-message tracking, not a rowid cursor.** A resumed turn's history
+  is today's eligible set (thread or conversation, plus channel background,
+  all bounded by the assignment) minus the messages this session already got
+  and minus the bot's own. What was sent is recorded in the success
+  transaction; a failed turn deletes the session instead.
+- **Policy hash:** harness, model, workspace, permission mode, instructions,
+  name, allowed folders, and members. Any change starts a fresh session (no
+  "Updated instructions" in a live session: the old ones would stay in its
+  native history). Archive and "Start fresh" delete sessions.
+- **Fresh retry only on a verified pre-turn rejection** (`ResumeRejected`):
+  Claude's `result` with `is_error`, `num_turns: 0`, "No conversation found
+  with session ID"; Codex exit ≠ 0 with no JSON event and "no rollout found"
+  on stderr. Any other failure fails the run and drops the session.
+- **Resume argv carries every run control:** Claude adds `--resume <id>`
+  (fresh turns pass `--session-id <uuid>`) to its usual flags; Codex runs
+  `exec resume --json --skip-git-repo-check -c sandbox_mode="workspace-write"
+  [-m model] <id> -`.
+- **Stable layers stay stable:** the per-run file list moves to a per-turn
+  `files` section.
+- **Live gate** uses stored normalized usage for both harnesses: uncached =
+  `input_tokens − cached_input_tokens`.
+
 ### 3.3 Incremental state sync (`runtime/sync.mjs`, new)
 
 Every mutation already goes through the coordinator. It gains a sequence
@@ -416,8 +452,8 @@ support or fallback.
   for turns 2–5 are ≤ 15% of fresh mode.
 - Exit gate, live (by hand, recorded in the PR): a controlled 5-turn task,
   3 runs each for Claude and Codex, same prompts. Uncached input tokens are
-  counted separately from cached ones (Claude: `input_tokens`; Codex:
-  `input_tokens − cached_input_tokens`). The median uncached input for turns
+  counted separately from cached ones, from the stored normalized usage for
+  both harnesses: `gen_ai.usage.input_tokens − gen_ai.usage.cached_input_tokens`. The median uncached input for turns
   2–5 is ≥ 50% below fresh mode, and the bot answers questions about earlier
   turns correctly. Tool calls inside a turn aren't controlled, which is why
   this gate is a median over a fixed task and not a CI assertion.
