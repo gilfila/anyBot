@@ -166,6 +166,15 @@ export function createLinkClient(saved, { WebSocketImpl = globalThis.WebSocket, 
     setStatus("online");
   }
 
+  // The desktop reconnected or lost this phone's session, so say hello again.
+  // There's no session until it answers: the phone isn't online, and new
+  // requests wait in ready() instead of failing.
+  function rehandshake() {
+    cipher = null;
+    if (status === "online") setStatus("connecting");
+    return sayHello();
+  }
+
   async function onMessage(text) {
     let message;
     try {
@@ -173,10 +182,7 @@ export function createLinkClient(saved, { WebSocketImpl = globalThis.WebSocket, 
     } catch {
       return; // "pong"
     }
-    if (message.relay === "online") {
-      cipher = null;
-      return sayHello();
-    }
+    if (message.relay === "online") return rehandshake();
     if (message.relay === "offline") {
       cipher = null;
       failAll(offline());
@@ -184,9 +190,8 @@ export function createLinkClient(saved, { WebSocketImpl = globalThis.WebSocket, 
     }
     if (message.t === "welcome") return welcome(message);
     if (message.t === "retry") {
-      cipher = null;
       failAll(new LinkError("Reconnecting…", "retry"));
-      return sayHello();
+      return rehandshake();
     }
     if (message.t === "denied") {
       const error = new LinkError(message.message || "Your computer refused this phone.", message.reason);

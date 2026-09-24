@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.20] - 2026-09-24
+
+### Fixed
+- **Your phone briefly lost touch after Any Bot restarted on your computer.** The phone reconnected on its own, but anything it asked for in that first moment failed with "Reconnecting…", so it showed as offline until its next refresh. It now waits the moment the reconnect takes. This fix is in the phone app, so it arrives with the next phone app build.
+- **A phone that reconnected, for example after switching networks, could lose its next request.** When the relay noticed that the phone's old connection had closed, it told your computer the phone had left, even though the phone was already back on a new connection. The relay now says so only when the phone has no connection left. This takes effect once the relay is redeployed.
+- **On a self-hosted relay, a phone could lose touch after your computer reconnected.** The relay kept passing the phone's messages to the computer's old connection while that connection closed, so the messages were lost. It now uses the open connection. The hosted relay wasn't affected.
+
 ## [0.3.19] - 2026-09-24
 
 ### Fixed
