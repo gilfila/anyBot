@@ -77,7 +77,7 @@ test("managers delegate down the chain from any conversation; sideways and upwar
   const juniorRun = c.snapshot().runs.find((r) => r.employee === e.Junior.id);
   assert.ok(juniorRun, "report received the delegation");
   assert.equal(juniorRun.conversation, chiefChat.id, "runs as a guest in the manager's conversation");
-  assert.match(prompts.find((p) => p.who === "Chief").prompt, /as a manager you may delegate/);
+  assert.match(prompts.find((p) => p.who === "Chief").prompt, /as a manager you may delegate/i);
   // Junior cannot delegate upward or sideways outside a shared project.
   const juniorChat = await direct(e.Junior);
   script = { Junior: () => delegate(e.Lead.id, "Do my work") };

@@ -1,0 +1,14 @@
+{
+  "layers": {
+    "platformRules": 900,
+    "team": 400,
+    "actionGuide": 2000,
+    "history": 12000,
+    "background": 3000,
+    "named": 24000,
+    "reports": 4000
+  },
+  "gates": {
+    "project2FirstTurnMedianShareOfBaseline": 0.4
+  }
+}

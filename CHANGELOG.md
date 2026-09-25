@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.22] - 2026-09-24
+
+### Changed
+- **Bots are sent much less text each turn, so they use fewer tokens.** In a busy project thread, what Any Bot sends a bot each turn drops by about two thirds. In direct chats it drops by about a third.
+  - What a bot is asked about always arrives whole: your message, the message that mentioned it, and everything posted since its last turn.
+  - Older messages are trimmed to fit: the newest come first. A teammate's long older report keeps its beginning and end, unless you mention that teammate by name ("look at Sam's analysis again"), in which case it arrives whole.
+  - Your own messages are never shortened.
+- **Two bots can't have the same name any more**, because @mentions go by name. Creating or renaming a bot to a name that's taken asks you to pick another.
+- An @name inside code or a quoted line ("> …") no longer pulls that bot into the thread.
+
+### Fixed
+- **Reports from your team could go missing.** When a manager bot's turn failed, the reports it was about to read were marked as read anyway. They now stay unread until a turn that includes them finishes.
+- A bot's assignment was sent to it twice, once in the conversation and once at the end. It's now sent once.
+- A bot waiting its turn in a project could see a reply you posted in another thread after you'd asked it, as if it came first. It now sees the project as it was when you asked, plus teammates' answers that arrived since.
+
 ## [0.3.21] - 2026-09-24
 
 ### Added

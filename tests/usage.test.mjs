@@ -145,8 +145,10 @@ test("a run stores its usage and its prompt's section sizes, not their text", as
   const input = c.store.one("SELECT * FROM run_inputs WHERE run=?", run.id);
   const sections = JSON.parse(input.sections);
   assert.deepEqual(Object.keys(sections), [
-    "instructions", "platform", "delegation", "artifacts", "board", "actionGuide",
-    "org", "knowledge", "team", "background", "history", "assignment",
+    // Stable layers first, then history, per-turn context, and the assignment
+    // (runtime/context.mjs).
+    "instructions", "platform", "team", "delegation", "artifacts", "actionGuide",
+    "background", "root", "history", "thread", "board", "org", "knowledge", "assignment",
   ]);
   assert.ok(Object.values(sections).every((n) => Number.isInteger(n) && n >= 0));
   assert.equal(Object.values(sections).reduce((a, b) => a + b, 0), input.prompt.length);
@@ -178,5 +180,7 @@ test("prompt() is the concatenation of promptParts()", async (t) => {
   await settled(c);
   const input = c.store.one("SELECT prompt FROM run_inputs");
   assert.equal(input.prompt, seen);
-  assert.match(seen, /Conversation:\nHuman: Hello\n\nYour current assignment:\nHello\n\nRespond/);
+  // A first message has no history: the assignment isn't repeated above itself.
+  assert.doesNotMatch(seen, /Conversation:/);
+  assert.match(seen, /Chain of command: you report to the owner\.\n\nYour current assignment:\nHello\n\nRespond/);
 });
