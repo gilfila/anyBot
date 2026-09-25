@@ -265,7 +265,7 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [], em
         )}
         <span className="field-hint">
           {models === "checking" ? "Checking the harnesses for new models… " : models === "fresh" ? "Up to date with each harness. " : ""}
-          This list comes live from Claude Code, Codex, and Hermes, plus the models in the installed Gemini CLI, so new
+          This list comes live from Claude Code, Codex, Antigravity, and Hermes, so new
           models appear as soon as they ship. Grayed-out models need a newer CLI. Custom model accepts any other
           identifier.
         </span>
@@ -327,9 +327,9 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [], em
           <option value="ask">Ask before every action</option>
         </select>
         <span className="field-hint">
-          Claude Code sends approval requests to the chat and waits for your answer. Codex, Gemini, and Cursor can't
-          ask: in Auto they edit files in their workspace and skip commands that need approval. Cursor only runs
-          commands freely under "Edits run".
+          Claude Code sends approval requests to the chat and waits for your answer. Codex, Antigravity, and Cursor
+          can't ask: in Auto they edit files in their workspace and skip commands that need approval. Antigravity and
+          Cursor run commands freely under "Edits run".
         </span>
       </label>
       <label className="checkbox trust">

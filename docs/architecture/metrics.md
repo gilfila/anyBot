@@ -21,9 +21,9 @@ cancelled. Keys follow the OpenTelemetry GenAI semantic conventions:
 | `gen_ai.usage.cached_input_tokens` | Input tokens served from the provider's prompt cache |
 | `gen_ai.usage.output_tokens` | Output tokens |
 | `gen_ai.request.model` | The bot's configured model, else the model the harness reported |
-| `gen_ai.system` | `anthropic`, `openai`, `gcp.gemini`, `cursor`, or `custom` |
+| `gen_ai.system` | `anthropic`, `openai`, `google.antigravity`, `cursor`, `hermes`, or `custom` |
 | `cost_usd` | Only when the harness reports it (Claude Code) |
-| `turns` | Model turns in the run (Claude `num_turns`; one per Codex/Gemini turn) |
+| `turns` | Model turns in the run (Claude `num_turns`; one per Codex turn; Antigravity's `num_turns`) |
 | `duration_ms` | Harness-reported duration, else wall time of the process |
 
 Uncached input is always `input_tokens − cached_input_tokens`.
@@ -32,12 +32,12 @@ Uncached input is always `input_tokens − cached_input_tokens`.
 |---|---|---|
 | Claude Code | `result` | input = `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`; cached = `cache_read_input_tokens` |
 | Codex CLI | `turn.completed` | input = `input_tokens` (already includes cached); cached = `cached_input_tokens` |
-| Gemini CLI | `result.stats` | input = `input_tokens`; cached = `cached` |
+| Antigravity CLI | `result` | input = `usage.input_tokens` (already includes `cache_read_tokens`); cached = `cache_read_tokens`; output = `output_tokens` (includes thinking) |
 | Cursor Agent | `result` | token counts when present (`usage.inputTokens`…); otherwise duration only |
 | Hermes, custom CLIs | none | `usage` stays null |
 
-Fixtures: `tests/fixtures/usage/` (the Claude one is a real capture; see its
-README). Tests: `tests/usage.test.mjs`.
+Fixtures: `tests/fixtures/usage/` (Claude, Codex, and Antigravity are real captures;
+see its README). Tests: `tests/usage.test.mjs`.
 
 Activity shows each run's tokens ("148k in · 12.8k cached · 1.5k out · $0.04")
 and a **Tokens today** panel with per-bot totals for runs that ended today

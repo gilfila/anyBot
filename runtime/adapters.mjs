@@ -29,15 +29,16 @@ export const harnesses = [
     website: "https://developers.openai.com/codex/cli",
   },
   {
-    id: "gemini",
-    name: "Gemini CLI",
-    // Gemini CLI model availability is account- and release-dependent. Keep
-    // this empty so the form offers the harness default and Custom model
-    // rather than advertising aliases that may not exist for the user.
+    // Google's Antigravity CLI replaced Gemini CLI for personal Google
+    // accounts on 2026-06-18 (free, AI Pro, and Ultra). Bots that used the
+    // Gemini CLI harness were moved here by schema 16.
+    id: "antigravity",
+    name: "Antigravity CLI",
+    // Models come live from `agy models` (discoverLiveModels).
     modelOptions: [],
-    command: "gemini",
-    login: "gemini",
-    website: "https://geminicli.com/docs/get-started/installation/",
+    command: "agy",
+    login: "agy",
+    website: "https://antigravity.google",
   },
   {
     id: "hermes",
@@ -66,7 +67,7 @@ const modelId = /^[a-zA-Z0-9][a-zA-Z0-9_.:/+[\]-]{0,119}$/;
 // - Claude Code: ~/.claude.json additionalModelOptionsCache (server-provided;
 //   entries that need a newer CLI come back disabled with the reason).
 // - Codex: models_cache.json in CODEX_HOME.
-// - Gemini: model ids in the installed CLI bundle (follows CLI updates).
+// - Antigravity: `agy models`, one "id<TAB>label" line per model.
 // - Hermes: its provider's catalog; the openai-codex provider uses Codex's.
 const homeOf = (env) => env.USERPROFILE || env.HOME || "";
 const readJson = async (file) => JSON.parse(await readFile(file, "utf8"));
@@ -84,25 +85,42 @@ async function codexModels(env) {
     }));
 }
 
-const geminiScans = new Map();
-async function geminiModels(executable) {
-  const entry = executable?.prefix?.find((part) => /gemini-cli[\\/]bundle[\\/][^\\/]+\.js$/i.test(part));
-  if (!entry) return [];
-  const bundle = dirname(entry);
-  const stamp = statSync(entry).mtimeMs;
-  if (geminiScans.get(bundle)?.stamp === stamp) return geminiScans.get(bundle).models;
-  const counts = new Map();
-  for (const file of (await readdir(bundle)).filter((name) => name.endsWith(".js")).slice(0, 80)) {
-    const text = await readFile(join(bundle, file), "utf8");
-    for (const match of text.matchAll(/["'](gemini-\d+(?:\.\d+)?-(?:pro|flash|flash-lite)(?:-preview)?)["']/g))
-      counts.set(match[1], (counts.get(match[1]) || 0) + 1);
-  }
-  const version = (id) => Number(id.match(/gemini-(\d+(?:\.\d+)?)/)[1]);
-  const models = [...counts.keys()]
-    .sort((a, b) => version(b) - version(a) || counts.get(b) - counts.get(a))
-    .slice(0, 12)
-    .map((value) => ({ value, label: `${value} (installed CLI)` }));
-  geminiScans.set(bundle, { stamp, models });
+// `agy models` prints "id<TAB>label" per model on stdout (progress goes to
+// stderr). It asks Google's servers, so it's cached for ten minutes.
+export function parseAgyModels(output) {
+  return String(output)
+    .split(/\r?\n/)
+    .map((line) => line.split("\t"))
+    .filter(([id, label]) => id && label && modelId.test(id.trim()))
+    .map(([id, label]) => ({ value: id.trim(), label: clipText(label, 80) || id.trim() }));
+}
+let agyModelCache = null;
+async function agyModels(executable) {
+  if (!executable) return [];
+  if (agyModelCache && Date.now() - agyModelCache.at < 10 * 60 * 1000) return agyModelCache.models;
+  const output = await new Promise((resolve) => {
+    let text = "";
+    const child = spawn(executable.file, [...executable.prefix, "models"], { windowsHide: true, shell: false, stdio: ["ignore", "pipe", "ignore"] });
+    const timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        /* already exited */
+      }
+      resolve("");
+    }, 10000);
+    child.stdout.on("data", (chunk) => (text += chunk));
+    child.once("error", () => {
+      clearTimeout(timer);
+      resolve("");
+    });
+    child.once("close", () => {
+      clearTimeout(timer);
+      resolve(text);
+    });
+  });
+  const models = parseAgyModels(output);
+  if (models.length) agyModelCache = { at: Date.now(), models };
   return models;
 }
 
@@ -141,7 +159,7 @@ export async function discoverLiveModels(harnessId, { env = process.env, executa
         }));
     }
     if (harnessId === "codex") return await codexModels(env);
-    if (harnessId === "gemini") return await geminiModels(executable);
+    if (harnessId === "antigravity") return await agyModels(executable);
     if (harnessId === "hermes") return await hermesModels(env);
   } catch {
     // A missing or unreadable cache just means fewer suggestions.
@@ -216,7 +234,6 @@ export async function discoverConfiguredModels(harness, env = process.env) {
   const codexHome = env.CODEX_HOME || join(home, ".codex");
   const candidates = {
     codex: [join(codexHome, "config.toml")],
-    gemini: [join(home, ".gemini", "settings.json")],
     hermes: [join(home, ".hermes", "config.json"), join(home, ".hermes", "config.yaml")],
     cursor: [join(home, ".cursor", "cli-config.json"), join(home, ".cursor", "config.json")],
   }[harness.id] || [];
@@ -227,17 +244,6 @@ export async function discoverConfiguredModels(harness, env = process.env) {
       if (harness.id === "codex") {
         const values = [...text.matchAll(/^\s*model\s*=\s*["']([^"']+)["']/gim)].map((m) => m[1]);
         if (values.length) return modelChoices(values, "configured");
-      } else if (harness.id === "gemini") {
-        const document = JSON.parse(text);
-        const values = [
-          document?.model,
-          document?.model?.name,
-          document?.model?.id,
-          document?.modelName,
-          document?.modelId,
-        ];
-        const choices = modelChoices(values, "configured");
-        if (choices.length) return choices;
       } else if (harness.id === "cursor" && file.endsWith(".json")) {
         const document = JSON.parse(text);
         const values = [
@@ -260,8 +266,12 @@ export async function discoverConfiguredModels(harness, env = process.env) {
   return [];
 }
 
-/** Report known provider configuration hazards without changing user files. */
-export async function discoverConfigurationWarnings(harness, env = process.env) {
+// A harness problem the Harnesses page can explain in full (click the status):
+//   { id, title, summary, impact: "none" | "blocks", details, file?, fix: [steps] }
+// "none" means runs still work; "blocks" means runs will fail until it's fixed.
+
+/** Known provider configuration hazards, read-only: user files are never changed. */
+export async function discoverConfigurationIssues(harness, env = process.env) {
   if (harness.id !== "codex") return [];
   const home = env.USERPROFILE || env.HOME || "";
   const codexHome = env.CODEX_HOME || join(home, ".codex");
@@ -270,7 +280,20 @@ export async function discoverConfigurationWarnings(harness, env = process.env) 
     const text = await readFile(file, "utf8");
     if (text.includes("[computer_use.windows.always_allowed_app_ids]"))
       return [
-        "Codex config contains the legacy computer_use.windows.always_allowed_app_ids setting; update the Codex CLI configuration before running this employee.",
+        {
+          id: "codex.unrecognized-setting",
+          title: "Codex ignores a setting in its config file",
+          summary: "Codex warns about an unrecognized setting at the start of every run. Runs still work.",
+          impact: "none",
+          details:
+            "Your Codex config file has a [computer_use.windows.always_allowed_app_ids] section. The Codex desktop app writes it, but the Codex CLI doesn't recognize it. So at the start of every run the CLI prints \"Codex is ignoring 1 unrecognized configuration setting\" and carries on. Any Bot shows that as a ⚠ line in the bot's terminal and lets the run continue.",
+          file,
+          fix: [
+            "Nothing is required: Codex bots work normally.",
+            "To silence the warning, open the file and delete the [computer_use.windows.always_allowed_app_ids] section and the lines under it, then click Check installations.",
+            "The Codex desktop app may add the section back the next time it runs.",
+          ],
+        },
       ];
   } catch {
     // Missing or unreadable optional config is handled by normal CLI errors.
@@ -350,6 +373,9 @@ export async function resolveExecutable(command, env = process.env) {
       candidates.push(
         join(env.LOCALAPPDATA || "", "hermes", "bin", "hermes.exe"),
       );
+    // The Antigravity installer puts agy here and adds it to PATH, but an app
+    // started before the install won't see the new PATH yet.
+    if (command === "agy") candidates.push(join(env.LOCALAPPDATA || "", "agy", "bin", "agy.exe"));
   }
   for (const file of candidates) {
     if (!(await exists(file))) continue;
@@ -374,10 +400,6 @@ export async function resolveExecutable(command, env = process.env) {
     const entries =
       {
         codex: ["@openai/codex/bin/codex.js"],
-        gemini: [
-          "@google/gemini-cli/bundle/gemini.js",
-          "@google/gemini-cli/dist/index.js",
-        ],
         claude: ["@anthropic-ai/claude-code/cli.js"],
       }[command] || [];
     for (const entry of entries) {
@@ -442,9 +464,17 @@ export function invocation(harness, model = "", permissionMode = "auto", approva
         "workspace-write",
         "-",
       ];
-    case "gemini":
-      // No approval hook: auto and dontAsk let Gemini edit files; commands stay blocked.
-      return ["--output-format", "stream-json", "--approval-mode", permissionMode === "ask" ? "default" : "auto_edit"];
+    case "antigravity":
+      // The prompt goes on stdin (no -p: with a -p value agy ignores stdin).
+      // Headless agy can't ask, so anything it would ask about is denied and
+      // listed in the result's denied_actions (extractEvent reports them):
+      // - auto: "accept-edits" (file edits in the workspace run; commands are
+      //   denied).
+      // - dontAsk: every tool runs.
+      // - ask: the default mode (edits and commands are denied).
+      if (permissionMode === "dontAsk") return ["--output-format", "stream-json", "--dangerously-skip-permissions"];
+      if (permissionMode === "ask") return ["--output-format", "stream-json"];
+      return ["--output-format", "stream-json", "--mode", "accept-edits"];
     case "hermes":
       return [
         "chat",
@@ -475,6 +505,13 @@ export function invocation(harness, model = "", permissionMode = "auto", approva
     default:
       throw new Error("Unknown harness");
   }
+}
+
+// What headless agy wasn't allowed to do, for the reply ("" when nothing was).
+function antigravityDenied(actions) {
+  if (!Array.isArray(actions) || !actions.length) return "";
+  const names = [...new Set(actions.map((a) => String(a?.display_name || a?.action || "a tool").slice(0, 40)))];
+  return `Antigravity wasn't allowed to use ${names.join(", ")}: it can't ask for permission when Any Bot runs it. To let it, edit the bot and set Permission mode to "Edits run, everything else asks you", which lets Antigravity run every tool.`;
 }
 
 // `state` carries what a harness's earlier events said (Codex: whether its
@@ -511,11 +548,20 @@ export function extractEvent(harness, value, state = {}) {
     if (value.type === "turn.failed" || value.type === "error")
       return { error: value.error?.message || value.message || "Codex failed" };
   }
-  if (harness === "gemini") {
-    if (value.type === "message" && value.role === "assistant")
-      return { text: value.content || "" };
-    if (value.type === "result" && value.status === "error")
-      return { error: value.error?.message || "Gemini failed" };
+  if (harness === "antigravity") {
+    const step = value.step_update;
+    if (value.event === "step_update" && step?.step_type === "agent_response" && step.text_delta)
+      return { text: step.text_delta };
+    if (value.event === "result") {
+      const result = value.result || {};
+      if (result.status && result.status !== "SUCCESS") return { error: result.error || "Antigravity failed" };
+      const denied = antigravityDenied(result.denied_actions);
+      const response = String(result.response || "").trim();
+      // A headless run that needed permission gets the tool denied, and can end
+      // with no reply at all: say what was blocked and how to allow it.
+      if (!response && denied) return { error: `${denied} Nothing else was done.` };
+      return { final: denied ? `${response}\n\n_${denied}_` : response };
+    }
   }
   if (harness === "cursor") {
     if (value.type === "assistant")
@@ -582,7 +628,25 @@ export async function terminateTree(child) {
   }
 }
 
-async function cursorLauncherWarning(executable) {
+// Cursor Agent's launcher can be broken (a missing module after a partial
+// update): a version check catches it before a run fails.
+async function cursorLauncherIssue(executable) {
+  const problem = await cursorVersionProblem(executable);
+  if (!problem) return null;
+  return {
+    id: "cursor.launcher",
+    title: "Cursor Agent is installed but won't start",
+    summary: problem.summary,
+    impact: "blocks",
+    details: `Any Bot ran "cursor-agent --version" and it failed, so Cursor bots will fail too.${problem.output ? ` The last thing it printed was:\n\n${problem.output}` : ""}`,
+    file: executable.launcher || executable.file,
+    fix: [
+      "Reinstall Cursor Agent (see cursor.com/docs/cli), or run its own update.",
+      "Then click Check installations here.",
+    ],
+  };
+}
+async function cursorVersionProblem(executable) {
   return new Promise((resolve) => {
     const child = spawn(executable.file, [...executable.prefix, "--version"], {
       windowsHide: true,
@@ -596,7 +660,7 @@ async function cursorLauncherWarning(executable) {
       } catch {
         /* already exited */
       }
-      resolve("Cursor Agent was found but its version check timed out.");
+      resolve({ summary: "Cursor Agent was found, but its version check timed out.", output: "" });
     }, 3000);
     child.stdout.on("data", (chunk) => {
       diagnostics += chunk.toString();
@@ -606,15 +670,15 @@ async function cursorLauncherWarning(executable) {
     });
     child.once("error", (error) => {
       clearTimeout(timer);
-      resolve(`Cursor Agent was found but could not start: ${error.message}`);
+      resolve({ summary: "Cursor Agent was found, but it couldn't start.", output: error.message });
     });
     child.once("close", (code) => {
       clearTimeout(timer);
-      if (code === 0) return resolve("");
-      const detail = diagnostics.trim().split(/\r?\n/).filter(Boolean).at(-1);
-      resolve(
-        `Cursor Agent was found but its installation failed the version check${detail ? `: ${detail}` : "."}`,
-      );
+      if (code === 0) return resolve(null);
+      resolve({
+        summary: "Cursor Agent was found, but it fails to start. Cursor bots won't run until it's reinstalled.",
+        output: diagnostics.trim().split(/\r?\n/).filter(Boolean).slice(-6).join("\n").slice(0, 1500),
+      });
     });
   });
 }
@@ -638,30 +702,33 @@ export async function probeAll(modelCatalog = {}) {
   return Promise.all(
     harnesses.map(async (h) => {
       const configured = modelCatalog[h.id] || [];
-      const warnings = await discoverConfigurationWarnings(h);
+      const issues = await discoverConfigurationIssues(h);
       const executable = await resolveExecutable(h.command);
+      // `warnings` (the summaries) stays for older clients.
       if (!executable)
         return {
-        ...h,
-        modelOptions: configured.length ? configured : h.modelOptions || [],
-        status: "not-installed",
+          ...h,
+          modelOptions: configured.length ? configured : h.modelOptions || [],
+          status: "not-installed",
           detail: "Not found on PATH or supported installation locations.",
-          warnings,
+          issues,
+          warnings: issues.map((issue) => issue.summary),
         };
       const modelOptions = mergeModelOptions(configured, await discoverModelOptions(h, executable));
       if (h.id === "cursor") {
-        const warning = await cursorLauncherWarning(executable);
-        if (warning) warnings.push(warning);
+        const issue = await cursorLauncherIssue(executable);
+        if (issue) issues.push(issue);
       }
       return {
         ...h,
         modelOptions,
-        status: warnings.length ? "warning" : "detected",
-        detail: warnings.length
-          ? `Executable detected. ${warnings.join(" ")}`
+        status: issues.length ? "warning" : "detected",
+        detail: issues.length
+          ? issues.map((issue) => issue.summary).join(" ")
           : "Executable detected. Authentication and compatibility are checked when you run a task.",
         executable: executable.launcher || executable.file,
-        warnings,
+        issues,
+        warnings: issues.map((issue) => issue.summary),
       };
     }),
   );

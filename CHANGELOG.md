@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.25] - 2026-09-25
+
+### Changed
+- **Antigravity CLI replaces Gemini CLI.** Google stopped letting personal accounts (free, AI Pro, and Ultra) use Gemini CLI in June; its replacement is the Antigravity CLI (`agy`). Settings → Harnesses now lists Antigravity, and any bot that was on Gemini CLI moves to Antigravity by itself, on Antigravity's default model. Install Antigravity and sign in once in a terminal (`agy`) to use it.
+  - Its model list comes from Antigravity itself, so it's always current.
+  - In **Auto** mode, Antigravity edits files but can't run commands, because it can't ask you first. When it wanted to, the chat says what it was refused and how to allow it: set the bot to **"Edits run, everything else asks you"**.
+  - Its activity shows in the run's terminal, and its token use shows in Activity like the other harnesses.
+
+### Added
+- **Click a harness's warning to see what's wrong.** In Settings → Harnesses, a harness with a problem shows a **Details** button. It explains the problem, whether that harness's bots still work, which file it's in (with **Show in folder**), and how to fix it. It also lists that harness's failed runs from the last week. For example, the Codex warning about a setting in its config file now says which setting, that runs still work, and how to clear it.
+- A harness card also shows how many of its runs failed in the last week.
+
 ## [0.3.24] - 2026-09-25
 
 ### Added

@@ -44,13 +44,21 @@ test("Codex usage keeps its input total, which already includes cached tokens", 
   assert.equal(usage.cost_usd, undefined);
 });
 
-test("Gemini usage reads the result stats", async () => {
-  const usage = await parse("gemini");
-  assert.equal(usage["gen_ai.usage.input_tokens"], 9000);
-  assert.equal(usage["gen_ai.usage.cached_input_tokens"], 4000);
-  assert.equal(usage["gen_ai.usage.output_tokens"], 120);
-  assert.equal(usage["gen_ai.request.model"], "gemini-2.5-pro");
-  assert.equal(usage.duration_ms, 2100);
+test("Antigravity usage reads the run totals from its result, thinking included", async () => {
+  // A real capture: two model calls (12,264 + 12,658 in); the result carries the sum.
+  assert.deepEqual(await parse("antigravity", { model: "gemini-3.8-flash-high" }), {
+    "gen_ai.usage.input_tokens": 24922,
+    "gen_ai.usage.cached_input_tokens": 0,
+    "gen_ai.usage.output_tokens": 343,
+    "gen_ai.system": "google.antigravity",
+    "gen_ai.request.model": "gemini-3.8-flash-high",
+    turns: 1,
+    duration_ms: 5549,
+  });
+  const result = { event: "result", result: { status: "SUCCESS", usage: { input_tokens: 900, cache_read_tokens: 400, output_tokens: 5 } } };
+  const cached = readUsage("antigravity", result, usageState());
+  assert.equal(cached.input, 900, "cache reads are already inside input_tokens");
+  assert.equal(cached.cached, 400);
 });
 
 test("Cursor results without token counts still record the run's duration", async () => {

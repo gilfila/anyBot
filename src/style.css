@@ -5522,3 +5522,122 @@ dialog .modal-form > .primary.full:last-child {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Harnesses: a harness with problems has a clickable status that opens the
+   details dialog (src/components/HarnessIssues.jsx). */
+.status-button {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  padding: 6px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--ink-2);
+  font: inherit;
+  cursor: pointer;
+}
+.status-button > span:last-child {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.status-button:hover,
+.status-button:focus-visible {
+  border-color: var(--warn);
+  color: var(--ink);
+}
+.harness-failures {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--danger);
+}
+.harness-issues {
+  display: grid;
+  gap: 16px;
+  max-width: 620px;
+}
+.harness-issue {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--card);
+}
+.harness-issue header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.harness-issue h3 {
+  margin: 0;
+  font-size: 15px;
+  color: var(--ink);
+}
+.harness-issue h4 {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--ink);
+}
+.harness-issue ol,
+.issue-failures {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 4px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.issue-details {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+}
+.issue-impact {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.issue-impact.is-none {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.issue-impact.is-blocks {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.issue-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.issue-file code {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  color: var(--ink-2);
+}
+.issue-failures {
+  list-style: none;
+  padding-left: 0;
+}
+.issue-failures p {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+.issue-failures small,
+.issue-hint {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.issue-hint {
+  margin: 0;
+}

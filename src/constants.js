@@ -17,7 +17,7 @@ export const presets = [
   {
     name: "Sage",
     role: "Research analyst",
-    harness: "gemini",
+    harness: "antigravity",
     summary:
       "Explore questions, compare options, and bring back useful findings.",
     color: "purple",
@@ -33,7 +33,7 @@ export const presets = [
 export const names = {
   claude: "Claude Code",
   codex: "Codex CLI",
-  gemini: "Gemini CLI",
+  antigravity: "Antigravity CLI",
   hermes: "Hermes Agent",
   cursor: "Cursor Agent CLI",
 };

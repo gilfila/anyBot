@@ -155,7 +155,7 @@ anyBot reads each harness's own model list every time the bot editor opens:
 |---|---|
 | Claude Code | `additionalModelOptionsCache` in `~/.claude.json`. Entries that need a newer CLI show as disabled, with the reason. |
 | Codex | `models_cache.json` in `CODEX_HOME` (by default `~/.codex`) |
-| Gemini | model ids in the installed Gemini CLI bundle |
+| Antigravity | `agy models`, cached for ten minutes |
 | Hermes | its configured provider's catalog. The `openai-codex` provider reuses Codex's list. |
 
 An owner-maintained [`models.json`](model-catalog.md) adds entries to these lists, and **Custom model** accepts any other identifier.
