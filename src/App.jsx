@@ -179,6 +179,8 @@ import { AttentionIcon } from "./components/AttentionIcon.jsx";
 import { botAttention } from "./lib/attention.js";
 import { plainNotes } from "./lib/update-notes.js";
 import { RunTerminal } from "./components/RunTerminal.jsx";
+import { UsageToday } from "./components/UsageToday.jsx";
+import { describeTokens, runTokens } from "./lib/usage.js";
 import { statusLabel } from "./components/board/meta.js";
 
 // A task being started posts its brief into the project chat. Render it as a
@@ -1550,6 +1552,7 @@ export function App() {
                 </button>
               </div>
             )}
+            <UsageToday runs={data.runs} employees={data.employees} />
             {!data.runs.length ? (
               <Empty
                 title="A clear view of progress"
@@ -1560,6 +1563,7 @@ export function App() {
                 {[...data.runs].reverse().map((r) => {
                   const bot = data.employees.find((e) => e.id === r.employee);
                   const open = openTerminal === r.id;
+                  const tokens = runTokens(r);
                   return (
                   <React.Fragment key={r.id}>
                   <article className={`run-row${open ? " is-open" : ""}`}>
@@ -1576,6 +1580,11 @@ export function App() {
                         <strong>{bot?.name}</strong>
                         <span className="run-body">{data.messages.find((m) => m.id === r.message)?.body}</span>
                         {r.error && <small className="error-text">{r.error}</small>}
+                        {tokens && (
+                          <small className="run-usage" title="Tokens this run used, as its harness reported them">
+                            {describeTokens(tokens)}
+                          </small>
+                        )}
                         <span className="terminal-hint">
                           <SquareTerminal size={13} aria-hidden="true" />
                           {open ? "Hide terminal" : r.status === "running" ? "Watch live in the terminal" : "Terminal"}

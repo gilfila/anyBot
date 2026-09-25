@@ -20,10 +20,11 @@ export function threadIndex(messages, runs) {
   for (const r of runs) {
     if (!r.thread) continue;
     const e = entry(r.thread);
-    if (ACTIVE.includes(r.status)) {
-      join(e.working, r.employee);
-      join(e.participants, r.employee);
-    } else if (["failed", "interrupted"].includes(r.status) && !r.dismissed) e.failed.push(r);
+    // A bot whose turn failed is still in the thread (the server counts it
+    // when a reply names no one).
+    join(e.participants, r.employee);
+    if (ACTIVE.includes(r.status)) join(e.working, r.employee);
+    else if (["failed", "interrupted"].includes(r.status) && !r.dismissed) e.failed.push(r);
   }
   return index;
 }

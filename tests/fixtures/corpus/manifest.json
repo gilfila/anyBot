@@ -1,0 +1,26 @@
+{
+  "seed": 20260924,
+  "sizes": {
+    "median": 400,
+    "p95": 4096,
+    "min": 20,
+    "max": 24000
+  },
+  "workspaces": {
+    "direct": {
+      "messages": 60,
+      "runs": 30,
+      "sha256": "9345c1125bc7fc523184c1caedda1e346db258b1d9ef5f5d1a004257cf51492b"
+    },
+    "project2": {
+      "messages": 52,
+      "runs": 42,
+      "sha256": "46e0ec89ec00a840981c5e0dd64cc09ccf5f234a037030d9a2a48baa3f351543"
+    },
+    "project5k": {
+      "messages": 5000,
+      "runs": 4000,
+      "sha256": "9d698b1bdc3c8f996b64ea82e2b7baf26ca9426404c0f519008e561129a7f827"
+    }
+  }
+}

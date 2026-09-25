@@ -78,7 +78,7 @@ export function Composer({
         ? `Goes to ${names(mentioned.map(nameOf))}`
         : mode === "thread"
           ? participants.length
-            ? `Goes to ${names(participants.map(nameOf).filter(Boolean))}, who are in this thread`
+            ? `Goes to ${names(participants.map(nameOf).filter(Boolean))}, ${participants.length === 1 ? "who is" : "who are"} in this thread`
             : "Type @ to bring a bot into this thread"
           : "No bot mentioned, so this posts as a note. Type @ to put a bot to work.";
 

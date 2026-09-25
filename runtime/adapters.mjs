@@ -5,6 +5,7 @@ import { constants } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { formatEvent } from "./terminal.mjs";
+import { finishUsage, readUsage, usageState } from "./usage.mjs";
 
 export const harnesses = [
   {
@@ -493,8 +494,13 @@ export function extractEvent(harness, value, state = {}) {
         : { final: value.result || "" };
   }
   if (harness === "codex") {
-    if (value.type === "item.completed" && value.item?.type === "agent_message")
-      return { text: value.item.text };
+    // Each agent_message is a whole message ("I'll run ls." then the answer),
+    // so later ones start a new paragraph instead of running on.
+    if (value.type === "item.completed" && value.item?.type === "agent_message") {
+      const text = `${state.messages ? "\n\n" : ""}${value.item.text || ""}`;
+      state.messages = true;
+      return { text };
+    }
     if (value.type === "turn.started") state.turn = true;
     // Before the turn, error items are startup warnings (an unrecognized
     // config.toml key, an unreachable MCP server) and Codex carries on.
@@ -662,7 +668,7 @@ export async function probeAll(modelCatalog = {}) {
 }
 
 export async function runHarness(
-  { harness, model, workspace, prompt, signal, onText, onTerminal, timeoutMs = 600000, permissionMode = "auto", approvals },
+  { harness, model, workspace, prompt, signal, onText, onTerminal, onUsage, timeoutMs = 600000, permissionMode = "auto", approvals },
   { resolve = resolveExecutable, args, outputFormat, pipeGraceMs = 2000 } = {},
 ) {
   // The raw CLI view for the Activity terminal: redacted, never parsed for results.
@@ -698,6 +704,9 @@ export async function runHarness(
     final;
   const decoder = new StringDecoder("utf8");
   const eventState = {};
+  // Token counts from the harness's result events, reported however the run ends.
+  const usage = usageState();
+  const started = Date.now();
   const append = (text) => {
     output += text;
     onText(redact(output));
@@ -708,6 +717,7 @@ export async function runHarness(
     try {
       value = JSON.parse(text);
       term(formatEvent(harness, value));
+      readUsage(harness, value, usage);
     } catch {
       term(`${text}\n`);
     }
@@ -809,5 +819,10 @@ export async function runHarness(
     clearTimeout(timer);
     signal.removeEventListener("abort", abort);
     await termination;
+    try {
+      onUsage?.(finishUsage(usage, { harness, model, durationMs: Date.now() - started }));
+    } catch {
+      // Metrics are best effort; they never change how a run ends.
+    }
   }
 }
