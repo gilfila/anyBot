@@ -156,6 +156,8 @@ import { ApprovalBar } from "./components/ApprovalBar.jsx";
 import { Status } from "./components/Status.jsx";
 import { Empty } from "./components/Empty.jsx";
 import { Modal } from "./components/Modal.jsx";
+import { HarnessIssues } from "./components/HarnessIssues.jsx";
+import { recentHarnessFailures } from "./lib/harnesses.js";
 import { PageTitle } from "./components/PageTitle.jsx";
 import { MobileAccess } from "./components/MobileAccess.jsx";
 import { EmployeeForm } from "./components/EmployeeForm.jsx";
@@ -245,6 +247,8 @@ export function App() {
     } catch { return {}; }
   });
   const [openBotMenu, setOpenBotMenu] = useState(null);
+  // Harnesses: the harness whose problems are open in the details dialog.
+  const [harnessDetail, setHarnessDetail] = useState(null);
   const botMenuAnchor = useRef(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [deleteProjectConfirm, setDeleteProjectConfirm] = useState(null);
@@ -1144,7 +1148,7 @@ export function App() {
                   <h1>Hire your first bot.</h1>
                   <p>
                     Each bot is a named employee with a role, running on a
-                    harness you already use: Claude Code, Codex, Gemini,
+                    harness you already use: Claude Code, Codex, Antigravity,
                     Hermes, or Cursor. Put several in one project and they hand
                     work to each other.
                   </p>
@@ -1641,7 +1645,10 @@ export function App() {
               Check installations
             </button>
             <div className="harness-list">
-              {data.harnesses.map((h) => (
+              {data.harnesses.map((h) => {
+                const failures = recentHarnessFailures(h.id, data.runs, data.employees);
+                const problems = (h.issues?.length || 0) + failures.length;
+                return (
                 <article key={h.id}>
                   <div className="harness-icon">
                     <Cpu size={24} />
@@ -1649,6 +1656,11 @@ export function App() {
                   <div>
                     <h3>{h.name}</h3>
                     <p>{h.detail}</p>
+                    {failures.length > 0 && (
+                      <p className="harness-failures">
+                        {failures.length} failed run{failures.length === 1 ? "" : "s"} in the last week.
+                      </p>
+                    )}
                     {h.login && (
                       <>
                         <code>{h.login}</code>
@@ -1661,10 +1673,36 @@ export function App() {
                       <small className="path">{h.executable}</small>
                     )}
                   </div>
-                  <Status status={h.status} />
+                  {problems > 0 ? (
+                    <button
+                      type="button"
+                      className="status-button"
+                      title="What's wrong, and how to fix it"
+                      aria-label={`${h.name}: ${[
+                        h.issues?.length && `${h.issues.length} problem${h.issues.length === 1 ? "" : "s"}`,
+                        failures.length && `${failures.length} failed run${failures.length === 1 ? "" : "s"}`,
+                      ]
+                        .filter(Boolean)
+                        .join(", ")}. Show details`}
+                      onClick={() => setHarnessDetail(h.id)}
+                    >
+                      <Status status={h.status === "detected" ? "warning" : h.status} />
+                      <span>Details</span>
+                    </button>
+                  ) : (
+                    <Status status={h.status} />
+                  )}
                 </article>
-              ))}
+                );
+              })}
             </div>
+            {harnessDetail && data.harnesses.some((h) => h.id === harnessDetail) && (
+              <HarnessIssues
+                harness={data.harnesses.find((h) => h.id === harnessDetail)}
+                failures={recentHarnessFailures(harnessDetail, data.runs, data.employees)}
+                onClose={() => setHarnessDetail(null)}
+              />
+            )}
             <div className="info-box">
               <CircleHelp size={19} />
               <div>

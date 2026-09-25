@@ -23,13 +23,13 @@ async function v14(t, close) {
   return directory;
 }
 
-test("schema 14 workspaces upgrade to 15 with usage and prompt metrics", async (t) => {
+test("schema 14 workspaces upgrade with usage and prompt metrics", async (t) => {
   const close = {};
   const directory = await v14(t, close);
   const store = new Store(directory);
   close.current = () => store.close();
-  assert.equal(SCHEMA_VERSION, 15);
-  assert.equal(store.one("SELECT value FROM metadata WHERE key='schema'").value, "15");
+  assert.equal(SCHEMA_VERSION, 16);
+  assert.equal(store.one("SELECT value FROM metadata WHERE key='schema'").value, "16");
   const runs = store.all("SELECT id,status,output,usage FROM runs ORDER BY id");
   assert.deepEqual(
     runs.map((r) => ({ ...r })),
@@ -47,6 +47,24 @@ test("schema 14 workspaces upgrade to 15 with usage and prompt metrics", async (
   // Existing data is untouched.
   assert.equal(store.one("SELECT name FROM employees WHERE id='e1'").name, "Builder");
   assert.equal(store.one("SELECT body FROM messages WHERE id='m1'").body, "Synthetic assignment");
+});
+
+test("Gemini CLI bots move to Antigravity, on the CLI's default model", async (t) => {
+  const close = {};
+  const directory = await v14(t, close);
+  const db = new DatabaseSync(join(directory, "anybot.sqlite"));
+  db.exec(
+    "INSERT INTO employees(id,name,role,harness,instructions,workspace,trusted,created,archived,revision,model,timeoutMinutes,permissionMode,avatar,manager) " +
+      "VALUES ('e2','Sage','Researcher','gemini','Look things up','/tmp/ws',1,'2026-09-20T10:00:00.000Z',0,3,'gemini-2.5-pro',10,'auto','','')",
+  );
+  db.close();
+  const store = new Store(directory);
+  close.current = () => store.close();
+  const rows = store.all("SELECT id,harness,model,revision FROM employees ORDER BY id").map((r) => ({ ...r }));
+  assert.deepEqual(rows, [
+    { id: "e1", harness: "codex", model: "", revision: 1 },
+    { id: "e2", harness: "antigravity", model: "", revision: 4 },
+  ]);
 });
 
 test("an upgraded workspace opens in the coordinator and prunes by the retention rules", async (t) => {

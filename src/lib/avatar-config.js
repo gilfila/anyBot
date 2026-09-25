@@ -51,7 +51,7 @@ const oldFaces = {
 const harnessColors = {
   claude: "coral",
   codex: "cobalt",
-  gemini: "violet",
+  antigravity: "violet",
   hermes: "citron",
   cursor: "violet",
 };
