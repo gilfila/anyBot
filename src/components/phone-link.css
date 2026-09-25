@@ -105,6 +105,17 @@
   font-size: 12.5px;
   color: var(--ink-3);
 }
+.phone-step-label {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink-3);
+}
+.phone-step-actions {
+  display: flex;
+  justify-content: center;
+}
 .phone-paired {
   display: grid;
   justify-items: center;

@@ -1,5 +1,17 @@
 apply plugin: 'com.android.application'
 
+// The phone app shares the desktop's version (package.json), so each release's
+// APK installs over the previous one: versionCode must only ever go up.
+// 0.3.24 → 324, 1.2.3 → 10203.
+def appVersion = new groovy.json.JsonSlurper().parse(rootProject.file('../package.json')).version
+def (major, minor, patch) = appVersion.tokenize('.').collect { it as int }
+def appVersionCode = major * 10000 + minor * 100 + patch
+
+// Release builds are signed only when CI (or a person) provides the upload
+// key through these variables (docs/mobile.md, scripts/setup-android-signing.ps1).
+// The key never lives in this repository.
+def releaseKeystore = System.getenv("ANYBOT_ANDROID_KEYSTORE")
+
 android {
     namespace = "dev.anybot.mobile"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +19,8 @@ android {
         applicationId "dev.anybot.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode appVersionCode
+        versionName appVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +28,21 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (releaseKeystore) {
+            release {
+                storeFile file(releaseKeystore)
+                storePassword System.getenv("ANYBOT_ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANYBOT_ANDROID_KEY_ALIAS") ?: "anybot"
+                keyPassword System.getenv("ANYBOT_ANDROID_KEYSTORE_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (releaseKeystore) signingConfig signingConfigs.release
         }
     }
 }

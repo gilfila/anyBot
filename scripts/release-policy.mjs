@@ -28,9 +28,12 @@ export function verifyUpdateMetadata(version, metadata, installer) {
   if (values('size').length !== 1 || Number(values('size')[0]) !== installer.length) throw Error('Installer size mismatch');
 }
 
-export function verifyPublicAssets(version, assets, hashes) {
-  const allowed = releaseFiles(version);
-  if (assets.length !== allowed.length || assets.some(a => !allowed.includes(a.name))) throw Error('Public release must contain only installer, blockmap, and update metadata');
+// The signed Android app, attached to source-repo releases under one name so
+// releases/latest/download/AnyBot-phone.apk always gives the newest.
+export const PHONE_APP = 'AnyBot-phone.apk';
+
+export function verifyPublicAssets(version, assets, hashes, allowed = releaseFiles(version)) {
+  if (assets.length !== allowed.length || assets.some(a => !allowed.includes(a.name))) throw Error(`Public release must contain exactly: ${allowed.join(', ')}`);
   for (const name of allowed) {
     const asset = assets.find(a => a.name === name);
     if (!asset || asset.state !== 'uploaded' || asset.digest !== `sha256:${hashes[name]}`) throw Error(`Unverified public asset: ${name}`);

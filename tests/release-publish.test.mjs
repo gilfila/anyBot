@@ -29,6 +29,16 @@ function exercise(scenario) {
     for (const [name, bytes] of Object.entries(files)) writeFileSync(path.join(dir, 'release', name), bytes);
     const hashes = Object.fromEntries(Object.entries(files).map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')]));
     writeFileSync(path.join(dir, 'release/private-release-audit.json'), JSON.stringify({ version: '0.3.6', sourceCommit: scenario === 'wrong-audit' ? 'b'.repeat(40) : sha, files: hashes }));
+    // A build that also signed the phone app (release.yml, android job).
+    if (scenario.startsWith('phone')) {
+      const apk = Buffer.from('fake apk');
+      writeFileSync(path.join(dir, 'release', 'AnyBot-phone.apk'), apk);
+      writeFileSync(path.join(dir, 'release/android-release-audit.json'), JSON.stringify({
+        version: '0.3.6',
+        sourceCommit: scenario === 'phone-wrong-audit' ? 'b'.repeat(40) : sha,
+        sha256: createHash('sha256').update(apk).digest('hex'),
+      }));
+    }
     const result = spawnSync(process.execPath, ['--input-type=module', '-'], {
       cwd: dir, encoding: 'utf8', env: { ...process.env, GITHUB_SHA: sha, GITHUB_REF: 'refs/heads/main', GITHUB_REPOSITORY: SOURCE, SOURCE_TOKEN: 'test-source', RELEASE_TOKEN: 'test-public' },
       input: `
@@ -122,3 +132,21 @@ for (const scenario of ['wrong-audit', 'bad-digest', 'stale', 'public-source', '
     assert.equal(result.state.tag, null);
   });
 }
+
+test('a signed phone app is attached to the source release only, with a download link', () => {
+  const result = exercise('phone');
+  assert.equal(result.status, 0, result.stderr);
+  const source = result.state.releases[SOURCE];
+  const mirror = result.state.releases[MIRROR];
+  assert.deepEqual(source.assets.map(a => a.name), ['anyBot-Setup-0.3.6.exe', 'anyBot-Setup-0.3.6.exe.blockmap', 'latest.yml', 'AnyBot-phone.apk']);
+  assert.deepEqual(mirror.assets.map(a => a.name), ['anyBot-Setup-0.3.6.exe', 'anyBot-Setup-0.3.6.exe.blockmap', 'latest.yml']);
+  assert.ok(source.body.includes(`[Download the Android app](https://github.com/${SOURCE}/releases/download/v0.3.6/AnyBot-phone.apk)`));
+  assert.ok(!mirror.body.includes('Android'));
+});
+
+test('a phone app built from another commit stops the release', () => {
+  const result = exercise('phone-wrong-audit');
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Phone app provenance/);
+  assert.deepEqual(promotions(result.state), []);
+});
