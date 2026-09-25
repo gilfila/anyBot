@@ -32,11 +32,11 @@ let window,
 
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
-// Default update feed URL - points to public binary-only GitHub repo with releases.
-// The source repo (gilfila/anyBot) remains private; gilfila/anyBot-updates contains
-// only compiled binaries and electron-updater metadata (latest.yml, blockmaps).
+// Default update feed: the source repo's own releases (gilfila/anyBot is public
+// since 2026-09-23). Builds before 0.3.23 read gilfila/anyBot-updates, which the
+// publisher keeps mirroring so they can still reach this version.
 // Override with ANYBOT_UPDATE_FEED_URL environment variable if needed.
-const DEFAULT_UPDATE_FEED_URL = "https://github.com/gilfila/anyBot-updates/releases/latest/download";
+const DEFAULT_UPDATE_FEED_URL = "https://github.com/gilfila/anyBot/releases/latest/download";
 const UPDATE_FEED_URL = process.env.ANYBOT_UPDATE_FEED_URL || DEFAULT_UPDATE_FEED_URL;
 
 // Update state machine: idle → checking → available → downloading → downloaded → error
