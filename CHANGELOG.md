@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.23] - 2026-09-25
+
+### Changed
+- **Any Bot now updates from its main GitHub page.** Installers and updates are published on the [Any Bot releases page](https://github.com/gilfila/anyBot/releases/latest), and the top of the project page has a **Download** link. You don't need to do anything: this update switches your copy over, and the old download page keeps receiving every version too.
+
 ## [0.3.22] - 2026-09-24
 
 ### Changed

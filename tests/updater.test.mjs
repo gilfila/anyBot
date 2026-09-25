@@ -1,9 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { shouldShowUpdateChrome } from "../src/lib/ui.js";
 
-// Default update feed URL - must match desktop/main.cjs
-const DEFAULT_UPDATE_FEED_URL = "https://github.com/gilfila/anyBot-updates/releases/latest/download";
+// The default update feed, read from desktop/main.cjs itself so the two can't drift.
+const DEFAULT_UPDATE_FEED_URL = readFileSync(new URL("../desktop/main.cjs", import.meta.url), "utf8").match(
+  /const DEFAULT_UPDATE_FEED_URL = "([^"]+)"/,
+)[1];
 
 // Test version comparison logic
 function compareVersions(a, b) {
@@ -106,9 +109,10 @@ test("default update feed URL is valid HTTPS", () => {
   assert.equal(isValidUpdateFeedUrl(DEFAULT_UPDATE_FEED_URL), true);
 });
 
-test("default update feed URL points to anyBot-updates repo", () => {
-  assert.ok(DEFAULT_UPDATE_FEED_URL.includes("gilfila/anyBot-updates"));
-  assert.ok(DEFAULT_UPDATE_FEED_URL.includes("releases"));
+test("default update feed URL is the source repo's own releases, same as the publish config", () => {
+  assert.equal(DEFAULT_UPDATE_FEED_URL, "https://github.com/gilfila/anyBot/releases/latest/download");
+  const { publish } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).build;
+  assert.deepEqual(parseGitHubReleasesUrl(DEFAULT_UPDATE_FEED_URL), { owner: publish.owner, repo: publish.repo });
 });
 
 test("default update feed URL uses GitHub releases latest/download pattern", () => {
@@ -151,7 +155,7 @@ test("default URL is correctly parsed as GitHub releases", () => {
   const result = parseGitHubReleasesUrl(DEFAULT_UPDATE_FEED_URL);
   assert.ok(result !== null);
   assert.equal(result.owner, "gilfila");
-  assert.equal(result.repo, "anyBot-updates");
+  assert.equal(result.repo, "anyBot");
 });
 
 // Test update state transitions

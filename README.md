@@ -2,6 +2,10 @@
 
 **A team of AI employees that works on your own computer.**
 
+### [⬇ Download Any Bot for Windows](https://github.com/gilfila/anyBot/releases/latest)
+
+The latest installer (`anyBot-Setup-X.Y.Z.exe`) is always on the [latest release](https://github.com/gilfila/anyBot/releases/latest). Any Bot updates itself after that.
+
 Any Bot takes the AI agent tools you already use (Claude Code, Codex, Gemini CLI, Hermes, and Cursor) and turns each one into a named teammate. Every bot gets a role, instructions, its own workspace, and a robot avatar. You can:
 
 - put bots in a project together
@@ -15,7 +19,7 @@ Everything runs on your machine, using your own accounts.
 ## Get started
 
 1. **Install a harness.** Install at least one agent CLI and sign in to it once in a terminal. The options are Claude Code, Codex CLI, Gemini CLI, Hermes Agent, and Cursor Agent CLI.
-2. **Install Any Bot.** Download the latest `anyBot-Setup-X.Y.Z.exe` from [the releases page](https://github.com/gilfila/anyBot-updates/releases/latest) and run it.
+2. **Install Any Bot.** Download the latest `anyBot-Setup-X.Y.Z.exe` from [the latest release](https://github.com/gilfila/anyBot/releases/latest) and run it.
    - It installs for your Windows account only, so it doesn't need admin rights.
    - The builds aren't code-signed yet, so SmartScreen may warn you. Choose **More info → Run anyway**.
 3. **Hire your first bot.** Any Bot suggests a few starter roles. Pick one, or make your own.

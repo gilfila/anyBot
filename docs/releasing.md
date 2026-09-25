@@ -2,7 +2,12 @@
 
 PRs must increase the stable version in package.json and both root entries in package-lock.json, with a matching CHANGELOG heading. The **Release Windows / Verify release** check tests the app, runs the Electron runtime smoke check, builds/syncs mobile, builds the Windows NSIS installer from a real `npm ci`, verifies packaged runtime dependencies and UI assets, and checks latest.yml against the installer. Only merges to main publish; PRs never receive publishing credentials.
 
-After merge the workflow downloads that run's verified artifact, mints a short-lived GitHub App token scoped to the public distribution repo, creates a draft public release, uploads exactly three files, verifies GitHub's SHA256 digests, tags the private source commit, promotes the release, updates the public download link, and verifies the live updater metadata. No local agent or developer packages or uploads release files.
+After merge the workflow downloads that run's verified artifact and publishes it in two places:
+
+- **`gilfila/anyBot` (the source repo), the update feed from 0.3.23 on**, written with the workflow's own token.
+- **`gilfila/anyBot-updates`, a mirror for installs older than 0.3.23** (their built-in feed), written with a short-lived GitHub App token scoped to that repo.
+
+For each, it creates a draft release, uploads exactly three files, and verifies GitHub's SHA256 digests. Only then does it tag the source commit, recheck that main hasn't moved, promote both releases, update the mirror's download README, and verify both live updater feeds. No local agent or developer packages or uploads release files.
 
 ## One-time activation
 

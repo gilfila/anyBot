@@ -41,19 +41,19 @@ anyBot 0.2.18 and later update themselves with `electron-updater`:
 - It installs silently, without the NSIS setup wizard, and restarts into the new version.
 - The Update button beside your name starts a one-click upgrade.
 
-Updates come from a separate public repository that holds binaries only:
+Updates come from the source repository's own releases (it has been public since 2026-09-23):
 
-| Repository | Visibility | Contents |
-|---|---|---|
-| `gilfila/anyBot` | Public | Source code |
-| `gilfila/anyBot-updates` | Public | Installers and update metadata only |
+| Repository | Visibility | Releases | Read by |
+|---|---|---|---|
+| `gilfila/anyBot` | Public | Every version: installer, blockmap, `latest.yml` | 0.3.23 and later |
+| `gilfila/anyBot-updates` | Public | A mirror of the same assets; the repo holds nothing but a README | Installs older than 0.3.23 |
 
-The feed repository holds nothing but release files, and the app reads it anonymously, so no tokens or credentials are embedded in the app.
+The mirror exists only because builds before 0.3.23 have `anyBot-updates` built in as their feed. The publisher keeps it current, so an old install still updates to the newest version and then reads `gilfila/anyBot` from there on. Once no installs older than 0.3.23 remain, the mirror step (and the release GitHub App) can go. The app reads its feed anonymously, so no tokens or credentials are embedded in it.
 
 The default feed is:
 
 ```
-https://github.com/gilfila/anyBot-updates/releases/latest/download
+https://github.com/gilfila/anyBot/releases/latest/download
 ```
 
 To use a different feed, set `ANYBOT_UPDATE_FEED_URL`:
@@ -80,14 +80,16 @@ Security properties:
    - `release/win-unpacked/resources/app.asar.unpacked/runtime/approval-mcp.mjs` exists. Claude Code starts it as the approval bridge.
    - The `sha512` and `size` in `release/latest.yml` match `anyBot-Setup-X.Y.Z.exe`.
 4. Tag the source repo with an annotated tag `vX.Y.Z` ("anyBot X.Y.Z") and push it.
-5. Create the release on the feed repository with the installer, its blockmap, and `latest.yml`:
+5. Create the release on the source repository and on the mirror, each with the installer, its blockmap, and `latest.yml`:
 
    ```powershell
+   gh release create vX.Y.Z -R gilfila/anyBot --verify-tag --latest --title "anyBot X.Y.Z" `
+     release/anyBot-Setup-X.Y.Z.exe release/anyBot-Setup-X.Y.Z.exe.blockmap release/latest.yml
    gh release create vX.Y.Z -R gilfila/anyBot-updates --target main --latest --title "anyBot X.Y.Z" `
      release/anyBot-Setup-X.Y.Z.exe release/anyBot-Setup-X.Y.Z.exe.blockmap release/latest.yml
    ```
 
-6. Fetch `https://github.com/gilfila/anyBot-updates/releases/latest/download/latest.yml` and confirm it shows the new version. Installed copies pick it up on their next check.
+6. Fetch `https://github.com/gilfila/anyBot/releases/latest/download/latest.yml` (and the same path on `anyBot-updates`) and confirm it shows the new version. Installed copies pick it up on their next check.
 
 | File | Purpose | Required |
 |---|---|---|
@@ -100,7 +102,7 @@ Security properties:
 If an old installation shows a Windows breakpoint dialog or does nothing when opened:
 
 1. Remove the stale **anyBot** entry in Windows Settings → Apps.
-2. Install the latest `anyBot-Setup-X.Y.Z.exe` from the [feed repository](https://github.com/gilfila/anyBot-updates/releases/latest).
+2. Install the latest `anyBot-Setup-X.Y.Z.exe` from the [latest release](https://github.com/gilfila/anyBot/releases/latest).
 
 An `%LOCALAPPDATA%\Programs\anyBot` folder with broken permissions (ACLs) can stop Windows from replacing the old executable. `npm run package:portable` builds a portable executable for machines where that folder is unusable.
 
