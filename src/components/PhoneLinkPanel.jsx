@@ -37,11 +37,26 @@ export function PhoneLinkPanel() {
     return () => clearInterval(timer);
   }, [pairing]);
 
-  const showCode = async () => {
+  // Step 1 is getting the app: a QR code for the APK on the latest release,
+  // offered only when a release carries it. People with a phone already
+  // connected start at step 2.
+  const [app, setApp] = useState(null);
+  const [step, setStep] = useState("connect");
+  const showCode = async ({ fresh = true } = {}) => {
     setError("");
     try {
-      const next = await window.anybot.request("phone.pair");
+      const [next, download] = await Promise.all([
+        window.anybot.request("phone.pair"),
+        fresh ? window.anybot.request("phone.app").catch(() => null) : Promise.resolve(app),
+      ]);
       const qr = await QRCode.toDataURL(next.link, { errorCorrectionLevel: "M", margin: 1, width: 640 });
+      if (fresh) {
+        const appQr = download?.available
+          ? await QRCode.toDataURL(download.url, { errorCorrectionLevel: "M", margin: 1, width: 640 })
+          : null;
+        setApp(download ? { ...download, qr: appQr } : null);
+        setStep(appQr && !devices.length ? "app" : "connect");
+      }
       setPairing({ ...next, qr });
       setNow(Date.now());
       load();
@@ -80,7 +95,7 @@ export function PhoneLinkPanel() {
             {status?.connection === "error" && status.error ? `${text}: ${status.error}` : text}
           </p>
         </div>
-        <button type="button" className="primary" onClick={showCode} disabled={!available}>
+        <button type="button" className="primary" onClick={() => showCode()} disabled={!available}>
           <Smartphone size={15} />
           Connect a phone
         </button>
@@ -124,16 +139,40 @@ export function PhoneLinkPanel() {
                   Done
                 </button>
               </div>
+            ) : step === "app" && app?.qr ? (
+              <>
+                <p className="phone-step-label">Step 1 of 2: get the app</p>
+                <img className="phone-qr" src={app.qr} alt="QR code for downloading the Any Bot Android app" />
+                <ol className="phone-steps">
+                  <li>Point your Android phone's camera at this code and open the link.</li>
+                  <li>
+                    Open the downloaded <strong>AnyBot-phone.apk</strong>. If Android asks, allow installing apps from your
+                    browser.
+                  </li>
+                </ol>
+                <div className="phone-step-actions">
+                  <button type="button" className="primary" onClick={() => setStep("connect")}>
+                    I have the app
+                  </button>
+                </div>
+              </>
             ) : remaining > 0 ? (
               <>
+                {app?.qr && <p className="phone-step-label">Step 2 of 2: connect</p>}
                 <img className="phone-qr" src={pairing.qr} alt="QR code for connecting your phone" />
                 <ol className="phone-steps">
-                  <li>Install the Any Bot app on your phone.</li>
                   <li>
-                    Open it and tap <strong>Scan QR code</strong>.
+                    Open the Any Bot app on your phone and tap <strong>Scan QR code</strong>.
                   </li>
                   <li>Point your phone at this code.</li>
                 </ol>
+                {app?.qr && (
+                  <div className="phone-step-actions">
+                    <button type="button" className="secondary" onClick={() => setStep("app")}>
+                      I need the app
+                    </button>
+                  </div>
+                )}
                 <p className="phone-expiry">
                   Works once, for {Math.floor(remaining / 60000)}:{String(Math.floor((remaining % 60000) / 1000)).padStart(2, "0")} more.
                   {status?.connection !== "online" && " Waiting for the connection…"}
@@ -142,7 +181,7 @@ export function PhoneLinkPanel() {
             ) : (
               <div className="phone-paired">
                 <strong>This code expired.</strong>
-                <button type="button" className="primary" onClick={showCode}>
+                <button type="button" className="primary" onClick={() => showCode({ fresh: false })}>
                   <RefreshCw size={15} />
                   Show a new code
                 </button>

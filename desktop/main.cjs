@@ -32,6 +32,27 @@ let window,
 
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
+// The Android app is attached to every release under one name (docs/mobile.md),
+// so this link always gives the newest. The pairing screen offers it only once
+// a release actually carries it: GitHub redirects either way, so follow the
+// redirects and look at the final status. Cached; a miss is rechecked sooner.
+const PHONE_APP_URL = "https://github.com/gilfila/anyBot/releases/latest/download/AnyBot-phone.apk";
+let phoneAppCheck = null;
+function phoneAppDownload() {
+  const age = phoneAppCheck ? Date.now() - phoneAppCheck.at : Infinity;
+  if (age > (phoneAppCheck?.available ? 30 : 2) * 60 * 1000) {
+    const at = Date.now();
+    const result = fetch(PHONE_APP_URL, { method: "HEAD", redirect: "follow" })
+      .then((response) => ({ url: PHONE_APP_URL, available: response.ok }))
+      .catch(() => ({ url: PHONE_APP_URL, available: false }));
+    phoneAppCheck = { at, result, available: false };
+    result.then(({ available }) => {
+      if (phoneAppCheck?.at === at) phoneAppCheck.available = available;
+    });
+  }
+  return phoneAppCheck.result;
+}
+
 // Default update feed: the source repo's own releases (gilfila/anyBot is public
 // since 2026-09-23). Builds before 0.3.23 read gilfila/anyBot-updates, which the
 // publisher keeps mirroring so they can still reach this version.
@@ -687,6 +708,7 @@ else {
       // Settings → Your phone (runtime/phone-link.mjs).
       if (method === "phone.status")
         return phoneLink ? phoneLink.status() : { connection: phoneError ? "error" : "starting", error: phoneError || null, devices: [] };
+      if (method === "phone.app") return phoneAppDownload();
       if (method === "phone.pair") {
         if (!phoneLink) throw new Error(phoneError || "Phone connections are still starting. Try again in a moment.");
         return phoneLink.createPairing();

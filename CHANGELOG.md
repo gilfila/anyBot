@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.24] - 2026-09-25
+
+### Added
+- **Get the phone app by scanning a code.** When you click **Connect a phone** in **Settings → Your phone**, the first code now downloads the Any Bot Android app. Install it, tap **I have the app**, and scan the second code to connect. If a phone is already connected, you go straight to the connect code.
+- The Android app is attached to every release on the [Any Bot releases page](https://github.com/gilfila/anyBot/releases/latest) as **AnyBot-phone.apk**. It has the same version as the desktop app, and a newer one installs over the old one.
+
 ## [0.3.23] - 2026-09-25
 
 ### Changed
