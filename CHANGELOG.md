@@ -6,7 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-## [0.3.25] - 2026-09-25
+## [0.3.25] - 2026-09-28
+
+### Fixed
+- **Your bots stay animated.** After the computer slept or the display or graphics driver reset, every bot could turn into a flat robot icon and stay that way until you restarted Any Bot. Now they come back as animated 3D bots by themselves within a few seconds.
 
 ### Changed
 - **Antigravity CLI replaces Gemini CLI.** Google stopped letting personal accounts (free, AI Pro, and Ultra) use Gemini CLI in June; its replacement is the Antigravity CLI (`agy`). Settings → Harnesses now lists Antigravity, and any bot that was on Gemini CLI moves to Antigravity by itself, on Antigravity's default model. Install Antigravity and sign in once in a terminal (`agy`) to use it.

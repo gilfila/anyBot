@@ -131,6 +131,10 @@ export function describeIssue(issue) {
       hint: "Any Bot showed it as plain text instead. This is a bug.",
       bug: true,
     },
+    "avatar.render_failed": {
+      title: "The 3D bots stopped drawing",
+      hint: "They showed as icons for a moment and redraw by themselves. If they stay icons, restart Any Bot.",
+    },
     "renderer.gone": { title: "The window's renderer stopped", hint: "Any Bot reloaded the window.", bug: true },
     "renderer.load_failed": { title: "The window failed to load", hint: "This is a bug in Any Bot.", bug: true },
     "main.exception": { title: "Any Bot hit an internal error", hint: "This is a bug in Any Bot.", bug: true },

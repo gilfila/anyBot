@@ -35,6 +35,7 @@ jobs:
       - run: npm test
       - run: npm run test:runtime
       - run: npm run test:e2e
+      - run: npm run test:avatars
       - run: npm run mobile:sync
       - run: npm run package -- --publish never
       - run: node scripts/verify-release-package.mjs

@@ -25,6 +25,7 @@
     "test:live:cursor": "node tests/live-cursor-smoke.mjs",
     "test:runtime": "electron tests/electron-runtime.cjs",
     "test:e2e": "electron tests/electron-threads.cjs",
+    "test:avatars": "vite build && electron tests/electron-avatars.cjs",
     "verify:local": "node scripts/verify-local.mjs",
     "mobile:web": "vite build --config mobile/vite.config.mjs",
     "mobile:sync": "npm run mobile:web && npx cap sync",
