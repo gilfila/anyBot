@@ -11,8 +11,10 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const assert = require("node:assert/strict");
 
-app.commandLine.appendSwitch("disable-gpu");
-app.commandLine.appendSwitch("in-process-gpu");
+if (process.platform === "win32") {
+  app.commandLine.appendSwitch("disable-gpu");
+  app.commandLine.appendSwitch("in-process-gpu");
+}
 const profileRoot = path.join(__dirname, "../.anybot/test-profiles");
 mkdirSync(profileRoot, { recursive: true });
 app.setPath("userData", mkdtempSync(path.join(profileRoot, "electron-")));
