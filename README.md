@@ -6,7 +6,7 @@
 
 The latest installer (`anyBot-Setup-X.Y.Z.exe`) is always on the [latest release](https://github.com/gilfila/anyBot/releases/latest). Any Bot updates itself after that.
 
-Any Bot takes the AI agent tools you already use (Claude Code, Codex, Gemini CLI, Hermes, and Cursor) and turns each one into a named teammate. Every bot gets a role, instructions, its own workspace, and a robot avatar. You can:
+Any Bot takes the AI agent tools you already use (Claude Code, Codex, Antigravity, Hermes, and Cursor) and turns each one into a named teammate. Every bot gets a role, instructions, its own workspace, and a robot avatar. You can:
 
 - put bots in a project together
 - hand them tasks
@@ -18,7 +18,7 @@ Everything runs on your machine, using your own accounts.
 
 ## Get started
 
-1. **Install a harness.** Install at least one agent CLI and sign in to it once in a terminal. The options are Claude Code, Codex CLI, Gemini CLI, Hermes Agent, and Cursor Agent CLI.
+1. **Install a harness.** Install at least one agent CLI and sign in to it once in a terminal. The options are Claude Code, Codex CLI, Antigravity CLI, Hermes Agent, and Cursor Agent CLI.
 2. **Install Any Bot.** Download the latest `anyBot-Setup-X.Y.Z.exe` from [the latest release](https://github.com/gilfila/anyBot/releases/latest) and run it.
    - It installs for your Windows account only, so it doesn't need admin rights.
    - The builds aren't code-signed yet, so SmartScreen may warn you. Choose **More info → Run anyway**.
@@ -161,7 +161,7 @@ Many problems have a button that takes you to the fix. **Copy report** gives you
 |---|---|
 | Claude Code | Risky actions wait for your approval in the chat. |
 | Codex CLI | Runs in Codex's workspace-write sandbox. |
-| Gemini CLI | Edits files freely. Commands that need approval are skipped. |
+| Antigravity CLI | Edits files freely. Commands are refused, and the chat says so; set the bot to "Edits run, everything else asks you" to let it run them. |
 | Hermes Agent | Follows Hermes's own settings. |
 | Cursor Agent CLI | Actions that need approval are skipped. |
 | Your own CLI | Add it with [`harnesses.json`](docs/custom-harnesses.md). |

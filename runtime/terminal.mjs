@@ -92,9 +92,13 @@ const resultText = (content) =>
       ? content.map((part) => (typeof part === "string" ? part : part?.text || "")).join("\n")
       : "";
 // The one argument that says what a tool call is about.
+// The argument worth showing, by key in any case: Claude writes file_path,
+// Antigravity CommandLine / TargetFile / AbsolutePath.
+const SUMMARY_KEYS = ["command", "commandline", "cmd", "filepath", "targetfile", "absolutepath", "path", "pattern", "url", "query", "description", "prompt"];
 function toolSummary(name, input = {}) {
-  const pick =
-    input.command ?? input.cmd ?? input.file_path ?? input.path ?? input.pattern ?? input.url ?? input.query ?? input.description ?? input.prompt;
+  const keys = new Map(Object.keys(input || {}).map((key) => [key.toLowerCase().replace(/_/g, ""), key]));
+  const key = SUMMARY_KEYS.map((k) => keys.get(k)).find((k) => k !== undefined && input[k] !== undefined);
+  const pick = key === undefined ? undefined : input[key];
   const value = pick !== undefined ? (Array.isArray(pick) ? pick.join(" ") : pick) : JSON.stringify(input);
   return `⏺ ${name}(${clip(value, 160)})\n`;
 }
@@ -156,14 +160,27 @@ export function formatEvent(harness, event) {
     if (event.type === "turn.failed" || event.type === "error") return `✖ ${event.error?.message || event.message || "Failed"}\n`;
     return "";
   }
-  if (harness === "gemini") {
-    if (event.type === "init") return `● Session started${event.model ? ` · ${event.model}` : ""}\n`;
-    if (event.type === "message" && event.role === "assistant")
-      return event.delta ? String(event.content || "") : `${String(event.content || "").trim()}\n`;
-    if (event.type === "tool_use") return toolSummary(event.tool_name || "tool", event.parameters);
-    if (event.type === "tool_result") return output(event.output ?? event.error?.message ?? "");
-    if (event.type === "result")
-      return `${event.status === "error" ? "✖ Failed" : "✔ Done"}${seconds(event.stats?.duration_ms)}${tokens({ input_tokens: event.stats?.input_tokens, output_tokens: event.stats?.output_tokens })}\n`;
+  if (harness === "antigravity") {
+    if (event.event === "init")
+      return `● Session started${event.init?.permission_mode ? ` · ${event.init.permission_mode}` : ""}${event.init?.cwd ? ` · ${event.init.cwd}` : ""}\n`;
+    const step = event.step_update;
+    if (event.event === "step_update" && step) {
+      if (step.step_type === "agent_response") return String(step.text_delta || "");
+      if (step.step_type === "tool") {
+        const info = step.tool_info || {};
+        if (step.state === "ACTIVE") return toolSummary(step.tool_name || info.name || "tool", info.parameters);
+        if (step.state === "ERROR") return `⚠ ${clip(info.error?.message || "The tool failed", 300)}\n`;
+        if (step.state === "DONE") return output(info.output ?? "");
+      }
+      return "";
+    }
+    if (event.event === "result") {
+      const result = event.result || {};
+      const denied = (result.denied_actions || []).map((a) => a?.display_name || a?.action).filter(Boolean);
+      return `${result.status === "SUCCESS" ? "✔ Done" : `✖ ${result.error || "Failed"}`}${seconds((result.duration_seconds || 0) * 1000)}${tokens({ input_tokens: result.usage?.input_tokens, output_tokens: result.usage?.output_tokens })}\n${
+        denied.length ? `⚠ Not allowed without asking: ${denied.join(", ")}\n` : ""
+      }`;
+    }
     return "";
   }
   return "";

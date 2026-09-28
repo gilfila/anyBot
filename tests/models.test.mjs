@@ -71,15 +71,19 @@ test("Hermes follows its configured provider, including a CRLF config", async (t
   assert.deepEqual((await discoverLiveModels("hermes", { env })).map((m) => m.value), ["anthropic/claude-fable-5.1", "google/gemini-3.5-flash"]);
 });
 
-test("Gemini's models come from the installed CLI bundle, newest first", async (t) => {
+test("Antigravity's models come from `agy models`, in the CLI's order", async (t) => {
   const dir = await home(t);
-  const bundle = join(dir, "node_modules", "@google", "gemini-cli", "bundle");
-  await mkdir(bundle, { recursive: true });
-  await writeFile(join(bundle, "gemini.js"), 'const A="gemini-2.5-pro",B="gemini-3.5-flash",C="gemini-3.5-flash";');
-  await writeFile(join(bundle, "chunk-1.js"), 'x("gemini-3.1-pro-preview"); y("gemini-embedding-001"); z("not-a-model")');
-  const models = await discoverLiveModels("gemini", { executable: { file: "node.exe", prefix: [join(bundle, "gemini.js")] } });
-  assert.deepEqual(models.map((m) => m.value), ["gemini-3.5-flash", "gemini-3.1-pro-preview", "gemini-2.5-pro"]);
-  assert.deepEqual(await discoverLiveModels("gemini", { executable: { file: "gemini.exe", prefix: [] } }), []);
+  const script = join(dir, "agy.mjs");
+  await writeFile(
+    script,
+    'process.stdout.write(process.argv[2] === "models" ? "gemini-3.8-flash-high\\tGemini 3.8 Flash (High)\\nclaude-sonnet-4-6\\tClaude Sonnet 4.6\\n\\nnot a model\\tBad\\n" : "")',
+  );
+  const models = await discoverLiveModels("antigravity", { executable: { file: process.execPath, prefix: [script] } });
+  assert.deepEqual(models, [
+    { value: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
+    { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+  ]);
+  assert.deepEqual(await discoverLiveModels("antigravity", {}), [], "no CLI, no list");
 });
 
 test("model lists merge without duplicates, and the editor refreshes them on demand", async (t) => {
