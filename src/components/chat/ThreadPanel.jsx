@@ -101,8 +101,10 @@ export function ThreadPanel({ root, entry, runs, employees, bots, bubbles, onClo
         connected={connected}
         label="Reply in thread"
         placeholder="Reply in the thread. Type @ to bring in a bot."
-        onSend={async () => {
-          if (await onSend(draft)) setDraft("");
+        onSend={async (attachments) => {
+          const sent = await onSend(draft, attachments);
+          if (sent) setDraft("");
+          return sent;
         }}
       />
     </aside>

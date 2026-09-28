@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.28] - 2026-09-28
+
+### Added
+- **Send files and folders to your bots.** Drag files or whole folders onto the message box, click the paperclip (files) or folder button, or paste a screenshot. They show as chips, with a preview for pictures, and you can remove any before sending. You can send them with no text at all.
+  - Every bot you send them to gets its own copy of each file, so it can open images, PDFs, documents and code. Claude and Codex bots see pictures directly.
+  - Folders aren't copied: the bot is told where the folder is and what's in it, and gets permission to read it.
+  - Your sent message keeps the chips. Click one to show the file in its folder.
+  - Up to 20 per message. Files over 50 MB are left where they are and the bot reads them there.
+  - The phone app shows only the names of what you attached, never where the files are on your computer.
+
 ## [0.3.27] - 2026-09-28
 
 ### Added

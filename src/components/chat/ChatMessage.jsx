@@ -3,6 +3,7 @@ import { Square, Workflow } from "lucide-react";
 import { Avatar } from "../Avatar.jsx";
 import { RobotAvatar } from "../RobotAvatar.jsx";
 import { MessageContent } from "../MessageContent.jsx";
+import { MessageAttachments } from "./Attachments.jsx";
 import { Status } from "../Status.jsx";
 import { time } from "../../lib/ui.js";
 
@@ -31,9 +32,12 @@ export function ChatMessage({ message: m, employees, bubbles, onOpenPreview, onO
             </span>
           )}
         </div>
-        <div className="message-body">
-          <MessageContent body={m.body} onOpenPreview={onOpenPreview} onOpenBrowser={onOpenBrowser} people={employees.map((e) => e.name)} />
-        </div>
+        {m.body ? (
+          <div className="message-body">
+            <MessageContent body={m.body} onOpenPreview={onOpenPreview} onOpenBrowser={onOpenBrowser} people={employees.map((e) => e.name)} />
+          </div>
+        ) : null}
+        <MessageAttachments message={m} />
         {children}
       </div>
     </div>

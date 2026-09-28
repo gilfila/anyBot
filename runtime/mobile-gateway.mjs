@@ -1,3 +1,4 @@
+import { parse as parseAttachments } from "./attachments.mjs";
 import http from "node:http";
 import https from "node:https";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -402,8 +403,12 @@ export function createMobileGateway({
           ? all.findIndex((m) => m.id === before)
           : all.length;
         if (end < 0) return reply(400, { error: "Invalid cursor" });
+        // Attachments are desktop paths: the phone sees their names only.
         const start = Math.max(0, end - 100),
-          messages = all.slice(start, end);
+          messages = all.slice(start, end).map(({ attachments, ...m }) => ({
+            ...m,
+            attachments: parseAttachments(attachments).map((a) => ({ name: a.name, kind: a.kind })),
+          }));
         return reply(200, {
           conversation,
           messages,

@@ -465,3 +465,21 @@ test("the phone doesn't list archived (deleted) projects", async (t) => {
   const direct = await f.request(`/conversations/${project.id}`, { headers: { Authorization: `Bearer ${token}` } });
   assert.notEqual(direct.status, 200);
 });
+
+test("the phone sees a message's attachment names, never desktop paths", async (t) => {
+  const f = await fixture(t),
+    session = await f.pair();
+  const folder = await mkdtemp(join(tmpdir(), "anybot-private-"));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const file = join(folder, "shot.png");
+  await writeFile(file, "png");
+  const employee = f.c.snapshot().employees[0];
+  await f.c.command("conversations.create", { title: "Desk", members: [employee.id] });
+  const conversation = f.c.snapshot().conversations.at(-1);
+  await f.c.command("messages.send", { conversation: conversation.id, body: "look", attachments: [file], requestId: crypto.randomUUID() });
+  const response = await f.request(`/conversations/${conversation.id}`, { headers: { Authorization: `Bearer ${session.token}` } });
+  const text = await response.text();
+  assert.equal(response.status, 200);
+  assert.doesNotMatch(text, /anybot-private-/);
+  assert.deepEqual(JSON.parse(text).messages.find((m) => m.body === "look").attachments, [{ name: "shot.png", kind: "file" }]);
+});

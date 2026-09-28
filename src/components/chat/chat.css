@@ -184,3 +184,110 @@
   color: var(--accent-ink);
   font-weight: 600;
 }
+
+/* Attachments: the composer's tray, the drop overlay, and chips under sent
+   messages. Tokens only (Studio paper). */
+.composer {
+  position: relative;
+}
+.composer.dragging {
+  border-color: var(--accent);
+}
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 2px dashed var(--accent);
+  border-radius: inherit;
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+  font-weight: 600;
+  pointer-events: none;
+}
+.attachment-tray,
+.message-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 4px;
+  padding: 0;
+  list-style: none;
+}
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 260px;
+  min-height: 30px;
+  padding: 3px 6px 3px 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-sm);
+  background: var(--paper-2);
+  color: var(--ink-2);
+  font-size: 12px;
+}
+button.attachment-chip {
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+button.attachment-chip:hover {
+  border-color: var(--ink-3);
+  background: var(--paper-3);
+}
+.attachment-chip.has-thumb {
+  padding-left: 3px;
+}
+.attachment-chip img {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 5px;
+  background: var(--card);
+}
+.message-attachments .attachment-chip.has-thumb img {
+  width: 120px;
+  height: 90px;
+}
+.attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attachment-chip small {
+  color: var(--ink-4);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.attachment-chip > button {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-3);
+}
+.attachment-chip > button:hover {
+  background: var(--paper-3);
+  color: var(--ink);
+}
+.attachment-notice {
+  margin: 2px 0 4px;
+  color: var(--warn);
+  font-size: 12px;
+}
+.dictation.attach {
+  display: inline-grid;
+  place-items: center;
+}
+/* Your attachments sit on your side, under your bubble. */
+.message.from-you .message-attachments {
+  justify-content: flex-end;
+}
