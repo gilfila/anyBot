@@ -4,6 +4,7 @@ import {
   animateAvatar,
   disposeAvatar,
 } from "./bot-avatar-scene.js";
+import { reportIssue } from "./diagnostics.js";
 
 // One WebGL context for the entire app. Equal identity/configuration tiles share
 // a render, then receive a 2D copy; a long roster never allocates dozens of GPUs.
@@ -13,7 +14,13 @@ let renderer,
   frame = 0,
   previous = 0,
   elapsed = 0,
-  failed = false;
+  failed = false,
+  retry = 0,
+  attempts = 0,
+  reported = false;
+// A lost context (sleep, display or driver reset) or a failed frame used to
+// leave every bot as an icon until restart. Rebuild instead, backing off.
+const RETRY_MS = [1000, 2000, 5000, 15000, 60000];
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
 const observer = new IntersectionObserver((records) => {
   for (const { target, isIntersecting } of records) {
@@ -27,18 +34,52 @@ function schedule() {
   if (!frame && !document.hidden && entries.size && !failed)
     frame = requestAnimationFrame(draw);
 }
-function release() {
+function dropRenderer(lost) {
   cancelAnimationFrame(frame);
   frame = 0;
   for (const scene of scenes.values()) disposeAvatar(scene);
   scenes.clear();
   if (renderer) {
     renderer.dispose();
-    renderer.forceContextLoss();
+    if (!lost) renderer.forceContextLoss();
     renderer = null;
   }
   previous = 0;
+}
+function release() {
+  dropRenderer(false);
+  clearTimeout(retry);
+  retry = 0;
+  attempts = 0;
   failed = false;
+}
+// Show icons now, then try a fresh renderer and scenes after a delay.
+function recover(reason, error) {
+  dropRenderer(reason === "context-lost");
+  failed = true;
+  for (const entry of entries.values()) {
+    entry.dirty = true;
+    entry.onReady(false);
+  }
+  if (!reported) {
+    reported = true;
+    reportIssue({
+      code: "avatar.render_failed",
+      level: "warn",
+      message: reason === "context-lost" ? "The 3D bots lost their graphics context" : `Drawing the 3D bots failed: ${error?.message || error}`,
+      detail: error?.stack,
+      context: { reason },
+    });
+  }
+  clearTimeout(retry);
+  retry = setTimeout(retryNow, RETRY_MS[Math.min(attempts, RETRY_MS.length - 1)]);
+  attempts += 1;
+}
+function retryNow() {
+  clearTimeout(retry);
+  retry = 0;
+  failed = false;
+  schedule();
 }
 function rendererForFrame() {
   if (renderer) return renderer;
@@ -52,19 +93,9 @@ function rendererForFrame() {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.02;
   const current = renderer;
-  renderer.domElement.addEventListener("webglcontextlost", (event) => {
-    if (renderer !== current) return;
-    event.preventDefault();
-    failed = true;
-    cancelAnimationFrame(frame);
-    frame = 0;
-    for (const entry of entries.values()) entry.onReady(false);
-  });
-  renderer.domElement.addEventListener("webglcontextrestored", () => {
-    if (renderer !== current) return;
-    failed = false;
-    for (const entry of entries.values()) entry.dirty = true;
-    schedule();
+  // The browser may never restore a lost context, so it is replaced.
+  renderer.domElement.addEventListener("webglcontextlost", () => {
+    if (renderer === current) recover("context-lost");
   });
   return renderer;
 }
@@ -150,6 +181,7 @@ function draw(now) {
           }
         }
       }
+      attempts = 0;
     }
     // Evict scenes no longer associated with a mounted avatar, not just hidden
     // ones: scrolling should not rebuild every character.
@@ -161,9 +193,9 @@ function draw(now) {
         disposeAvatar(scene);
         scenes.delete(key);
       }
-  } catch {
-    failed = true;
-    for (const entry of entries.values()) entry.onReady(false);
+  } catch (error) {
+    recover("draw", error);
+    return;
   }
   if (groups.size && !reduceMotion.matches) schedule();
 }
@@ -201,7 +233,8 @@ document.addEventListener("visibilitychange", () => {
     cancelAnimationFrame(frame);
     frame = 0;
     previous = 0;
-  } else schedule();
+  } else if (failed) retryNow();
+  else schedule();
 });
 reduceMotion.addEventListener("change", () => {
   for (const entry of entries.values()) entry.dirty = true;

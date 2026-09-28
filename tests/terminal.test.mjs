@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { utimesSync } from "node:fs";
+import { readFileSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TerminalLog, formatEvent } from "../runtime/terminal.mjs";
@@ -27,15 +27,28 @@ test("Claude Code events read like its terminal", () => {
   assert.equal(f({ type: "stream_event" }), "", "noise is skipped");
 });
 
-test("Codex and Gemini events read like a terminal too", () => {
+test("Codex and Antigravity events read like a terminal too", () => {
   assert.equal(formatEvent("codex", { type: "item.started", item: { type: "command_execution", command: "git status" } }), "⏺ Shell(git status)\n");
   assert.equal(
     formatEvent("codex", { type: "item.completed", item: { type: "command_execution", aggregated_output: "clean\n", exit_code: 1 } }),
     "  ⎿ clean\n    exit 1\n",
   );
   assert.equal(formatEvent("codex", { type: "turn.completed", usage: { input_tokens: 10, output_tokens: 2 } }), "✔ Turn done · 10 in / 2 out tokens\n");
-  assert.equal(formatEvent("gemini", { type: "tool_use", tool_name: "read_file", parameters: { path: "a.md" } }), "⏺ read_file(a.md)\n");
-  assert.equal(formatEvent("gemini", { type: "message", role: "assistant", content: "Hel", delta: true }), "Hel");
+  // Real Antigravity runs (tests/fixtures/usage/antigravity*.jsonl).
+  const agy = (name) =>
+    readFileSync(new URL(`./fixtures/usage/${name}.jsonl`, import.meta.url), "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => formatEvent("antigravity", JSON.parse(line)))
+      .join("");
+  const run = agy("antigravity");
+  assert.ok(run.startsWith("● Session started · always-proceed · C:\\work\\bot\n"), run);
+  assert.match(run, /⏺ run_command\(echo hello-from-agy\)\n/);
+  assert.match(run, /hello-from-agy/);
+  assert.ok(run.endsWith("ok\n✔ Done · 5.5s · 24,922 in / 343 out tokens\n"), run);
+  const denied = agy("antigravity-denied");
+  assert.match(denied, /⚠ permission check failed for command/);
+  assert.ok(denied.endsWith("⚠ Not allowed without asking: RunCommand\n"), denied);
 });
 
 test("a run's terminal log reads in chunks from an offset and keeps the newest logs", async (t) => {

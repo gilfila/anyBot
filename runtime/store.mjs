@@ -5,7 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 export const id = () => randomUUID();
 // Bump with each migration below. Newer workspaces are refused by older apps.
-export const SCHEMA_VERSION = 15;
+export const SCHEMA_VERSION = 16;
 export const now = () => new Date().toISOString();
 export const promptHash = (prompt) => createHash("sha256").update(prompt).digest("hex");
 
@@ -422,6 +422,28 @@ export class Store {
         this.db.exec("CREATE INDEX IF NOT EXISTS events_created ON events(created)");
         this.db
           .prepare("UPDATE metadata SET value='15' WHERE key='schema'")
+          .run();
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        this.db.close();
+        throw error;
+      }
+    }
+    const antigravityVersion = Number(
+      this.db.prepare("SELECT value FROM metadata WHERE key='schema'").get()
+        .value,
+    );
+    if (antigravityVersion < 16) {
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
+        // Gemini CLI stopped serving personal Google accounts on 2026-06-18;
+        // Antigravity CLI replaced it. Bots on the Gemini harness move there.
+        // Their Gemini model ids don't exist in Antigravity, so they go back
+        // to the harness default.
+        this.db.exec("UPDATE employees SET harness='antigravity', model='', revision=revision+1 WHERE harness='gemini'");
+        this.db
+          .prepare("UPDATE metadata SET value='16' WHERE key='schema'")
           .run();
         this.db.exec("COMMIT");
       } catch (error) {

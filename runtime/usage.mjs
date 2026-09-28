@@ -11,7 +11,7 @@ export const USAGE_KEYS = {
 };
 
 // Providers behind each built-in harness (OTel `gen_ai.system` values).
-const SYSTEMS = { claude: "anthropic", codex: "openai", gemini: "gcp.gemini", cursor: "cursor", hermes: "hermes" };
+const SYSTEMS = { claude: "anthropic", codex: "openai", antigravity: "google.antigravity", cursor: "cursor", hermes: "hermes" };
 
 const count = (value) => (Number.isFinite(value) && value > 0 ? Math.round(value) : 0);
 const modelId = (value) =>
@@ -47,13 +47,17 @@ export function readUsage(harness, event, state) {
     state.turns += 1;
     state.seen = true;
   }
-  if (harness === "gemini" && event.type === "result") {
-    const s = event.stats || {};
-    state.input += count(s.input_tokens);
-    state.cached += count(s.cached);
-    state.output += count(s.output_tokens);
-    state.duration += count(s.duration_ms);
-    state.turns += 1;
+  // Antigravity's result usage is the run's total across its model calls.
+  // output_tokens already include thinking_tokens (a one-word reply reports
+  // 37 output with 34 thinking); cache_read_tokens are counted inside
+  // input_tokens, as Gemini's API reports cached content.
+  if (harness === "antigravity" && event.event === "result") {
+    const u = event.result?.usage || {};
+    state.input += count(u.input_tokens);
+    state.cached += count(u.cache_read_tokens);
+    state.output += count(u.output_tokens);
+    state.duration += Math.round(count((event.result?.duration_seconds || 0) * 1000));
+    state.turns += count(event.result?.num_turns) || 1;
     state.seen = true;
   }
   return state;
