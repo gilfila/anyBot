@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [0.3.26] - 2026-09-28
 
+### Added
+- **Add a bot from the sidebar.** The **Bots** heading now has a **+** button, like **Projects**, that opens the new-bot form.
 ### Fixed
 - **Bots are animated 3D robots on a Mac too.** When Any Bot was run from source on macOS, every bot showed a flat, static head instead of its animated 3D robot. The graphics workaround meant for Windows PCs with broken drivers was also switching off 3D drawing on Macs. It now only applies on Windows, so nothing changes there.
 

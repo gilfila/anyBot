@@ -645,6 +645,13 @@ export function App() {
         <div className="nav-label conversation-label">
           BOTS
           <span>{sidebarEmployees.length}</span>
+          <button
+            title="New bot"
+            aria-label="New bot"
+            onClick={() => setModal({ type: "employee" })}
+          >
+            <Plus size={16} />
+          </button>
         </div>
         <div className="conversation-list bot-list">
           {sidebarEmployees.map((employee) => {

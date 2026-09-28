@@ -3835,6 +3835,11 @@ main {
   background: var(--paper-3);
   color: var(--ink);
 }
+/* A count followed by a + (Bots): keep them together on the right. */
+.conversation-label > span:has(+ button) {
+  margin-left: auto;
+  margin-right: 4px;
+}
 nav {
   gap: 2px;
 }
