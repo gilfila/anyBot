@@ -49,10 +49,76 @@ jobs:
             release/latest.yml
             release/private-release-audit.json
 
+  # The Android phone app, attached to each release as AnyBot-phone.apk
+  # (docs/mobile.md). Signed only on main, and only once the upload key is set
+  # up (scripts/setup-android-signing.ps1); until then releases ship without it.
+  android:
+    name: Build phone app
+    runs-on: ubuntu-latest
+    outputs:
+      signed: ${{ steps.sign.outputs.signed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run mobile:sync
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+          # The action splits this input on spaces, not newlines.
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
+      - name: Load the upload key (main only)
+        id: sign
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::notice::Android signing isn't set up (scripts/setup-android-signing.ps1); this release ships without the phone app."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/anybot-release.jks"
+          echo "ANYBOT_ANDROID_KEYSTORE=$RUNNER_TEMP/anybot-release.jks" >> "$GITHUB_ENV"
+          echo "ANYBOT_ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+      - name: Build the release APK
+        working-directory: android
+        run: ./gradlew assembleRelease
+      - name: Verify the signature and version
+        if: steps.sign.outputs.signed == 'true'
+        run: |
+          set -e
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$apk"
+          version=$(node -p "require('./package.json').version")
+          "$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging "$apk" | grep -q "versionName='$version'"
+          mkdir -p phone
+          cp "$apk" phone/AnyBot-phone.apk
+          node -e "const fs=require('fs'),c=require('crypto');fs.writeFileSync('phone/android-release-audit.json',JSON.stringify({version:'$version',sourceCommit:process.env.GITHUB_SHA,sha256:c.createHash('sha256').update(fs.readFileSync('phone/AnyBot-phone.apk')).digest('hex')}))"
+          rm -f "$RUNNER_TEMP/anybot-release.jks"
+      - uses: actions/upload-artifact@v4
+        if: steps.sign.outputs.signed == 'true'
+        with:
+          name: verified-android-release
+          retention-days: 14
+          if-no-files-found: error
+          path: phone/
+
   publish:
     name: Publish verified installer
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    needs: build
+    needs: [build, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -66,6 +132,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: verified-windows-release
+          path: release
+      - uses: actions/download-artifact@v4
+        if: needs.android.outputs.signed == 'true'
+        with:
+          name: verified-android-release
           path: release
       - name: Check one-time publishing setup
         env:

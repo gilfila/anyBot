@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { changelogSection, compareVersions, releaseFiles, verifyPublicAssets, verifyUpdateMetadata, downloadReadme } from './release-policy.mjs';
+import { PHONE_APP, changelogSection, compareVersions, releaseFiles, verifyPublicAssets, verifyUpdateMetadata, downloadReadme } from './release-policy.mjs';
 
 // Releases live on the source repo (public since 2026-09-23), which is the
 // update feed from 0.3.23 on. gilfila/anyBot-updates is a mirror kept for
@@ -47,6 +47,17 @@ verifyUpdateMetadata(version, buffers['latest.yml'].toString(), buffers[files[0]
 const hashes = Object.fromEntries(files.map(name => [name, createHash('sha256').update(buffers[name]).digest('hex')]));
 const audit = JSON.parse(readFileSync('release/private-release-audit.json'));
 if (audit.version !== version || audit.sourceCommit !== sha || files.some(name => audit.files[name] !== hashes[name])) throw Error('Build provenance does not match the publishing commit and assets');
+// The signed phone app, when this build made one (release.yml, android job):
+// its own audit ties it to this version and commit. Source repo only.
+if (existsSync(`release/${PHONE_APP}`)) {
+  const bytes = readFileSync(`release/${PHONE_APP}`);
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  const phoneAudit = JSON.parse(readFileSync('release/android-release-audit.json'));
+  if (phoneAudit.version !== version || phoneAudit.sourceCommit !== sha || phoneAudit.sha256 !== digest) throw Error('Phone app provenance does not match the publishing commit');
+  buffers[PHONE_APP] = bytes;
+  hashes[PHONE_APP] = digest;
+}
+const filesFor = (repo) => (repo === sourceRepo && buffers[PHONE_APP] ? [...files, PHONE_APP] : files);
 // What changed, shown by the in-app updater.
 const notes = existsSync('CHANGELOG.md') ? changelogSection(readFileSync('CHANGELOG.md', 'utf8'), version) : '';
 
@@ -57,12 +68,14 @@ async function stage(repo, targetCommitish) {
   if (release && !release.body?.includes(marker)) throw Error(`Existing ${repo} version belongs to a different source commit`);
   if (!release) release = await api(repo, 'releases', { method: 'POST', body: {
     tag_name: tag, target_commitish: targetCommitish, name: `anyBot ${version}`, draft: true,
-    body: `${notes ? `${notes}\n\n` : ''}[Download the Windows installer](https://github.com/${repo}/releases/download/${tag}/${files[0]})\n\n${marker}`,
+    body: `${notes ? `${notes}\n\n` : ''}[Download the Windows installer](https://github.com/${repo}/releases/download/${tag}/${files[0]})${
+      filesFor(repo).includes(PHONE_APP) ? ` · [Download the Android app](https://github.com/${repo}/releases/download/${tag}/${PHONE_APP})` : ''
+    }\n\n${marker}`,
   } });
   if (release.draft) {
     // A retry may replace only unpublished assets belonging to this exact commit.
     for (const asset of release.assets) await api(repo, `releases/assets/${asset.id}`, { method: 'DELETE' });
-    for (const name of files) {
+    for (const name of filesFor(repo)) {
       const url = new URL(release.upload_url.split('{')[0]);
       if (url.origin !== 'https://uploads.github.com') throw Error('Unexpected upload host');
       url.searchParams.set('name', name);
@@ -71,7 +84,7 @@ async function stage(repo, targetCommitish) {
     }
   }
   release = await api(repo, `releases/${release.id}`);
-  verifyPublicAssets(version, release.assets, hashes);
+  verifyPublicAssets(version, release.assets, hashes, filesFor(repo));
   return release;
 }
 const staged = [[sourceRepo, await stage(sourceRepo, sha)], [mirrorRepo, await stage(mirrorRepo, mirror.default_branch)]];
@@ -84,7 +97,7 @@ for (const [repo, release] of staged) {
   if (release.draft) await api(repo, `releases/${release.id}`, { method: 'PATCH', body: { draft: false, make_latest: 'true' } });
   const live = await api(repo, 'releases/latest');
   if (live.tag_name !== tag || !live.body.includes(marker)) throw Error(`Latest release/source mismatch on ${repo}`);
-  verifyPublicAssets(version, live.assets, hashes);
+  verifyPublicAssets(version, live.assets, hashes, filesFor(repo));
 }
 const readme = await api(mirrorRepo, 'contents/README.md');
 const content = Buffer.from(downloadReadme(version)).toString('base64');
@@ -94,4 +107,4 @@ for (const repo of [sourceRepo, mirrorRepo]) {
   if (!feed.ok) throw Error(`Published feed unavailable on ${repo}: HTTP ${feed.status}`);
   verifyUpdateMetadata(version, await feed.text(), buffers[files[0]]);
 }
-console.log(`Published and verified ${tag} from ${sha} on ${sourceRepo} and its mirror ${mirrorRepo}. Only installer, blockmap, and latest.yml are release assets.`);
+console.log(`Published and verified ${tag} from ${sha} on ${sourceRepo} and its mirror ${mirrorRepo}. Release assets: ${filesFor(sourceRepo).join(', ')}.`);

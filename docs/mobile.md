@@ -2,8 +2,18 @@
 
 ## Connect your phone (the easy way)
 
-1. On the computer, open **Settings → Your phone** and click **Connect a phone**. A QR code appears.
-2. On the phone, open Any Bot and tap **Scan QR code**. Point the camera at the code.
+1. On the computer, open **Settings → Your phone** and click **Connect a phone**.
+2. **Get the app** (Android): the first code opens the latest `AnyBot-phone.apk`. Open the download and allow installing from your browser when Android asks. Then click **I have the app**. This step is skipped when a phone is already connected, and shown only once a release carries the app.
+3. On the phone, open Any Bot and tap **Scan QR code**. Point the camera at the second code.
+
+The app is also a direct link: `https://github.com/gilfila/anyBot/releases/latest/download/AnyBot-phone.apk`. Each release's app has the desktop's version and is signed with the same key, so a new one installs over the old one. (A debug build installed earlier has a different signature: uninstall it first.) iPhone isn't available: it needs a Mac and an Apple developer account.
+
+### How the app is built and signed
+
+- `release.yml` has an `android` job that builds `assembleRelease` on every run. On `main` it signs the APK with the upload key from the `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD` secrets, checks the signature and version with `apksigner` and `aapt2`, and records its hash in `android-release-audit.json`. The publisher attaches it to the `gilfila/anyBot` release as `AnyBot-phone.apk`, after checking that audit against the commit.
+- `android/app/build.gradle` takes the version from `package.json` (`versionCode` = major·10000 + minor·100 + patch) and signs only when `ANYBOT_ANDROID_KEYSTORE` is set. The key never enters the repository.
+- **Set up once:** `powershell -ExecutionPolicy Bypass -File scripts\setup-android-signing.ps1` creates the key in `%USERPROFILE%\.anybot-signing` and stores both secrets through `gh`, without printing the password. Back up that folder: losing the key means installed phones can't update without reinstalling.
+- Until the secrets exist, releases ship without the phone app and the pairing screen doesn't offer it.
 
 That's all. The phone stays paired across restarts and works on Wi-Fi or mobile data. Remove it any time from the same Settings card, or with **Disconnect** on the phone.
 
