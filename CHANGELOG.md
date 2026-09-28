@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.26] - 2026-09-28
+
+### Added
+- **Add a bot from the sidebar.** The **Bots** heading now has a **+** button, like **Projects**, that opens the new-bot form.
+
 ## [0.3.25] - 2026-09-28
 
 ### Fixed
