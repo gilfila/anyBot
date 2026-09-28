@@ -543,8 +543,12 @@ function stopUpdateChecker() {
 
 // Some Windows hosts have a broken or unavailable GPU driver. Keep the
 // local-first desktop shell usable by using Chromium's software compositor.
-app.commandLine.appendSwitch("disable-gpu");
-app.commandLine.appendSwitch("in-process-gpu");
+// On macOS this switch disables WebGL outright (no SwiftShader fallback), which
+// leaves the 3D avatars on their static fallback icon.
+if (process.platform === "win32") {
+  app.commandLine.appendSwitch("disable-gpu");
+  app.commandLine.appendSwitch("in-process-gpu");
+}
 // A stale install can leave the default Chromium profile ACL-protected. Keep
 // the desktop runtime startable and preserve the old profile for recovery.
 ensureWritableUserData();

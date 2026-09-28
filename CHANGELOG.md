@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.26] - 2026-09-28
+
+### Fixed
+- **Bots are animated 3D robots on a Mac too.** When Any Bot was run from source on macOS, every bot showed a flat, static head instead of its animated 3D robot. The graphics workaround meant for Windows PCs with broken drivers was also switching off 3D drawing on Macs. It now only applies on Windows, so nothing changes there.
+
 ## [0.3.25] - 2026-09-28
 
 ### Fixed
