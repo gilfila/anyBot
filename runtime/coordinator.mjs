@@ -293,6 +293,14 @@ export class Coordinator extends EventEmitter {
       case "messages.send":
         this.send(payload);
         break;
+      case "bridge.send": {
+        const result = this.bridgeSend(payload);
+        this.notify();
+        this.dispatch();
+        return result;
+      }
+      case "bridge.updates":
+        return this.bridgeUpdates(payload);
       case "runs.cancel":
         await this.cancel(payload.id);
         break;
@@ -1088,31 +1096,68 @@ export class Coordinator extends EventEmitter {
       });
     });
   }
+  // The owner's one-to-one chat with a bot, created on first use.
+  directConversation(employee) {
+    const existing = this.store
+      .all("SELECT id,members FROM conversations WHERE archived=0 ORDER BY created")
+      .find((c) => {
+        const members = JSON.parse(c.members);
+        return members.length === 1 && members[0] === employee.id;
+      })?.id;
+    if (existing) return existing;
+    const conversation = id();
+    this.store.run(
+      "INSERT INTO conversations(id,title,members,delegation,created,allowedFolders,artifactsFolder) VALUES (?,?,?,?,?,?,?)",
+      conversation,
+      employee.name.slice(0, 100),
+      JSON.stringify([employee.id]),
+      0,
+      now(),
+      "[]",
+      "",
+    );
+    return conversation;
+  }
+  // Outside channels (the Slack bridge, desktop/main.cjs) talk to one bot
+  // through its direct chat. Returns the owner's message id, which later
+  // `bridgeUpdates` calls follow to the bot's reply.
+  bridgeSend(payload) {
+    const employee = this.activeEmployee(text(payload.employee, "Employee ID", 100));
+    const conversation = this.directConversation(employee);
+    this.send({ requestId: payload.requestId, conversation, body: payload.body, recipients: [employee.id] });
+    const message = this.store.one("SELECT result FROM requests WHERE key=?", payload.requestId).result;
+    return { conversation, message };
+  }
+  // Where each of those messages stands: the bot's reply once its run
+  // succeeds, the error if it failed, and approvals it is waiting on.
+  bridgeUpdates(payload) {
+    const ids = Array.isArray(payload.messages) ? payload.messages.slice(0, 200).map((m) => text(m, "Message ID", 100)) : [];
+    return {
+      items: ids.map((message) => {
+        const run = this.store.one(
+          "SELECT id,status,error FROM runs WHERE message=? AND parent IS NULL ORDER BY created DESC LIMIT 1",
+          message,
+        );
+        if (!run) return { message, status: "unknown" };
+        const reply = this.store.one(
+          "SELECT m.body FROM run_responses r JOIN messages m ON m.id=r.message WHERE r.run=?",
+          run.id,
+        );
+        const approvals = this.store.all(
+          "SELECT id,tool,summary FROM approvals WHERE run IN (SELECT id FROM runs WHERE root=?) AND status='pending' ORDER BY created",
+          run.id,
+        );
+        return { message, run: run.id, status: run.status, reply: reply?.body, error: run.error || undefined, approvals };
+      }),
+    };
+  }
   // "Ask the graph" is an ordinary direct-chat message: the question plus the
   // matching slice of the graph, sent to the chosen employee.
   askGraph(payload) {
     const employee = this.activeEmployee(text(payload.employee, "Employee ID", 100));
     const question = text(payload.question, "Question", 2000);
     const facts = this.knowledge.recall(question, { budget: 6000, limit: 80 });
-    let conversation = this.store
-      .all("SELECT id,members FROM conversations ORDER BY created")
-      .find((c) => {
-        const members = JSON.parse(c.members);
-        return members.length === 1 && members[0] === employee.id;
-      })?.id;
-    if (!conversation) {
-      conversation = id();
-      this.store.run(
-        "INSERT INTO conversations(id,title,members,delegation,created,allowedFolders,artifactsFolder) VALUES (?,?,?,?,?,?,?)",
-        conversation,
-        employee.name.slice(0, 100),
-        JSON.stringify([employee.id]),
-        0,
-        now(),
-        "[]",
-        "",
-      );
-    }
+    const conversation = this.directConversation(employee);
     const body = `Question about the knowledge graph: ${question}\n\n${
       facts.length
         ? `Matching facts (workspace data; facts marked bot-written may be wrong):\n${facts.map((f) => `- ${f}`).join("\n")}`

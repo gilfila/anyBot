@@ -79,7 +79,7 @@ let updateCheckTimer = null;
 let autoUpdater = null;
 const pending = new Map();
 const readyWaiters = new Set();
-let mobileGateway, mobileUrl, mobileError, phoneLink, phoneError;
+let mobileGateway, mobileUrl, mobileError, phoneLink, phoneError, slackBridge, slackError;
 const page = pathToFileURL(path.join(__dirname, "../dist/index.html")).href;
 const startupPath = () => path.join(app.getPath("userData"), "startup.json");
 function startupLogPath() {
@@ -713,6 +713,8 @@ else {
       if (method === "phone.status")
         return phoneLink ? phoneLink.status() : { connection: phoneError ? "error" : "starting", error: phoneError || null, devices: [] };
       if (method === "phone.app") return phoneAppDownload();
+      // A bot's menu → Connect to Slack (runtime/slack-bridge.mjs).
+      if (method.startsWith("slack.")) return slackRequest(method, payload || {});
       if (method === "phone.pair") {
         if (!phoneLink) throw new Error(phoneError || "Phone connections are still starting. Try again in a moment.");
         return phoneLink.createPairing();
@@ -850,6 +852,9 @@ else {
       return { opened: true };
     });
     startWorker();
+    startSlack().catch((error) => {
+      slackError = String(error.message);
+    });
     startMobileAccess().catch((error) => {
       mobileError = String(error.message);
     });
@@ -957,6 +962,7 @@ function startWorker() {
     }
     if (message.type === "changed") {
       window?.webContents.send("anybot:changed");
+      slackBridge?.refresh();
       return;
     }
     if (message.type === "attention") {
@@ -1082,6 +1088,7 @@ app.on("before-quit", (event) => {
   stopUpdateChecker();
   void mobileGateway?.close();
   phoneLink?.stop();
+  slackBridge?.stop();
   ready = false;
   if (!worker) {
     app.quit();
@@ -1158,6 +1165,32 @@ const unprotectSecret = (text) =>
 function computerName() {
   const user = (os.userInfo().username || "").replace(/[^\p{L}\p{N} ._-]/gu, "").trim();
   return user ? `${user[0].toUpperCase()}${user.slice(1)}'s computer` : os.hostname();
+}
+async function startSlack() {
+  await waitForReady(120000);
+  const { createSlackBridge } = await import("../runtime/slack-bridge.mjs");
+  slackBridge = createSlackBridge({
+    statePath: path.join(app.getPath("userData"), "slack.json"),
+    request,
+    protect: protectSecret,
+    unprotect: unprotectSecret,
+    onDiagnostic: (entry) => diagnostics?.record(entry),
+  });
+  slackBridge.start();
+}
+function slackRequest(method, payload) {
+  if (method === "slack.overview") return slackBridge ? slackBridge.overview() : {};
+  const employee = String(payload.employee || "").slice(0, 100);
+  if (method === "slack.status")
+    return slackBridge ? slackBridge.status(employee) : { connected: false, state: slackError ? "error" : "starting", error: slackError || null };
+  if (!slackBridge) throw new Error(slackError || "Slack is still starting. Try again in a moment.");
+  if (!employee) throw new Error("Choose a bot first.");
+  if (method === "slack.connect")
+    return slackBridge.connect(employee, { botToken: payload.botToken, appToken: payload.appToken });
+  if (method === "slack.pair") return slackBridge.pair(employee);
+  if (method === "slack.disconnect") return slackBridge.disconnect(employee);
+  if (method === "slack.removeUser") return slackBridge.removeUser(employee, String(payload.user || ""));
+  throw new Error("Operation not allowed");
 }
 async function startPhoneLink(gateway) {
   const { createPhoneLink } = await import("../runtime/phone-link.mjs");
