@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.27] - 2026-09-28
+
+### Added
+- **Talk to a bot in Slack.** Any bot can have its own Slack app: choose **Connect to Slack** in the bot's **⋯** menu and follow the four steps. Slack opens with the app already filled in. Then DM the bot, or invite it to a channel and @mention it, and its reply comes back in Slack. The conversation also shows in the bot's chat here.
+  - Only people you pair can give the bot work: Any Bot shows a code, and you DM it to the bot.
+  - When the bot needs your OK for something risky, Slack shows **Approve** and **Deny** buttons.
+  - It connects out to Slack, so nothing on your computer is exposed, and the Slack tokens are stored encrypted.
+
 ## [0.3.26] - 2026-09-28
 
 ### Added

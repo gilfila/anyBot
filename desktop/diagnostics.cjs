@@ -13,7 +13,7 @@ const clip = (value, max) => {
 };
 const redact = (text) =>
   String(text)
-    .replace(/\b(sk-[\w-]{12,}|AIza[\w-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abpr]-[\w-]{10,})\b/g, "[redacted]")
+    .replace(/\b(sk-[\w-]{12,}|AIza[\w-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abepr]-[\w-]{10,}|xapp-[\w-]{10,})\b/g, "[redacted]")
     .replace(/(authorization\s*[:=]\s*(?:bearer\s+)?)[^\s"']+/gi, "$1[redacted]");
 // Ids, numbers, and paths differ between occurrences of the same problem.
 const shape = (message) =>

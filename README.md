@@ -150,6 +150,10 @@ Many problems have a button that takes you to the fix. **Copy report** gives you
 
 ![The diagnostics panel](docs/screenshots/diagnostics.png)
 
+### Talk to a bot in Slack
+
+Give any bot its own Slack app: open the bot's **⋯** menu and choose **Connect to Slack**. DM it, or @mention it in a channel, and its reply comes back in Slack. When it needs your OK for something risky, it posts **Approve** and **Deny** buttons. Only people you pair with a one-time code can give it work, and it connects out to Slack, so nothing is exposed to the internet. See [docs/slack.md](docs/slack.md).
+
 ### Keep working in the background
 
 - **The tray:** closing the window keeps Any Bot running in the tray, so your bots keep working. **Quit and stop active work** in the tray menu stops everything.
@@ -171,6 +175,7 @@ Many problems have a button that takes you to the fix. **Copy report** gives you
 - **Local:** your conversations, tasks, canvas, memory, and knowledge graph are stored on your computer.
 - **Your accounts:** bots run under your Windows account, signed in with your own CLI accounts, and Any Bot never copies those sign-ins.
 - **Not a sandbox:** a bot's workspace folder is where it works, not a security sandbox. Only hire bots on harnesses you trust.
+- **Slack:** a bot's Slack tokens are stored encrypted on this computer and never shown again. Only people you pair can give a bot work from Slack, and they give it work as if they were you.
 - **Bot output is untrusted:** anything a bot writes is escaped before it's shown. HTML previews run in a locked-down frame that can't reach the app.
 
 ## Also in development

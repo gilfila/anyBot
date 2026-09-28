@@ -17,6 +17,7 @@ import {
   ExternalLink,
   Folder,
   FileText,
+  Hash,
   Loader,
   Mic,
   MessageSquare,
@@ -177,6 +178,7 @@ import { DiagnosticsPanel } from "./components/DiagnosticsPanel.jsx";
 import { FloatingMenu } from "./components/FloatingMenu.jsx";
 import { AppearancePanel } from "./components/theme/AppearancePanel.jsx";
 import { PhoneLinkPanel } from "./components/PhoneLinkPanel.jsx";
+import { SlackPanel } from "./components/SlackPanel.jsx";
 import { AttentionIcon } from "./components/AttentionIcon.jsx";
 import { botAttention } from "./lib/attention.js";
 import { plainNotes } from "./lib/update-notes.js";
@@ -721,6 +723,16 @@ export function App() {
                     >
                       <Pencil size={14} />
                       Edit
+                    </button>
+                    <button
+                      role="menuitem"
+                      onClick={() => {
+                        setOpenBotMenu(null);
+                        setModal({ type: "slack", employee });
+                      }}
+                    >
+                      <Hash size={14} />
+                      Connect to Slack
                     </button>
                     <button
                       role="menuitem"
@@ -2138,7 +2150,9 @@ export function App() {
                     ? "Manage conversation bots"
                     : modal.type === "project-settings"
                       ? "Edit project"
-                      : "Create a project"
+                      : modal.type === "slack"
+                        ? `${modal.employee.name} on Slack`
+                        : "Create a project"
           }
           onClose={() => setModal(null)}
         >
@@ -2147,7 +2161,9 @@ export function App() {
               {error}
             </p>
           )}
-          {modal.type === "employee" ? (
+          {modal.type === "slack" ? (
+            <SlackPanel employee={modal.employee} />
+          ) : modal.type === "employee" ? (
             <EmployeeForm
               harnesses={data.harnesses}
               employees={data.employees}
