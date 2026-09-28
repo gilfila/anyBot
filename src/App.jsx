@@ -1872,6 +1872,18 @@ export function App() {
                 </div>
               </div>
             )}
+            {data.update?.supported === false ? (
+            <div className="settings-card">
+              <div>
+                <h3>Updates</h3>
+                <p>
+                  This copy of Any Bot runs from source, so it doesn't update
+                  itself. To get the latest version, quit Any Bot and run{" "}
+                  <code>git pull && npm ci && npm start</code> in its folder.
+                </p>
+              </div>
+            </div>
+            ) : (
             <div className="settings-card">
               <div>
                 <h3>Check for updates</h3>
@@ -1902,6 +1914,7 @@ export function App() {
                 Check now
               </button>
             </div>
+            )}
             <AppearancePanel />
             <PhoneLinkPanel />
             <div className="settings-nav">

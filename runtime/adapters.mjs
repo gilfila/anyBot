@@ -421,11 +421,17 @@ export async function resolveExecutable(command, env = process.env) {
   return null;
 }
 
-export function childEnvironment(env = process.env) {
+export function childEnvironment(env = process.env, platform = process.platform) {
   const allowed =
     /^(PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|TEMP|TMP|HOME|USERPROFILE|LOCALAPPDATA|APPDATA|PROGRAMFILES|PROGRAMFILES\(X86\)|LANG|LC_ALL|TERM|SSL_CERT_FILE|HTTPS_PROXY|HTTP_PROXY|NO_PROXY|ANTHROPIC_API_KEY|OPENAI_API_KEY|GEMINI_API_KEY|GOOGLE_API_KEY|OPENROUTER_API_KEY|CURSOR_API_KEY)$/i;
+  // macOS/Linux: Claude Code finds its sign-in in the Keychain by USER, so
+  // without it every run reports "Not logged in". TMPDIR is the per-user
+  // temp folder there. Windows keeps exactly the list above.
+  const unix = /^(USER|LOGNAME|TMPDIR)$/;
   return Object.fromEntries(
-    Object.entries(env).filter(([key]) => allowed.test(key)),
+    Object.entries(env).filter(
+      ([key]) => allowed.test(key) || (platform !== "win32" && unix.test(key)),
+    ),
   );
 }
 

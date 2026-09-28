@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.28] - 2026-09-28
+
+This update is for running Any Bot on a Mac. Nothing changes in the Windows app.
+
+### Added
+- **Instructions for running Any Bot on a Mac.** The README's **Get started** now has a Windows section and a Mac section. On a Mac, you run it from source with `npm ci` and `npm start`, and `npm start` now downloads Electron by itself the first time.
+
+### Fixed
+- **Claude Code bots said "Not logged in" on a Mac** even when Claude Code was signed in. Any Bot now passes along the details Claude Code needs to find its saved sign-in on macOS.
+- **"Check now" no longer silently does nothing on a copy run from source.** Only the installed Windows app updates itself. Settings now shows how to update any other copy (`git pull && npm ci && npm start`) instead of a button that couldn't work.
+
 ## [0.3.27] - 2026-09-28
 
 ### Added

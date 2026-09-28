@@ -333,6 +333,17 @@ test("adapter boundaries preserve structured failures and exclude supervisor sec
     }),
     { PATH: "a", HOME: "home" },
   );
+  // USER is how Claude Code finds its Keychain sign-in on macOS; Windows
+  // keeps exactly the shared list.
+  const login = { PATH: "a", HOME: "home", USER: "tony", LOGNAME: "tony", TMPDIR: "/t", SHELL: "/bin/zsh" };
+  assert.deepEqual(childEnvironment(login, "darwin"), {
+    PATH: "a",
+    HOME: "home",
+    USER: "tony",
+    LOGNAME: "tony",
+    TMPDIR: "/t",
+  });
+  assert.deepEqual(childEnvironment(login, "win32"), { PATH: "a", HOME: "home" });
   assert.ok(!invocation("hermes").includes("--oneshot"));
   assert.ok(!invocation("codex").some((a) => a.includes("bypass")));
   assert.equal(

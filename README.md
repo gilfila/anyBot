@@ -2,9 +2,7 @@
 
 **A team of AI employees that works on your own computer.**
 
-### [⬇ Download Any Bot for Windows](https://github.com/gilfila/anyBot/releases/latest)
-
-The latest installer (`anyBot-Setup-X.Y.Z.exe`) is always on the [latest release](https://github.com/gilfila/anyBot/releases/latest). Any Bot updates itself after that.
+### [⬇ Download Any Bot for Windows](https://github.com/gilfila/anyBot/releases/latest) · [Run it on a Mac](#mac)
 
 Any Bot takes the AI agent tools you already use (Claude Code, Codex, Antigravity, Hermes, and Cursor) and turns each one into a named teammate. Every bot gets a role, instructions, its own workspace, and a robot avatar. You can:
 
@@ -18,13 +16,41 @@ Everything runs on your machine, using your own accounts.
 
 ## Get started
 
-1. **Install a harness.** Install at least one agent CLI and sign in to it once in a terminal. The options are Claude Code, Codex CLI, Antigravity CLI, Hermes Agent, and Cursor Agent CLI.
-2. **Install Any Bot.** Download the latest `anyBot-Setup-X.Y.Z.exe` from [the latest release](https://github.com/gilfila/anyBot/releases/latest) and run it.
+First, **install a harness**: at least one agent CLI, signed in once in a terminal. The options are Claude Code, Codex CLI, Antigravity CLI, Hermes Agent, and Cursor Agent CLI. Then install Any Bot for your computer.
+
+### Windows
+
+1. Download `anyBot-Setup-X.Y.Z.exe` from [the latest release](https://github.com/gilfila/anyBot/releases/latest) and run it.
    - It installs for your Windows account only, so it doesn't need admin rights.
    - The builds aren't code-signed yet, so SmartScreen may warn you. Choose **More info → Run anyway**.
-3. **Hire your first bot.** Any Bot suggests a few starter roles. Pick one, or make your own.
+2. **Hire your first bot.** Any Bot suggests a few starter roles. Pick one, or make your own.
 
 Any Bot updates itself. When a new version is ready, an **Update** button appears next to your name. One click installs the update and restarts the app.
+
+### Mac
+
+There's no Mac installer yet, so on a Mac you run Any Bot from its source code. It takes a few minutes the first time.
+
+1. **Install the tools it needs** (skip any you already have):
+   - **Node.js 24 or newer:** download it from [nodejs.org](https://nodejs.org), or run `brew install node` if you use Homebrew.
+   - **Git:** run `xcode-select --install` in Terminal. It asks before installing anything.
+2. **Download and start Any Bot.** Open Terminal and run:
+
+   ```bash
+   git clone https://github.com/gilfila/anyBot.git ~/anyBot
+   cd ~/anyBot
+   npm ci
+   npm start
+   ```
+
+   The first `npm start` also downloads Electron, the app shell Any Bot runs in, which is about 100 MB.
+3. **Hire your first bot.** Any Bot suggests a few starter roles. Pick one, or make your own.
+
+**To open it again later:** run `cd ~/anyBot && npm start`. Closing the window keeps Any Bot running in the menu bar. Choose **Quit and stop active work** from its menu-bar icon to stop it.
+
+**To update:** quit Any Bot, then run `cd ~/anyBot && git pull && npm ci && npm start`. A Mac copy doesn't update itself.
+
+A few features are built for Windows and may not work on a Mac yet, such as **Launch at login** and notifications while Any Bot is in the background.
 
 ## What you can do
 
@@ -82,10 +108,6 @@ Every project has a task board with four columns: **Backlog**, **In progress**, 
 ![A project board with tasks in each column](docs/screenshots/board.png)
 
 ### Share a Canvas
-
-Open a PR with a new stable version and changelog entry. The **Release Windows** workflow verifies the app and packages the installer; merging to main publishes the verified installer, blockmap, and update metadata to the public feed. Source code and build provenance stay private. No local packaging or release upload is needed.
-
-See [Automated releases](docs/releasing.md) for the one-time GitHub App/billing setup, required PR check, and recovery rules. Until that setup is complete, the publisher fails closed. Share the [direct installer download page](https://github.com/gilfila/anyBot-updates#readme) with users; GitHub's own release page always displays automatic archives of the public README repository.
 
 - **What it holds:** text, lists, to-dos, callouts, tables, link cards, and live task cards.
 - **Collected for you:** every file the bots produced and every link shared in the chat, in one place.
@@ -185,12 +207,15 @@ Give any bot its own Slack app: open the bot's **⋯** menu and choose **Connect
 
 ## For developers
 
-```powershell
+The same commands work on Windows (PowerShell) and macOS:
+
+```bash
 npm ci
-npm start      # builds the renderer and opens the app
+npm start      # downloads Electron if needed, builds the renderer, and opens the app
 npm test       # unit and integration tests
 ```
 
+- [docs/releasing.md](docs/releasing.md): how a merged PR becomes a release (merging to main publishes to every install)
 - [docs/operations.md](docs/operations.md): running from source, where data lives, updates, publishing releases, verification, packaging, mobile, and headless mode
 - [design.md](design.md): architecture and security model
 - [CHANGELOG.md](CHANGELOG.md): release history
