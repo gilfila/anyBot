@@ -16,7 +16,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "prestart": "npm run build",
+    "prestart": "node node_modules/electron/install.js && npm run build",
     "start": "electron .",
     "build": "vite build",
     "test": "node --test tests/*.test.mjs",
