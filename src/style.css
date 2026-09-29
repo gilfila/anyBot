@@ -5739,3 +5739,22 @@ dialog .modal-form > .primary.full:last-child {
   color: var(--danger);
   border-color: var(--danger);
 }
+
+/* Compact bot list (0.3.29): the Bots heading's minimize button shrinks
+   every row to a small avatar and one line. */
+.conversation-label > .compact-toggle {
+  margin-left: auto;
+  margin-right: 2px;
+}
+.conversation-label > .compact-toggle[aria-pressed="true"] {
+  color: var(--ink);
+  background: var(--paper-3);
+}
+.bot-list.compact .bot-row-main {
+  gap: 8px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+.bot-list.compact .bot-row-text small {
+  font-size: 11px;
+}

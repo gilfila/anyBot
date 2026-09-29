@@ -7,6 +7,8 @@ import {
   Bot,
   Check,
   ChevronDown,
+  Minimize2,
+  Maximize2,
   ChevronRight,
   CirclePause,
   CircleHelp,
@@ -266,6 +268,19 @@ export function App() {
       return {};
     }
   });
+  // Compact bot list: small avatars, one line per bot (remembered here).
+  const [compactBots, setCompactBots] = useState(() => {
+    try {
+      return localStorage.getItem("anybot-compact-bots") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const toggleCompactBots = () =>
+    setCompactBots((current) => {
+      try { localStorage.setItem("anybot-compact-bots", String(!current)); } catch {}
+      return !current;
+    });
   const toggleSection = (name) =>
     setFoldedSections((current) => {
       const next = { ...current, [name]: !current[name] };
@@ -673,6 +688,15 @@ export function App() {
         <div className="nav-label conversation-label section-heading-row">
           <SectionToggle name="bots" label="BOTS" count={sidebarEmployees.length} folded={folded("bots")} onToggle={toggleSection} />
           <button
+            className="compact-toggle"
+            title={compactBots ? "Show bots full size" : "Minimize bots to a compact list"}
+            aria-label={compactBots ? "Show bots full size" : "Minimize bots"}
+            aria-pressed={compactBots}
+            onClick={toggleCompactBots}
+          >
+            {compactBots ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
+          </button>
+          <button
             title="New bot"
             aria-label="New bot"
             onClick={() => setModal({ type: "employee" })}
@@ -680,7 +704,7 @@ export function App() {
             <Plus size={16} />
           </button>
         </div>
-        <div className="conversation-list bot-list" hidden={folded("bots")}>
+        <div className={`conversation-list bot-list${compactBots ? " compact" : ""}`} hidden={folded("bots")}>
           {sidebarEmployees.map((employee) => {
             const botConv = getConversationForEmployee(employee.id);
             const unread = botConv && hasUnreadMessages(botConv.id);
@@ -698,21 +722,24 @@ export function App() {
                   className="bot-row-main"
                   onClick={() => directChat(employee)}
                 >
-                  <RobotAvatar size={60} employee={employee} working={run?.status === "running"} />
+                  <RobotAvatar size={compactBots ? 28 : 60} employee={employee} working={run?.status === "running"} />
                   <span className="bot-row-text">
                     <span className="bot-row-name">
                       {employee.name}
                       <AttentionIcon attention={attention} />
                     </span>
-                    <small className={attention || run?.status === "running" ? "live" : ""}>
-                      {attention && attention.kind !== "done"
-                        ? attention.short
-                        : run
-                          ? run.status === "running"
-                            ? "Working…"
-                            : "Queued"
-                          : employee.role}
-                    </small>
+                    {/* Compact rows drop the role line but keep live status. */}
+                    {(!compactBots || (attention && attention.kind !== "done") || run) && (
+                      <small className={attention || run?.status === "running" ? "live" : ""}>
+                        {attention && attention.kind !== "done"
+                          ? attention.short
+                          : run
+                            ? run.status === "running"
+                              ? "Working…"
+                              : "Queued"
+                            : employee.role}
+                      </small>
+                    )}
                   </span>
                   {unread && <i className="unread-dot" aria-label="Unread messages" />}
                 </button>

@@ -20,7 +20,13 @@ Electron 44 main process (`desktop/main.cjs`) + sandboxed React 19 renderer (`sr
 ## Conventions
 - **Design system "Studio paper"**: all colors are OKLCH tokens on `:root` in `src/style.css` (paper / ink / rule / accent vermilion / ok / warn / danger / block for dark code). Ink is the primary action color; vermilion only for unread, live work, send, updates. The "Studio paper layer" at the end of style.css overrides older rules. Do not reintroduce hex literals.
 - Employee output is untrusted: escape before markdown, iframes for employee HTML use `srcdoc` + `sandbox="allow-scripts"` only (never `allow-same-origin` on local content).
-- Each PR bumps `package.json` + `package-lock.json` version and adds a CHANGELOG entry.
+- **Versions and docs stay current (Tony's rule, 2026-09-28).** Every PR, however small:
+  - Bumps `package.json` and `package-lock.json` to the next patch version (`npm version X.Y.Z --no-git-tag-version`), one above the newest version on `main` or on the PR it is stacked on.
+  - Adds a user-facing CHANGELOG entry for that version.
+  - Updates README.md when a feature is added or changed.
+  - Updates this file's "Last turn / Pending", plus any doc the change touches (`docs/*`, `design.md`).
+  - Before merging, check that the PR's version is still above `main`'s; if another PR merged first, bump it and move its CHANGELOG entry. Stacked PRs merge lowest version first.
+  - Tony approved merging on 2026-09-28 ("merge everything"); still confirm each merge in the session that asks for it, because merging publishes to every install.
 - Do not change updater install behavior (`quitAndInstall(true, true)`, NSIS oneClick/perMachine=false) without testing a real update from the previous release.
 
 ## Last turn / Pending (2026-09-28)
@@ -120,6 +126,7 @@ Electron 44 main process (`desktop/main.cjs`) + sandboxed React 19 renderer (`sr
 **Routines, sidebar, colors (0.3.29, branch `claude/routine-editing`, stacked on #58):**
 - **Routines:** `routines.update` (`Routines.update`: name/prompt/minutes plus optional conversation/employee; a new interval or target resets `nextRun`, the text alone keeps it; a paused routine isn't target-checked unless it moves) and `routines.delete` (`Routines.remove`: deletes occurrences then the routine; runs it started keep going). `RoutineForm` takes `routine` for edit mode, and the interval is amount plus unit (`splitInterval`/`joinInterval`). The page row shows bot and conversation, Edit, and a delete confirm (`deleteRoutineConfirm`).
 - **Sidebar:** `.sidebar-scroll` wraps Workspace/Bots/Projects as one scroll area; the lists no longer scroll on their own. `SectionToggle` headings fold sections (`foldedSections`, localStorage `anybot-sidebar-folded`; `folded()` ignores folds while searching); `hidden` plus `.sidebar [hidden]` hides them. The headings are sticky, with `--paper` under backdrop themes (`themes.css`). `.conversation-label > button` sizes the + button only, and `.section-toggle` is exempt.
+- **Compact bots:** the minimize button on the Bots heading (`compactBots`, localStorage `anybot-compact-bots`) renders rows with 28 px avatars and drops the role line unless the bot is working or needs attention.
 - **Colors:** 16 robot colors (`avatarColors`). The first four must stay first because `parseAvatarConfig` falls back to `seed % 4`. New ids avoid the legacy aliases in `oldColors` (mint, sky, gold, rose…), each has a `--bot-*` token in `robot-avatar.css` and a `robotHues` entry, and `tests/bubbles.test.mjs` checks all three. There are 4 more bubble tints (lime, teal, indigo, orchid), contrast-tested per theme.
 
 **Next: the lean-runtime plan** (`docs/plans/lean-runtime.md`): M0 measure → M1 lean prompts → M2 harness session resume → M3 incremental sync → M4 Any Bot MCP server (was "Phase 5") → M5 A2A at the edge (only on request). Each milestone has a Codex CLI design checkpoint before code and a code checkpoint before merge (`node scripts/adversarial-review.mjs design|code --milestone Mn`; reports in `docs/reviews/`, every high finding fixed or rejected with evidence). ADRs live in `docs/adr/`. The plan, ADR-0001, the review prompts, and the script ride in the M0 PR (a docs-only PR would publish an empty update).

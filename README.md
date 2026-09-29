@@ -52,7 +52,7 @@ Bots can **report to other bots**. A manager can hand work down its chain and re
 
 ### Work together in projects
 
-- **Keep a big team tidy.** The sidebar scrolls as one piece, and you can fold the Workspace, Bots and Projects sections away.
+- **Keep a big team tidy.** The sidebar scrolls as one piece, you can fold the Workspace, Bots and Projects sections away, and the minimize button shrinks your bots to a compact list.
 - **Talk to your team.** Talk to one bot in a direct chat, or to a whole team in a project. The **To** chips pick who gets each message.
 - **Share files and folders.** Drag files or folders onto the message box, pick them with the paperclip, or paste a screenshot. Bots get their own copies to work from, and Claude and Codex bots see pictures directly.
 - **Easy to follow.** Each bot's replies sit in its own colored bubble, so you can tell who said what at a glance, even over the animated backgrounds.
