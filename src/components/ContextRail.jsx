@@ -22,6 +22,7 @@ import {
 import { RobotAvatar } from "./RobotAvatar.jsx";
 import { ProjectDoc } from "./doc/ProjectDoc.jsx";
 import { resolveCd } from "../lib/terminal-path.js";
+import { useFileActions } from "./FileLinks.jsx";
 
 export function ContextRail({
   open,
@@ -119,6 +120,7 @@ export function ContextRail({
             explorerPath={explorerPath}
             onBrowserNavigate={onBrowserNavigate}
             onExplorerSelect={onExplorerSelect}
+            fileMessage={data?.messages?.findLast((m) => m.conversation === conversationId)?.id}
           />
         )}
       </div>
@@ -184,6 +186,7 @@ function ToolsTab({
   explorerPath,
   onBrowserNavigate,
   onExplorerSelect,
+  fileMessage,
 }) {
   const [localPanel, setLocalPanel] = useState(activePanel || "browser");
 
@@ -238,6 +241,7 @@ function ToolsTab({
           <FileExplorerPanel
             initialPath={explorerPath}
             onSelect={onExplorerSelect}
+            message={fileMessage}
           />
         )}
       </div>
@@ -557,7 +561,13 @@ function TerminalPanel({ folder, onRun }) {
   );
 }
 
-function FileExplorerPanel({ initialPath, onSelect }) {
+// `message`: this conversation's latest message. The panel's paths are
+// absolute, so any of its messages works as the files.* context (which only
+// resolves relative paths); files then open, preview, and show in folder
+// the way file links in chat do. With no messages yet, a file only shows in
+// its folder.
+function FileExplorerPanel({ initialPath, onSelect, message }) {
+  const actions = useFileActions(message);
   const [currentPath, setCurrentPath] = useState(initialPath || "");
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -695,12 +705,26 @@ function FileExplorerPanel({ initialPath, onSelect }) {
                 <button
                   key={entry.path}
                   className={`rail-file-item ${entry.isDirectory ? "directory" : "file"}`}
-                  onClick={() => {
+                  title={entry.isDirectory || !actions ? entry.path : `${entry.path}\nClick to open · Shift+click to show in folder · Right-click for more`}
+                  onClick={(event) => {
                     if (entry.isDirectory) {
                       setCurrentPath(entry.path);
                       onSelect?.(entry.path);
+                    } else if (actions) {
+                      actions.open(entry.path, event.currentTarget, event.shiftKey);
                     } else {
                       openInSystem(entry.path);
+                    }
+                  }}
+                  onContextMenu={(event) => {
+                    if (!actions) return;
+                    event.preventDefault();
+                    actions.menu(entry.path, event.currentTarget);
+                  }}
+                  onKeyDown={(event) => {
+                    if (actions && (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey))) {
+                      event.preventDefault();
+                      actions.menu(entry.path, event.currentTarget);
                     }
                   }}
                 >
@@ -715,6 +739,7 @@ function FileExplorerPanel({ initialPath, onSelect }) {
           </div>
         )}
       </div>
+      {actions?.element}
     </div>
   );
 }

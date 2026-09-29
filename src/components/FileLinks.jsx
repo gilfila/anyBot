@@ -174,6 +174,46 @@ export function useFileLinkEvents(message, lookup) {
   };
 }
 
+// The same actions for one known path that isn't in a message's text (an
+// attachment, a row in the Files panel), checked when it's used. `message`
+// is the chat message the path belongs to, as for a file link; main inspects
+// the path again for every action. Returns null without FileLinkContext.
+//   open(raw, el, shift)  the default click; with shift, Show in folder
+//   menu(raw, el)         Open / Preview / Show in folder / Copy path
+//   element               the menu, when open (render it once)
+export function useFileActions(message) {
+  const links = useContext(FileLinkContext);
+  const [menu, setMenu] = useState(null);
+  if (!links || !message) return null;
+  const run = (action, raw, ref, click = false) => links.onFileAction(action, { message, raw, ref, click });
+  const check = async (raw) => {
+    try {
+      const answer = await window.anybot.request("files.check", { message, paths: [raw] });
+      const ref = answer?.results?.[raw];
+      return ref && typeof ref === "object" ? ref : { state: "unknown" };
+    } catch {
+      return { state: "unknown" };
+    }
+  };
+  // Gone, refused, or unknown: Show in folder asks main, which checks again
+  // and puts the reason in the banner when it can't.
+  const settle = async (raw, el, choose) => {
+    const ref = await check(raw);
+    if (!LINKED.has(ref.state)) return run("reveal", raw, ref);
+    return choose({ el, raw, ref });
+  };
+  return {
+    open: (raw, el, shift = false) =>
+      settle(raw, el, (target) => {
+        if (shift) return target.ref.reveal ? run("reveal", raw, target.ref) : setMenu(target);
+        if (target.ref.action === "menu") return setMenu(target);
+        return run(target.ref.action, raw, target.ref, true);
+      }),
+    menu: (raw, el) => settle(raw, el, setMenu),
+    element: menu && <FileLinkMenu target={menu} onClose={() => setMenu(null)} onAction={(action) => run(action, menu.raw, menu.ref)} />,
+  };
+}
+
 const WHY_NOT_OPEN = {
   "runs-programs": "Can run programs",
   "shell-pointer": "Shortcut file",

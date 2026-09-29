@@ -311,6 +311,64 @@ test("only failed, interrupted, or cancelled runs can be dismissed", async (t) =
   );
 });
 
+test("a failed run can be retried once; the retry's reply is linked to its run", async (t) => {
+  let calls = 0;
+  const { c, employees, send } = await fixture(t, async () => {
+    calls++;
+    if (calls === 1) throw new Error("Harness crashed");
+    return "Fixed it";
+  });
+  await send("Try this");
+  await settled(c);
+  const failed = c.snapshot().runs[0];
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.response, null);
+  await c.command("runtime.pause");
+  await c.command("runs.retry", { id: failed.id });
+  await assert.rejects(c.command("runs.retry", { id: failed.id }), /already working on this again/);
+  await c.command("runtime.resume");
+  await settled(c);
+  const [old, retry] = c.snapshot().runs;
+  assert.equal(old.dismissed, true);
+  assert.equal(retry.status, "succeeded");
+  for (const key of ["conversation", "employee", "message", "thread", "task", "parent", "depth"]) assert.equal(retry[key], old[key], key);
+  assert.equal(retry.root, retry.id);
+  const reply = c.snapshot().messages.find((m) => m.id === retry.response);
+  assert.equal(reply.body, "Fixed it");
+  await assert.rejects(c.command("runs.retry", { id: retry.id }), /Only failed, interrupted, or stopped/);
+  await assert.rejects(c.command("runs.retry", { id: "missing" }), /Run not found/);
+  const bot = c.snapshot().employees.find((e) => e.id === employees[0].id);
+  await c.command("employees.setArchived", { id: bot.id, revision: bot.revision, archived: true });
+  await assert.rejects(c.command("runs.retry", { id: old.id }), /archived/);
+});
+
+test("retrying a failed delegated run keeps its parent, so the result goes back", async (t) => {
+  let reviewer,
+    reviews = 0;
+  const { c, employees, send } = await fixture(t, async ({ harness }) => {
+    if (harness === "claude") {
+      reviews++;
+      if (reviews === 1) throw new Error("Reviewer crashed");
+      return "Review complete";
+    }
+    return c.snapshot().runs.length === 1
+      ? '```anybot\n{"type":"delegate","employeeId":"' + reviewer + '","objective":"Review it"}\n```'
+      : "Summary";
+  });
+  reviewer = employees[1].id;
+  await send("Build and review");
+  await settled(c);
+  const child = c.snapshot().runs.find((r) => r.employee === reviewer);
+  assert.equal(child.status, "failed");
+  await c.command("runs.retry", { id: child.id });
+  await settled(c);
+  const retry = c.snapshot().runs.filter((r) => r.employee === reviewer).at(-1);
+  assert.equal(retry.status, "succeeded");
+  assert.equal(retry.parent, child.parent);
+  assert.equal(retry.root, child.root);
+  assert.match(c.snapshot().messages.filter((m) => m.kind === "handoff").at(-1).body, /Delegated work returned[\s\S]*Review complete/);
+});
+
 test("adapter boundaries preserve structured failures and exclude supervisor secrets", () => {
   assert.deepEqual(
     extractEvent("codex", {

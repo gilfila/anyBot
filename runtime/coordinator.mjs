@@ -349,7 +349,9 @@ export class Coordinator extends EventEmitter {
           artifactsFolder: c.artifactsFolder || "",
         })),
       messages: this.store.all("SELECT * FROM messages ORDER BY rowid"),
-      runs: this.store.all("SELECT * FROM runs ORDER BY rowid").map((r) => ({
+      // `response`: the reply message a successful run posted, so the chat
+      // can find a reply's run (its terminal, the files it returned).
+      runs: this.store.all("SELECT r.*, rr.message AS response FROM runs r LEFT JOIN run_responses rr ON rr.run=r.id ORDER BY r.rowid").map((r) => ({
         ...r,
         dismissed: Boolean(r.dismissed),
         usage: parseUsage(r.usage),
@@ -438,6 +440,9 @@ export class Coordinator extends EventEmitter {
         break;
       case "runs.dismiss":
         this.dismissRun(payload.id);
+        break;
+      case "runs.retry":
+        this.retryRun(payload.id);
         break;
       // A bot's CLI as a terminal shows it, from a byte offset (Activity).
       case "runs.terminal": {
@@ -1254,11 +1259,16 @@ export class Coordinator extends EventEmitter {
       "SELECT created FROM task_activity WHERE task=? AND kind='started' ORDER BY created DESC, rowid DESC LIMIT 1",
       task.id,
     );
-    const round = this.store.all(
-      "SELECT status FROM runs WHERE task=? AND created>=?",
+    // A retry (runs.retry: same bot, same message) stands in for the run it
+    // replaced; nothing else queues one bot twice for one message.
+    const latest = new Map();
+    for (const r of this.store.all(
+      "SELECT employee,message,status FROM runs WHERE task=? AND created>=? ORDER BY rowid",
       task.id,
       started?.created || "",
-    );
+    ))
+      latest.set(`${r.employee}\u0001${r.message}`, r);
+    const round = [...latest.values()];
     if (!round.length) return;
     const pending = this.store.one(
       "SELECT author,body FROM task_activity WHERE task=? AND kind='pending-status' AND created>=? ORDER BY created DESC, rowid DESC LIMIT 1",
@@ -2313,6 +2323,43 @@ export class Coordinator extends EventEmitter {
     if (!["failed", "interrupted", "cancelled"].includes(run.status))
       throw new Error("Only failed, interrupted, or cancelled runs can be dismissed");
     this.store.run("UPDATE runs SET dismissed=1 WHERE id=?", run.id);
+  }
+  // The same assignment again after a run failed, was interrupted, or was
+  // stopped: same bot, message, thread, task, and delegation parent (so a
+  // delegated result still goes back). The old run's notice goes away, and a
+  // task round counts the retry in its place (settleTask).
+  retryRun(runId) {
+    const run = requireRow(
+      this.store.one("SELECT * FROM runs WHERE id=?", text(runId, "Run ID", 100)),
+      "Run",
+    );
+    if (!["failed", "interrupted", "cancelled"].includes(run.status))
+      throw new Error("Only failed, interrupted, or stopped runs can be retried");
+    this.requireOpenProject(this.store.one("SELECT archived FROM conversations WHERE id=?", run.conversation));
+    this.activeEmployee(run.employee);
+    if (
+      this.store.one(
+        "SELECT id FROM runs WHERE employee=? AND message=? AND status IN ('queued','running','cancelling')",
+        run.employee,
+        run.message,
+      )
+    )
+      throw new Error("That bot is already working on this again");
+    return this.store.transaction(() => {
+      const retry = this.addRun(
+        run.conversation,
+        run.employee,
+        run.message,
+        run.parent,
+        run.parent ? run.root : null,
+        run.depth,
+        run.task,
+        run.thread,
+      );
+      this.store.run("UPDATE runs SET dismissed=1 WHERE id=?", run.id);
+      this.store.event("run.retried", { run: run.id, retry });
+      return retry;
+    });
   }
   async cancel(runId) {
     requireRow(

@@ -48,7 +48,7 @@ import {
   X,
 } from "lucide-react";
 import { presets, names } from "./constants.js";
-import { empty, time, shouldShowUpdateChrome, workingBots } from "./lib/ui.js";
+import { empty, shouldShowUpdateChrome, workingBots } from "./lib/ui.js";
 import { singleFlight } from "./lib/single-flight.js";
 import { loadDrafts, saveDrafts, withDraft } from "./lib/drafts.js";
 import { primaryChats, sidebarProjects } from "./lib/projects.js";
@@ -167,10 +167,13 @@ import { RobotAvatar, AvatarActivityContext } from "./components/RobotAvatar.jsx
 import { employeeAvatarStates, parseAvatarConfig } from "./lib/avatar-config.js";
 import { bubbleStyle } from "./lib/bubbles.js";
 import { WorkingIndicator } from "./components/WorkingIndicator.jsx";
-import { ChatMessage, LiveRun } from "./components/chat/ChatMessage.jsx";
+import { ChatMessage, LiveRun, Stamp } from "./components/chat/ChatMessage.jsx";
 import { Composer } from "./components/chat/Composer.jsx";
 import { ThreadPanel, ThreadSummary } from "./components/chat/ThreadPanel.jsx";
 import { threadIndex } from "./components/chat/threads.js";
+import { ChatContext } from "./components/chat/ChatContext.js";
+import { RunNotice } from "./components/chat/RunNotice.jsx";
+import { runDetails } from "./lib/chat.js";
 import "./components/chat/chat.css";
 import { ApprovalBar } from "./components/ApprovalBar.jsx";
 import { Status } from "./components/Status.jsx";
@@ -223,7 +226,7 @@ function TaskStartMessage({ message, tasks, employees, onOpen }) {
         <Columns3 size={15} />
         <div>
           <span className="task-start-kicker">
-            {message.author === "system" ? "Autopilot started" : "You started"} · {time(message.created)}
+            {message.author === "system" ? "Autopilot started" : "You started"} · <Stamp at={message.created} />
           </span>
           <strong>{title}</strong>
           {people.length > 0 && <span className="task-start-people">{people.map((p) => p.name).join(", ")}</span>}
@@ -705,6 +708,36 @@ export function App() {
   async function dismissRun(runId) {
     await act("runs.dismiss", { id: runId });
   }
+  // "Details" on a stopped run: its harness's problems, or Settings →
+  // Diagnostics (scrolled into view once the page is up).
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  function openRunDetails(run) {
+    const target = runDetails(run, data);
+    if (target.view === "harnesses") {
+      setHarnessDetail(target.harness);
+      setView("harnesses");
+    } else {
+      setShowDiagnostics(true);
+      setView("settings");
+    }
+  }
+  useEffect(() => {
+    if (!showDiagnostics || view !== "settings") return;
+    document.getElementById("diagnostics-title")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setShowDiagnostics(false);
+  }, [showDiagnostics, view]);
+  // What messages link out to (components/chat/ChatContext.js).
+  const chatLinks = {
+    employees: data.employees,
+    runs: data.runs,
+    artifacts: data.artifacts,
+    paused: data.runtime.paused,
+    onOpenBot: directChat,
+    onOpenArtifact: openArtifact,
+    onRevealArtifact: revealArtifact,
+    onRetry: (id) => act("runs.retry", { id }),
+    onDetails: openRunDetails,
+  };
   const activeEmployees = data.employees.filter((e) => !e.archived);
   const archivedCount = data.employees.length - activeEmployees.length;
   const workingCount = data.runs.filter((r) => r.status === "running").length;
@@ -731,6 +764,7 @@ export function App() {
   return (
     <AvatarActivityContext.Provider value={employeeAvatarStates(data, lastSeenMessages, view === "chat" ? conversationId : null)}>
     <FileLinkContext.Provider value={fileLinks}>
+    <ChatContext.Provider value={chatLinks}>
     <div className="app-shell">
       <aside className={`sidebar ${leftSidebarOpen ? "" : "collapsed"}`}>
         <div className="brand">
@@ -1532,6 +1566,7 @@ export function App() {
                     message={m}
                     employees={data.employees}
                     bubbles={bubbles}
+                    onReplyInThread={isProject && m.author !== "system" && !conversation.archived ? () => setOpenThread(m.id) : undefined}
                     onOpenPreview={openHtmlPreview}
                     onOpenBrowser={(url) => {
                       setBrowserUrl(url);
@@ -1559,28 +1594,17 @@ export function App() {
                     !(isProject && r.thread),
                   )
                   .map((r) => (
-                    <div className="run-notice" key={r.id}>
-                      <div className="run-notice-content">
-                        <Status status={r.status} />
-                        <span>
-                          {data.employees.find((e) => e.id === r.employee)?.name}:{" "}
-                          {r.error || "Stopped by you."}
-                        </span>
-                      </div>
-                      <button
-                        className="run-notice-dismiss"
-                        aria-label="Dismiss notice"
-                        onClick={() => dismissRun(r.id)}
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
+                    <RunNotice key={r.id} run={r} employees={data.employees} onDismiss={dismissRun} />
                   ))}
                 <div ref={end} />
               </div>
               <ApprovalBar
                 approvals={(data.approvals || []).filter((a) => a.conversation === conversationId)}
                 employees={data.employees}
+                runs={runs}
+                paused={data.runtime.paused}
+                openThread={isProject ? openThread : null}
+                onOpenThread={isProject ? setOpenThread : null}
                 onDecide={(id, decision) => act("approvals.decide", { id, decision })}
               />
               <WorkingIndicator
@@ -2610,6 +2634,7 @@ export function App() {
         </Modal>
       )}
     </div>
+    </ChatContext.Provider>
     </FileLinkContext.Provider>
     </AvatarActivityContext.Provider>
   );

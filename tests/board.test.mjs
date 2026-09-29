@@ -232,6 +232,25 @@ test("non-assignees cannot move a task and failed work leaves the card in progre
   assert.ok(detail.activity.some((entry) => /did not finish/.test(entry.body)));
 });
 
+test("retrying a task's failed run counts in its place, so the card can finish", async (t) => {
+  let attempts = 0;
+  const { c, conversation, names, task } = await fixture(t, (options, who) => {
+    if (who === "Helper" && ++attempts === 1) return new Error("harness crashed");
+    return "Finished";
+  });
+  await c.command("tasks.create", { conversation: conversation.id, title: "Pair", assignees: [names.Lead.id, names.Helper.id] });
+  await c.command("tasks.start", { id: task("Pair").id });
+  await settled(c);
+  assert.equal(task("Pair").status, "in_progress");
+  const failed = c.snapshot().runs.find((r) => r.status === "failed");
+  await c.command("runs.retry", { id: failed.id });
+  await settled(c);
+  const retry = c.snapshot().runs.at(-1);
+  assert.equal(retry.task, task("Pair").id);
+  assert.equal(retry.status, "succeeded");
+  assert.equal(task("Pair").status, "done");
+});
+
 test("autopilot starts an idle assignee's highest priority backlog task", async (t) => {
   const { c, conversation, names, task } = await fixture(t);
   await c.command("tasks.create", { conversation: conversation.id, title: "Low", priority: "low", assignees: [names.Lead.id] });

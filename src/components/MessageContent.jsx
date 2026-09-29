@@ -1,10 +1,16 @@
 import React, { useContext, useState, useMemo } from "react";
-import { Code, FileText, ExternalLink, ChevronDown, ChevronUp, Eye } from "lucide-react";
+import { Check, Code, Copy, FileText, ExternalLink, ChevronDown, ChevronUp, Eye, Workflow } from "lucide-react";
 import { TABLE_ROW, TABLE_RULE, fileCandidates, renderMarkdownInline, tableCells } from "../lib/markdown.js";
+import { botNamed, delegationBlock, manifestPaths } from "../lib/chat.js";
 import { FILE_PLATFORM, FileLinkContext, useFileLinkEvents, useFileRefs } from "./FileLinks.jsx";
+import { useCopy } from "./hooks.js";
+import { ChatContext } from "./chat/ChatContext.js";
+import { ArtifactCards } from "./chat/ArtifactCards.jsx";
 
 const HTML_PATTERN = /^\s*<!doctype\s+html|^\s*<html[\s>]/i;
-const CODE_BLOCK_PATTERN = /```(\w*)\n([\s\S]*?)```/g;
+// Info strings may be hyphenated (anybot-artifacts, objective-c) or carry
+// trailing spaces.
+const CODE_BLOCK_PATTERN = /```([\w+-]*)[^\S\n]*\n([\s\S]*?)```/g;
 const HTML_TAG_PATTERN = /<[a-z][\s\S]*?>/i;
 const HEADING_PATTERN = /^(#{1,6})\s+(.+)$/gm;
 const LIST_ITEM_PATTERN = /^(\s*)[-*]\s+(.+)$/gm;
@@ -36,8 +42,11 @@ function extractCodeBlocks(text) {
   return blocks;
 }
 
+// A fenced code block. Copy takes the whole block, even when it's collapsed.
+// Nothing here runs code: bot output never reaches a shell.
 function CodeBlock({ language, code, onPreview }) {
   const [collapsed, setCollapsed] = useState(code.length > MAX_INLINE_CODE_LENGTH);
+  const [copied, copy] = useCopy();
   const displayCode = collapsed ? code.slice(0, 500) + '\n... (truncated)' : code;
   const isHtmlLike = language === 'html' || language === 'htm' || 
     (language === 'plaintext' && isFullHtmlDocument(code));
@@ -50,6 +59,10 @@ function CodeBlock({ language, code, onPreview }) {
           {language}
         </span>
         <div className="code-block-actions">
+          <button type="button" className="code-action" aria-label={copied ? "Copied" : "Copy code"} onClick={() => copy(code)}>
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+            {copied ? "Copied" : "Copy"}
+          </button>
           {isHtmlLike && (
             <button 
               className="code-action" 
@@ -100,13 +113,13 @@ function HtmlPreviewCard({ html, onPreview }) {
 
 // `files` (file links, src/lib/file-refs.js) and `handlers` (their clicks)
 // come from MessageContent; `boxRef` is the element watched for visibility.
-function MarkdownText({ text, people, files = null, handlers, boxRef }) {
+function MarkdownText({ text, people, files = null, handlers, boxRef, botLinks = false }) {
   const lines = text.split('\n');
   const elements = [];
   let list = null;
   let quote = [];
 
-  const inline = (value) => ({ __html: renderMarkdownInline(value, { people, files }) });
+  const inline = (value) => ({ __html: renderMarkdownInline(value, { people, files, botLinks }) });
   const flushList = () => {
     if (!list) return;
     const Tag = list.ordered ? "ol" : "ul";
@@ -215,11 +228,29 @@ function MarkdownText({ text, people, files = null, handlers, boxRef }) {
   );
 }
 
+// A delegating reply's ```anybot block, read as what it asks for.
+function DelegationCard({ bot, objective, onOpen }) {
+  return (
+    <div className="delegation-card">
+      <span className="delegation-card-head">
+        <Workflow size={13} aria-hidden="true" />
+        Handed to
+        <button type="button" className="delegation-to" title={`Message ${bot.name} directly`} onClick={() => onOpen(bot)}>
+          {bot.name}
+        </button>
+      </span>
+      <p>{objective}</p>
+    </div>
+  );
+}
+
 const NO_FILES = [];
 
 // `people`: bot names to highlight where the message @mentions them.
 // `messageId`: the message's id, which file links in it are checked against.
-export function MessageContent({ body, messageId, onOpenPreview, onOpenBrowser, people = [] }) {
+// `artifacts`: the files the reply's run returned; with them, the reply's
+// ```anybot-artifacts block shows as file cards (left out while streaming).
+export function MessageContent({ body, messageId, onOpenPreview, onOpenBrowser, people = [], artifacts }) {
   const content = useMemo(() => {
     if (!body || typeof body !== 'string') {
       return { type: 'text', content: String(body || '') };
@@ -254,8 +285,48 @@ export function MessageContent({ body, messageId, onOpenPreview, onOpenBrowser, 
     return fileCandidates(text.split('\n'), FILE_PLATFORM);
   }, [content, messageId, fileLinks]);
   const { box, lookup } = useFileRefs(messageId, candidates);
-  const { handlers, menu } = useFileLinkEvents(messageId, lookup);
+  const { handlers: fileHandlers, menu } = useFileLinkEvents(messageId, lookup);
   const files = candidates.length ? { platform: FILE_PLATFORM, lookup } : null;
+
+  // @mentions open the bot's direct chat (markdown.js botLinks). Only spans
+  // markdown.js rendered carry data-bot: sanitizeHtml strips it from bot HTML.
+  const chat = useContext(ChatContext);
+  const openBot = (event) => {
+    const el = event.target?.closest?.(".bot-link[data-bot]");
+    if (!chat || !el || !event.currentTarget.contains(el)) return false;
+    const bot = botNamed(el.getAttribute("data-bot"), chat.employees);
+    if (!bot) return false;
+    event.preventDefault();
+    chat.onOpenBot(bot);
+    return true;
+  };
+  const handlers = chat
+    ? {
+        ...fileHandlers,
+        onClick(event) {
+          if (!openBot(event)) fileHandlers.onClick?.(event);
+        },
+        onKeyDown(event) {
+          if (!(event.key === "Enter" && openBot(event))) fileHandlers.onKeyDown?.(event);
+        },
+      }
+    : fileHandlers;
+  const botLinks = Boolean(chat);
+
+  // Machine blocks a person can read: the files a reply returned, and a
+  // delegation. Anything that doesn't parse stays a code block.
+  const special = (block) => {
+    if (block.language === "anybot-artifacts" && artifacts) {
+      const paths = manifestPaths(block.code);
+      if (paths) return <ArtifactCards key={`files-${block.index}`} paths={paths} artifacts={artifacts} />;
+    }
+    if (block.language === "anybot" && chat) {
+      const request = delegationBlock(block.code);
+      const bot = request && chat.employees.find((e) => e.id === request.employeeId);
+      if (bot) return <DelegationCard key={`handoff-${block.index}`} bot={bot} objective={request.objective} onOpen={chat.onOpenBot} />;
+    }
+    return null;
+  };
 
   // Previews always go through the sandboxed srcdoc modal. A same-origin blob:
   // URL would give employee HTML access to window.anybot.
@@ -295,17 +366,19 @@ export function MessageContent({ body, messageId, onOpenPreview, onOpenBrowser, 
         const textBefore = content.content.slice(lastIndex, block.index);
         if (textBefore.trim()) {
           parts.push(
-            <MarkdownText key={`text-${lastIndex}`} text={textBefore} people={people} files={files} handlers={handlers} />
+            <MarkdownText key={`text-${lastIndex}`} text={textBefore} people={people} files={files} handlers={handlers} botLinks={botLinks} />
           );
         }
       }
       parts.push(
-        <CodeBlock 
-          key={`code-${block.index}`}
-          language={block.language}
-          code={block.code}
-          onPreview={handlePreview}
-        />
+        special(block) || (
+          <CodeBlock
+            key={`code-${block.index}`}
+            language={block.language}
+            code={block.code}
+            onPreview={handlePreview}
+          />
+        ),
       );
       lastIndex = block.index + block.full.length;
     }
@@ -314,7 +387,7 @@ export function MessageContent({ body, messageId, onOpenPreview, onOpenBrowser, 
       const textAfter = content.content.slice(lastIndex);
       if (textAfter.trim()) {
         parts.push(
-          <MarkdownText key={`text-${lastIndex}`} text={textAfter} people={people} files={files} handlers={handlers} />
+          <MarkdownText key={`text-${lastIndex}`} text={textAfter} people={people} files={files} handlers={handlers} botLinks={botLinks} />
         );
       }
     }
@@ -330,7 +403,7 @@ export function MessageContent({ body, messageId, onOpenPreview, onOpenBrowser, 
   if (content.type === 'markdown') {
     return (
       <>
-        <MarkdownText text={content.content} people={people} files={files} handlers={handlers} boxRef={box} />
+        <MarkdownText text={content.content} people={people} files={files} handlers={handlers} boxRef={box} botLinks={botLinks} />
         {menu}
       </>
     );

@@ -129,7 +129,9 @@ function linkFiles(result, files, park) {
   return out + text.slice(cursor);
 }
 
-function renderInline(text, { mentions = false, people = [], files = null } = {}) {
+// `botLinks`: @mentions of `people` become keyboard-reachable links to the
+// bot (MessageContent handles them by data-bot, which bot HTML can't carry).
+function renderInline(text, { mentions = false, people = [], files = null, botLinks = false } = {}) {
   const parked = [];
   const park = (html) => `\u0000${parked.push(html) - 1}\u0000`;
   const platform = files?.platform || "win32";
@@ -139,7 +141,12 @@ function renderInline(text, { mentions = false, people = [], files = null } = {}
     return park(`<code>${(shape && fileRef(files, shape.raw, code)) || code}</code>`);
   });
   const named = people.length ? peoplePattern(people) : null;
-  if (named) result = result.replace(named, (_, lead, name) => lead + park(`<span class="mention mention-agent">@${name}</span>`));
+  // `name` is escaped text, so it is safe inside the quoted attributes.
+  const mention = (name) =>
+    botLinks
+      ? `<span class="mention mention-agent bot-link" role="link" tabindex="0" data-bot="${name}" title="Message ${name} directly">@${name}</span>`
+      : `<span class="mention mention-agent">@${name}</span>`;
+  if (named) result = result.replace(named, (_, lead, name) => lead + park(mention(name)));
   if (mentions)
     result = result.replace(MENTION_PATTERN, (_, label, kind, ref) =>
       park(`<span class="mention mention-${kind}" data-mention="${kind}:${ref}">@${label}</span>`),
