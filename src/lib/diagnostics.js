@@ -61,6 +61,11 @@ export function describeIssue(issue) {
       hint: "Raise the time limit in the bot's settings, or split the work into smaller tasks.",
       action: "employee",
     },
+    "harness.output_limit": {
+      title: `${who(c)}'s run printed too much and was stopped`,
+      hint: "The harness printed more than 256 MB in one run, which usually means it was stuck in a loop. Open the run's terminal in Activity to see what it repeated, then send the task again in smaller steps.",
+      action: "employee",
+    },
     "harness.model": {
       title: `${who(c)}'s model isn't available`,
       hint: "Pick another model in the bot's settings.",
@@ -97,7 +102,18 @@ export function describeIssue(issue) {
       title: `Files from ${who(c)} weren't collected`,
       hint: "The bot listed files Any Bot couldn't accept (see below).",
     },
-    "autopilot.start_failed": { title: "Autopilot couldn't start a task", hint: "The reason is below. The task stays in Backlog." },
+    "artifacts.copy_failed": {
+      title: "Files couldn't be copied to a project's Artifacts folder",
+      hint: "The bot's files were collected and are in the chat, but Any Bot couldn't write them into the project's Artifacts folder, usually because the folder was moved or deleted or is read-only. Edit the project and pick the folder again.",
+    },
+    "autopilot.start_failed": {
+      title: "Autopilot couldn't start a task",
+      hint: "The reason is below and on the task. The task stays in Backlog, and Autopilot skips it (and goes on with the bot's other tasks) until the task changes; it tries again every 10 minutes without repeating this note.",
+    },
+    "autopilot.limit_reached": {
+      title: "Autopilot turned itself off",
+      hint: "The bots in this project started 20 tasks they created for themselves in 24 hours, so Autopilot stopped to keep them from running without end. Check the board, then turn Autopilot back on if the work should go on.",
+    },
     "task.settle_failed": { title: "A task didn't update after its run", hint: "This is a bug in Any Bot.", bug: true },
     "update.failed": {
       title: "An update failed",
@@ -112,9 +128,40 @@ export function describeIssue(issue) {
     },
     "update.init_failed": { title: "Automatic updates are unavailable", hint: "The updater didn't start.", bug: true },
     "update.warning": { title: "The updater reported a warning", hint: "Usually harmless. Details are below." },
+    "update.offline": {
+      title: "Couldn't check for updates while offline",
+      hint: "Nothing to fix: the check runs again a few minutes later, and Check now works any time.",
+    },
+    "update.idle_install_failed": {
+      title: "The update didn't install when the team finished",
+      hint: "Any Bot was waiting for the bots to finish before restarting. Restart from the update button in Settings.",
+      action: "update",
+    },
+    "mobile.audit_quarantined": {
+      title: "The phone access log was damaged and set aside",
+      hint: "Usually after a power cut. A new log started and phones connect as before; the old file is kept next to it (mobile-audit.jsonl.corrupt-…) in the data folder.",
+    },
+    "mobile.config_invalid": {
+      title: "mobile-access.json couldn't be used",
+      hint: "The HTTPS phone listener it sets up is off; phones paired by QR code still connect. Settings → Mobile companion shows why. Fix the file (docs/mobile.md) and restart Any Bot.",
+    },
+    "mobile.start_failed": {
+      title: "Phones can't connect",
+      hint: "The phone gateway didn't start. Settings → Your phone shows why. This is a bug in Any Bot if it keeps happening.",
+      bug: true,
+    },
     "harness.stuck_cancel": {
       title: `${tool(c)} didn't stop cleanly for ${who(c)}`,
       hint: "Any Bot marked the run stopped and freed the bot. A helper process the harness started may still be running; it ends when you restart the computer.",
+    },
+    "run.interrupted": {
+      title: "Work was cut off when Any Bot stopped",
+      hint: "Bots were working when Any Bot quit, updated, or crashed. Each conversation has a notice, bots that handed off that work were told, and tasks got a note. Check for half-finished changes before starting the work again.",
+    },
+    "run.reconcile_failed": {
+      title: "Cut-off work couldn't be followed up",
+      hint: "Any Bot marked the runs that were cut off when it stopped, but couldn't post notices or tell the bots that handed them the work. Check recent conversations by hand. This is a bug in Any Bot.",
+      bug: true,
     },
     "runtime.exited": {
       title: "The coordinator stopped unexpectedly",
@@ -139,11 +186,25 @@ export function describeIssue(issue) {
       title: "An attachment couldn't be delivered",
       hint: "A file or folder you attached was moved or deleted before the bot started. The bot was told which one; attach it again if it still needs it.",
     },
+    "project.folder_missing": {
+      title: "A project's allowed folder can't be found",
+      hint: "One or more of the project's Allowed folders doesn't exist (or isn't a full path), so bots weren't given access to it. Edit the project and pick the folder again, or remove it.",
+    },
+    "artifact.stage_failed": {
+      title: `Earlier files couldn't be handed to ${who(c)}`,
+      hint: "Any Bot couldn't copy some of this conversation's earlier artifacts into the bot's inbox (.anybot-inbox), usually because a stored copy was removed. The bot ran anyway and was told which files are missing.",
+    },
     "attachment.copy_failed": {
       title: "Attachments couldn't be copied to a bot",
       hint: "Any Bot couldn't write into the bot's workspace inbox (.anybot-inbox). Check the bot's workspace folder exists and isn't read-only.",
     },
-    "renderer.gone": { title: "The window's renderer stopped", hint: "Any Bot reloaded the window.", bug: true },
+    "renderer.gone": {
+      title: "The window's renderer stopped",
+      hint: c.reloaded === false
+        ? "It kept stopping, so Any Bot stopped reloading it. Your bots kept working; restart Any Bot to reopen the window."
+        : "Any Bot reloaded the window. Your bots, Slack and the phone link kept working.",
+      bug: true,
+    },
     "renderer.load_failed": { title: "The window failed to load", hint: "This is a bug in Any Bot.", bug: true },
     "main.exception": { title: "Any Bot hit an internal error", hint: "This is a bug in Any Bot.", bug: true },
     "main.rejection": { title: "Any Bot hit an internal error", hint: "This is a bug in Any Bot.", bug: true },

@@ -57,7 +57,7 @@ The mobile implementation has a touch-first React client, Capacitor iOS/Android 
 
 The mobile connect screen accepts an HTTPS issuer and public OIDC client ID. **Sign in with provider** fetches the issuer's discovery document, requires authorization-code flow with PKCE S256, redirects to the provider, exchanges the code without a client secret, and sends the resulting short-lived bearer token to the configured anyBot gateway. The PKCE verifier and state are kept in `sessionStorage` only for the redirect transaction; the access token remains in memory and is never written to storage. Register the current mobile origin and path as the provider redirect URI, and configure the server's `identity.memberClaim` so the token maps to an existing human member. The provider token endpoint must permit the public-client code exchange from the mobile origin; pairing remains the fallback for providers that require a backend callback.
 
-Not yet implemented: persistent OS-protected session storage, QR scanning, push notifications, artifact browsing/upload, mobile approvals, full history search, event streaming, hosted multi-organization membership, production signing/store distribution, and iOS device verification. Local/headless single-organization membership is durable in `members.json`; external RS256 token verification, live JWKS rotation, and browser OIDC authorization-code + PKCE sign-in are available. Polling currently refreshes every four seconds while visible. The gateway still obtains full internal coordinator snapshots before projecting resources; large-workspace database query optimization remains necessary.
+Not yet implemented: persistent OS-protected session storage, push notifications, artifact browsing/upload, mobile approvals, full history search, event streaming, hosted multi-organization membership, production signing/store distribution, and iOS device verification. Local/headless single-organization membership is durable in `members.json`; external RS256 token verification, live JWKS rotation, and browser OIDC authorization-code + PKCE sign-in are available. Polling currently refreshes every four seconds while visible. The gateway still obtains full internal coordinator snapshots before projecting resources; large-workspace database query optimization remains necessary.
 
 ## Build and verify
 
@@ -79,7 +79,7 @@ iOS: run `npm ci` and `npm run mobile:sync` on the Mac, open the generated proje
 
 ### Connect to your actual desktop team
 
-An older desktop build may predate the gateway and member ACLs. Use the current 0.2.11 desktop source or installer before attempting pairing. Remote access is off unless explicitly configured; this implementation does not open firewall ports, publish a tunnel, or change TLS trust automatically.
+An older desktop build may predate the gateway and member ACLs. Use the latest desktop release before attempting pairing. Remote access is off unless explicitly configured; this implementation does not open firewall ports, publish a tunnel, or change TLS trust automatically.
 
 Create `mobile-access.json` in the desktop app's data directory, shown under **Runtime & privacy**:
 

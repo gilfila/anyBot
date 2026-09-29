@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { RobotAvatar } from "./RobotAvatar.jsx";
 import { ProjectDoc } from "./doc/ProjectDoc.jsx";
+import { resolveCd } from "../lib/terminal-path.js";
 
 export function ContextRail({
   open,
@@ -110,6 +111,7 @@ export function ContextRail({
         )}
         {activeTab === "tools" && (
           <ToolsTab
+            terminalFolder={terminalFolder(conversation, employees)}
             activePanel={activeToolsTab}
             onPanelChange={onToolsTabChange}
             browserUrl={browserUrl}
@@ -164,7 +166,17 @@ function ContextTab({ conversation, employees, activeRuns, harnessName }) {
   );
 }
 
+// Where the Terminal starts: the conversation's first allowed folder, or
+// in a one-bot chat that bot's workspace. Empty means the owner's home.
+function terminalFolder(conversation, employees) {
+  if (!conversation) return "";
+  if (conversation.allowedFolders?.[0]) return conversation.allowedFolders[0];
+  if (conversation.members.length === 1) return employees.find((e) => e.id === conversation.members[0])?.workspace || "";
+  return "";
+}
+
 function ToolsTab({
+  terminalFolder: folder,
   activePanel,
   onPanelChange,
   browserUrl,
@@ -220,7 +232,7 @@ function ToolsTab({
           />
         )}
         {localPanel === "terminal" && (
-          <TerminalPanel onRun={() => {}} />
+          <TerminalPanel folder={folder} onRun={() => {}} />
         )}
         {localPanel === "files" && (
           <FileExplorerPanel
@@ -382,18 +394,50 @@ function BrowserPanel({ initialUrl, htmlContent, onNavigate }) {
   );
 }
 
-function TerminalPanel({ onRun }) {
+// The owner's own shell (desktop/main.cjs anybot:runCommand), never bot
+// output. Commands run in `folder` (the conversation's first allowed folder,
+// or its bot's workspace; the owner's home without one). Each runs in a new
+// shell, so `cd` is handled here and moves the panel's folder.
+function TerminalPanel({ folder, onRun }) {
   const [command, setCommand] = useState("");
   const [history, setHistory] = useState([]);
   const [running, setRunning] = useState(false);
   const [currentOutput, setCurrentOutput] = useState("");
+  const [cwd, setCwd] = useState(folder || "");
+  const commandId = useRef(null);
   const outputRef = useRef(null);
+
+  useEffect(() => {
+    setCwd(folder || "");
+  }, [folder]);
 
   useEffect(() => {
     if (outputRef.current) {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
   }, [history, currentOutput]);
+
+  const finish = (entry, patch) =>
+    setHistory((prev) => {
+      const updated = [...prev];
+      updated[updated.length - 1] = { ...entry, ...patch };
+      return updated;
+    });
+
+  // cd, cd.., cd /d D:\x, chdir: resolved here and checked with the file
+  // listing, so the next command runs there. `cd a && b` goes to the shell.
+  const changeFolder = async (entry, argument) => {
+    if (!argument.trim()) return finish(entry, { output: cwd || "Your home folder", status: "success" });
+    const next = resolveCd(cwd, argument);
+    if (!next) return finish(entry, { output: "Use a full path here, starting with a drive letter or /.", status: "error" });
+    try {
+      await window.anybot.listDirectory(next);
+      setCwd(next);
+      finish(entry, { output: "", status: "success" });
+    } catch {
+      finish(entry, { output: `The folder ${next} can't be opened.`, status: "error" });
+    }
+  };
 
   const runCommand = async () => {
     if (!command.trim() || running) return;
@@ -405,6 +449,7 @@ function TerminalPanel({ onRun }) {
 
     const entry = {
       command: cmd,
+      cwd,
       output: "",
       status: "running",
       timestamp: new Date().toLocaleTimeString(),
@@ -412,46 +457,40 @@ function TerminalPanel({ onRun }) {
     setHistory((prev) => [...prev, entry]);
 
     try {
-      if (window.anybot?.runCommand) {
-        const result = await window.anybot.runCommand(cmd, (chunk) => {
-          setCurrentOutput((prev) => prev + chunk);
-        });
-        setHistory((prev) => {
-          const updated = [...prev];
-          updated[updated.length - 1] = {
-            ...entry,
-            output: result.output || currentOutput,
-            status: result.exitCode === 0 ? "success" : "error",
-            exitCode: result.exitCode,
-          };
-          return updated;
+      if (/^(cd|chdir)(\s|$|\.\.)/i.test(cmd) && !/[&|;<>]/.test(cmd) && window.anybot?.listDirectory) {
+        await changeFolder(entry, cmd.replace(/^(cd|chdir)/i, ""));
+      } else if (window.anybot?.runCommand) {
+        const id = Math.random().toString(36).slice(2);
+        commandId.current = id;
+        const result = await window.anybot.runCommand(
+          cmd,
+          (chunk) => {
+            setCurrentOutput((prev) => prev + chunk);
+          },
+          { cwd, id },
+        );
+        if (result.cwd) setCwd(result.cwd);
+        finish(entry, {
+          cwd: result.cwd || cwd,
+          output: result.output || currentOutput,
+          status: result.exitCode === 0 ? "success" : "error",
+          exitCode: result.exitCode,
         });
       } else {
-        setHistory((prev) => {
-          const updated = [...prev];
-          updated[updated.length - 1] = {
-            ...entry,
-            output: "Terminal requires desktop runtime.",
-            status: "error",
-          };
-          return updated;
-        });
+        finish(entry, { output: "Terminal requires desktop runtime.", status: "error" });
       }
     } catch (error) {
-      setHistory((prev) => {
-        const updated = [...prev];
-        updated[updated.length - 1] = {
-          ...entry,
-          output: String(error.message),
-          status: "error",
-        };
-        return updated;
-      });
+      finish(entry, { output: String(error.message), status: "error" });
     } finally {
+      commandId.current = null;
       setRunning(false);
       setCurrentOutput("");
       onRun?.(cmd);
     }
+  };
+
+  const stopCommand = () => {
+    if (commandId.current) window.anybot?.stopCommand?.(commandId.current);
   };
 
   const handleKeyDown = (e) => {
@@ -467,7 +506,7 @@ function TerminalPanel({ onRun }) {
         {history.length === 0 && !running && (
           <div className="rail-terminal-welcome">
             <TerminalIcon size={24} />
-            <p>Run commands in your workspace</p>
+            <p>{cwd ? `Run commands in ${cwd}` : "Run commands in your home folder"}</p>
           </div>
         )}
         {history.map((entry, i) => (
@@ -490,6 +529,9 @@ function TerminalPanel({ onRun }) {
           </div>
         )}
       </div>
+      <div className="rail-terminal-cwd" title={cwd || "Your home folder"}>
+        {cwd || "~"}
+      </div>
       <div className="rail-terminal-input-row">
         <span className="rail-terminal-prompt-symbol">$</span>
         <input
@@ -503,8 +545,10 @@ function TerminalPanel({ onRun }) {
         />
         <button
           className={`rail-terminal-run-btn ${running ? "running" : ""}`}
-          onClick={running ? undefined : runCommand}
-          disabled={running || !command.trim()}
+          onClick={running ? stopCommand : runCommand}
+          disabled={!running && !command.trim()}
+          title={running ? "Stop the command" : "Run"}
+          aria-label={running ? "Stop the command" : "Run"}
         >
           {running ? <Square size={12} /> : <Play size={12} />}
         </button>

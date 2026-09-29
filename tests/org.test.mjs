@@ -246,3 +246,45 @@ test("delegation stays put when the delegate shares no project", async (t) => {
   const lead = c.snapshot().runs.find((r) => r.employee === e.Lead.id);
   assert.equal(lead.conversation, chief.id);
 });
+
+test("a direct chat has no board: its prompt leaves task actions out and they are refused with a way forward", async (t) => {
+  let script = {};
+  const { c, e, prompts, chat, direct } = await fixture(t, (who) => script[who]?.() ?? "ok");
+  const chiefChat = await direct(e.Chief);
+  script = {
+    Chief: () =>
+      actions([
+        { type: "task.create", title: "Plan the video", assignees: [e.Lead.id] },
+        { type: "task.create", title: "Unassigned idea" },
+        { type: "doc.section", heading: "Plan", markdown: "- Video first" },
+      ]),
+  };
+  await chat(e.Chief, "Plan the video work", chiefChat);
+  const prompt = prompts.find((p) => p.who === "Chief").prompt;
+  assert.doesNotMatch(prompt, /task\.create/);
+  assert.match(prompt, /doc\.section/);
+  assert.match(prompt, /no task board/);
+  // No task lands in the chat, not even an unassigned one no view shows.
+  assert.equal(c.snapshot().tasks.length, 0);
+  const notice = c.snapshot().messages.find((m) => m.conversation === chiefChat.id && m.kind === "notice").body;
+  assert.match(notice, /rejected task\.create "Plan the video": This direct chat has no task board/);
+  assert.match(notice, /updated the "Plan" section/);
+  // In a project, the guide keeps task actions and says who can be assigned.
+  await c.command("conversations.create", { title: "HQ", members: [e.Chief.id, e.Lead.id] });
+  const hq = c.snapshot().conversations.find((x) => x.title === "HQ");
+  script = {};
+  await chat(e.Chief, "Status?", hq);
+  assert.match(prompts.at(-1).prompt, /assignees \(ids of project members only\)/);
+});
+
+test("one piece of work can add only so many tasks", async (t) => {
+  const { c, e, chat } = await fixture(t, (who) =>
+    who === "Chief" ? actions(["A", "B", "C"].map((title) => ({ type: "task.create", title, assignees: [e.Lead.id] }))) : "ok",
+  );
+  c.board.maxAgentTasksPerRoot = 2;
+  await c.command("conversations.create", { title: "HQ", members: [e.Chief.id, e.Lead.id] });
+  const hq = c.snapshot().conversations.find((x) => x.title === "HQ");
+  await chat(e.Chief, "Plan", hq);
+  assert.deepEqual(c.snapshot().tasks.map((task) => task.title).sort(), ["A", "B"]);
+  assert.ok(c.snapshot().messages.some((m) => /rejected task\.create "C": This piece of work already added 2 tasks/.test(m.body)));
+});

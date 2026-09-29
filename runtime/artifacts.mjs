@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, open, realpath, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, realpath, rename, writeFile } from "node:fs/promises";
 import {
   basename,
   extname,
@@ -135,6 +135,43 @@ export async function confinedFile(root, path) {
   return actual;
 }
 
+// Writes `name` into `folder`, or "name (2).ext", "name (3).ext"... when
+// that name is taken by different contents. A file already there with the
+// same contents is left as it is. Returns the name used. There is no limit:
+// a routine that revises the same file every day keeps getting new names.
+async function copyWithoutReplacing(folder, name, bytes, digest) {
+  const extension = extname(name);
+  const stem = extension ? name.slice(0, -extension.length) : name;
+  // One listing instead of probing name after name (case-insensitive, as on
+  // Windows); only a taken name whose file has the same size is read.
+  const taken = new Set((await readdir(folder)).map((entry) => entry.toLowerCase()));
+  for (let n = 1; ; n++) {
+    const candidate = n === 1 ? name : `${stem} (${n})${extension}`;
+    const target = join(folder, candidate);
+    if (taken.has(candidate.toLowerCase())) {
+      if (await sameContents(target, bytes.length, digest)) return candidate;
+      continue;
+    }
+    try {
+      await writeFile(target, bytes, { flag: "wx", mode: 0o600 });
+      return candidate;
+    } catch (error) {
+      // Created since the listing: compare it like any other taken name.
+      if (error.code !== "EEXIST") throw error;
+      if (await sameContents(target, bytes.length, digest)) return candidate;
+    }
+  }
+}
+async function sameContents(path, length, digest) {
+  try {
+    const stat = await lstat(path);
+    if (!stat.isFile() || stat.size !== length) return false;
+    return hash(await boundedRead(path)) === digest;
+  } catch {
+    return false;
+  }
+}
+
 export class Artifacts {
   constructor(store, directory) {
     this.store = store;
@@ -150,8 +187,15 @@ export class Artifacts {
       entries = [];
     let total = 0;
     await mkdir(this.directory, { recursive: true });
+    // The copy in the project's folder is extra: a folder that can't be
+    // written costs only that copy (`copyError`), never the run's files.
+    let folderError;
     if (projectArtifactsFolder) {
-      await mkdir(projectArtifactsFolder, { recursive: true });
+      try {
+        await mkdir(projectArtifactsFolder, { recursive: true });
+      } catch (error) {
+        folderError = error.message;
+      }
     }
     for (const path of paths) {
       if (signal?.aborted) throw new Error("Run cancelled");
@@ -196,15 +240,15 @@ export class Artifacts {
       } catch (error) {
         if (error.code !== "EEXIST") throw error;
       }
-      if (projectArtifactsFolder) {
+      // The project's folder may hold the owner's own files and earlier
+      // deliverables: never replace one. `copiedAs` is the name used there.
+      let copiedAs, copyError;
+      if (projectArtifactsFolder && folderError) copyError = folderError;
+      else if (projectArtifactsFolder) {
         try {
-          await writeFile(
-            join(projectArtifactsFolder, basename(path)),
-            bytes,
-            { mode: 0o600 },
-          );
+          copiedAs = await copyWithoutReplacing(projectArtifactsFolder, basename(path), bytes, digest);
         } catch (error) {
-          if (error.code !== "EEXIST") throw error;
+          copyError = error.message;
         }
       }
       entries.push({
@@ -216,6 +260,8 @@ export class Artifacts {
         digest,
         bytes: bytes.length,
         created: now(),
+        ...(copiedAs ? { copiedAs } : {}),
+        ...(copyError ? { copyError } : {}),
       });
     }
     return entries;
@@ -285,6 +331,11 @@ export class Artifacts {
   async resolve(payload) {
     return (await this.bytes(this.row(payload))).path;
   }
+  // Copies of the conversation's latest artifacts in the bot's inbox. They
+  // are reference copies: one a bot edited in place is moved aside (kept,
+  // and named in its entry's note) and the stored version is put back. An
+  // artifact that can't be staged is listed with a note instead of stopping
+  // the run (entries with `missing`).
   async materialize(run, employee) {
     const selected = this.store.all(
       `SELECT a.* FROM artifacts a JOIN runs r ON r.id=a.run JOIN messages m ON m.id=r.message
@@ -299,25 +350,41 @@ export class Artifacts {
       throw new Error("Artifact inbox cannot be a symbolic link");
     const staged = [];
     for (const row of selected) {
-      const { bytes } = await this.bytes(row);
-      const destination = join(inbox, row.blob);
       try {
-        await writeFile(destination, bytes, { flag: "wx", mode: 0o600 });
+        staged.push(await this.stage(row, employee.workspace, inbox));
+      } catch (error) {
+        staged.push({ id: row.id, name: row.name, missing: true, note: `could not be staged: ${error.message}` });
+      }
+    }
+    return staged;
+  }
+  async stage(row, workspace, inbox) {
+    const { bytes } = await this.bytes(row);
+    const relativePath = join(".anybot-inbox", row.blob);
+    const put = async () => {
+      try {
+        await writeFile(join(inbox, row.blob), bytes, { flag: "wx", mode: 0o600 });
       } catch (error) {
         if (error.code !== "EEXIST") throw error;
       }
-      const file = await confinedFile(
-        employee.workspace,
-        join(".anybot-inbox", row.blob),
-      );
-      if (hash(await boundedRead(file)) !== row.digest)
-        throw new Error("An existing inbox artifact was modified");
-      staged.push({
-        id: row.id,
-        name: row.name,
-        path: `.anybot-inbox/${row.blob}`,
-      });
+      return confinedFile(workspace, relativePath);
+    };
+    const intact = async (path) => {
+      const info = await lstat(path);
+      return info.isFile() && info.size === row.bytes && hash(await boundedRead(path)) === row.digest;
+    };
+    let file = await put();
+    let note;
+    if (!(await intact(file))) {
+      // The bot changed its copy: keep that work under a new name, then
+      // restore the stored version.
+      const extension = extname(row.blob);
+      const kept = `${row.blob.slice(0, -extension.length)}.edited-${now().replace(/[^0-9]/g, "").slice(0, 14)}-${id().slice(0, 4)}${extension}`;
+      await rename(file, join(inbox, kept));
+      file = await put();
+      if (!(await intact(file))) throw new Error("the inbox copy could not be restored");
+      note = `restored from the stored version; the copy you edited was kept at .anybot-inbox/${kept}`;
     }
-    return staged;
+    return { id: row.id, name: row.name, path: `.anybot-inbox/${row.blob}`, ...(note ? { note } : {}) };
   }
 }

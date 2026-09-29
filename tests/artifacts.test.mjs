@@ -7,11 +7,12 @@ import {
   readFile,
   mkdir,
   symlink,
+  readdir,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Coordinator } from "../runtime/coordinator.mjs";
-import { artifactPaths } from "../runtime/artifacts.mjs";
+import { Artifacts, artifactPaths } from "../runtime/artifacts.mjs";
 
 async function fixture(t, runner) {
   const directory = await mkdtemp(join(tmpdir(), "anybot-artifact-"));
@@ -209,4 +210,174 @@ test("junctions cannot advertise files outside the employee workspace", async (t
         (m) => m.kind === "notice" && m.body.includes("Symbolic links"),
       ),
   );
+});
+
+test("a bot that edits its inbox copy of an artifact keeps working, and its edit is kept", async (t) => {
+  let calls = 0;
+  const prompts = [];
+  const diagnostics = [];
+  const { c, employee, send } = await fixture(t, async ({ workspace, prompt }) => {
+    calls++;
+    prompts.push(prompt);
+    if (calls === 1) {
+      await writeFile(join(workspace, "report.md"), "Original report");
+      return '```anybot-artifacts\n{"paths":["report.md"]}\n```';
+    }
+    const path = prompt.match(/"path":"(\.anybot-inbox\/[^"\s]+)"/)?.[1];
+    assert.ok(path, "the prompt names the inbox copy");
+    assert.equal(await readFile(join(workspace, path), "utf8"), "Original report", `run ${calls} gets the stored copy`);
+    // "Tighten the report": the bot edits the copy it was handed.
+    if (calls === 2) await writeFile(join(workspace, path), "Tightened report");
+    return "ok";
+  });
+  c.on("diagnostic", (entry) => diagnostics.push(entry));
+  await send("Write the report");
+  await settle(c);
+  await send("Tighten the report");
+  await settle(c);
+  await send("Summarise it");
+  await settle(c);
+  assert.deepEqual(c.snapshot().runs.map((r) => r.status), ["succeeded", "succeeded", "succeeded"]);
+  assert.equal(calls, 3);
+  // The edit was moved aside, not overwritten, and the next prompt says where.
+  const inbox = join(employee.workspace, ".anybot-inbox");
+  const edited = (await readdir(inbox)).find((name) => name.includes(".edited-"));
+  assert.ok(edited, "the edited copy is kept");
+  assert.equal(await readFile(join(inbox, edited), "utf8"), "Tightened report");
+  assert.match(prompts[2], /reference copies/);
+  assert.ok(prompts[2].includes(`.anybot-inbox/${edited}`), "the prompt points at the kept edit");
+  assert.deepEqual(diagnostics, []);
+});
+
+test("an artifact whose stored copy is missing is skipped; the run still starts", async (t) => {
+  let calls = 0;
+  const diagnostics = [];
+  const { c, directory, send } = await fixture(t, async ({ workspace, prompt }) => {
+    calls++;
+    if (calls === 1) {
+      await writeFile(join(workspace, "notes.md"), "Notes");
+      return '```anybot-artifacts\n{"paths":["notes.md"]}\n```';
+    }
+    assert.match(prompt, /notes\.md[^\n]*could not be staged/);
+    return "ok";
+  });
+  c.on("diagnostic", (entry) => diagnostics.push(entry));
+  await send("Write notes");
+  await settle(c);
+  const { blob } = c.store.one("SELECT blob FROM artifacts LIMIT 1");
+  await rm(join(directory, "artifacts", blob));
+  await send("Read the notes");
+  await settle(c);
+  assert.deepEqual(c.snapshot().runs.map((r) => r.status), ["succeeded", "succeeded"]);
+  assert.deepEqual(diagnostics.map((d) => d.code), ["artifact.stage_failed"]);
+  assert.ok(!JSON.stringify(diagnostics).includes(directory), "no paths in the log");
+});
+
+test("the project Artifacts folder never overwrites a file; a new name is used instead", async (t) => {
+  let files = {};
+  const { c, conversation, directory, send } = await fixture(t, async ({ workspace }) => {
+    for (const [path, text] of Object.entries(files)) {
+      await mkdir(join(workspace, path, ".."), { recursive: true });
+      await writeFile(join(workspace, path), text);
+    }
+    return `Done\n\`\`\`anybot-artifacts\n${JSON.stringify({ paths: Object.keys(files) })}\n\`\`\``;
+  });
+  const folder = join(directory, "Deliverables");
+  await mkdir(folder);
+  await writeFile(join(folder, "report.md"), "The owner's own report");
+  await c.command("conversations.updateSettings", { conversation, artifactsFolder: folder });
+  files = { "report.md": "Bot report A", "notes/summary.md": "Summary", "drafts/summary.md": "Other summary" };
+  await send("Write it");
+  await settle(c);
+  assert.equal(await readFile(join(folder, "report.md"), "utf8"), "The owner's own report");
+  assert.equal(await readFile(join(folder, "report (2).md"), "utf8"), "Bot report A");
+  assert.equal(await readFile(join(folder, "summary.md"), "utf8"), "Summary");
+  assert.equal(await readFile(join(folder, "summary (2).md"), "utf8"), "Other summary");
+  assert.ok(c.snapshot().messages.some((m) => m.kind === "notice" && /report \(2\)\.md/.test(m.body)));
+  // The same file again is not copied twice; a new version gets the next name.
+  files = { "report.md": "Bot report A" };
+  await send("Again");
+  await settle(c);
+  files = { "report.md": "Bot report B" };
+  await send("Revise");
+  await settle(c);
+  assert.deepEqual((await readdir(folder)).sort(), ["report (2).md", "report (3).md", "report.md", "summary (2).md", "summary.md"]);
+  assert.equal(await readFile(join(folder, "report (3).md"), "utf8"), "Bot report B");
+});
+
+test("a revised deliverable is always collected, however many copies the Artifacts folder holds", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "anybot-artifact-copies-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const workspace = join(root, "workspace");
+  const folder = join(root, "Deliverables");
+  await mkdir(workspace);
+  await mkdir(folder);
+  // A daily routine's status.md, revised 100 times already.
+  await writeFile(join(folder, "status.md"), "day 1");
+  for (let n = 2; n <= 100; n++) await writeFile(join(folder, `status (${n}).md`), `day ${n}`);
+  const artifacts = new Artifacts(null, join(root, "data"));
+  const run = { id: "r1", conversation: "c1" };
+  const capture = async (files, target = folder) => {
+    for (const [name, text] of Object.entries(files)) await writeFile(join(workspace, name), text);
+    const manifest = `\`\`\`anybot-artifacts\n${JSON.stringify({ paths: Object.keys(files) })}\n\`\`\``;
+    return artifacts.capture(run, { workspace }, manifest, undefined, target);
+  };
+  const entries = await capture({ "status.md": "day 101", "other.txt": "notes" });
+  assert.deepEqual(entries.map((e) => e.name), ["status.md", "other.txt"], "every file is collected");
+  const status = entries[0];
+  assert.ok(status.copiedAs && !status.copyError, "status.md still reaches the folder");
+  assert.equal(await readFile(join(folder, status.copiedAs), "utf8"), "day 101");
+  assert.equal((await readdir(folder)).filter((name) => name.startsWith("status")).length, 101, "nothing was replaced");
+  assert.equal(entries[1].copiedAs, "other.txt");
+  // The same file again is recognized, not copied again.
+  const again = await capture({ "status.md": "day 101" });
+  assert.equal((await readdir(folder)).filter((name) => name.startsWith("status")).length, 101);
+  assert.equal(again[0].copiedAs, status.copiedAs);
+  // A folder that can't be written doesn't cost the run its files: they are
+  // collected, and each says why it wasn't copied.
+  const blocked = join(root, "not-a-folder");
+  await writeFile(blocked, "a file where the folder should be");
+  const kept = await capture({ "status.md": "day 102" }, blocked);
+  assert.equal(kept.length, 1);
+  assert.equal(kept[0].copiedAs, undefined);
+  assert.ok(kept[0].copyError);
+});
+
+test("a project Artifacts folder that can't be written still leaves the run's files in the chat", async (t) => {
+  const diagnostics = [];
+  const { c, conversation, directory, send } = await fixture(t, async ({ workspace }) => {
+    await writeFile(join(workspace, "report.md"), "Report");
+    return 'Done\n```anybot-artifacts\n{"paths":["report.md"]}\n```';
+  });
+  c.on("diagnostic", (entry) => diagnostics.push(entry));
+  const blocked = join(directory, "not-a-folder");
+  await writeFile(blocked, "a file where the folder should be");
+  await c.command("conversations.updateSettings", { conversation, artifactsFolder: blocked });
+  await send("Write it");
+  await settle(c);
+  assert.deepEqual(c.snapshot().artifacts.map((a) => a.name), ["report.md"]);
+  assert.ok(c.snapshot().messages.some((m) => m.kind === "notice" && /Not copied to the project's Artifacts folder[^\n]*report\.md/.test(m.body)));
+  assert.ok(!c.snapshot().messages.some((m) => /Files were not collected/.test(m.body)));
+  assert.deepEqual(diagnostics.map((d) => d.code), ["artifacts.copy_failed"]);
+  assert.ok(!JSON.stringify(diagnostics).includes(directory), "no paths in the log");
+});
+
+test("an inbox copy a bot overwrote with a large file is restored too", async (t) => {
+  let calls = 0;
+  const { c, send } = await fixture(t, async ({ workspace, prompt }) => {
+    calls++;
+    if (calls === 1) {
+      await writeFile(join(workspace, "data.csv"), "a,b\n1,2\n");
+      return '```anybot-artifacts\n{"paths":["data.csv"]}\n```';
+    }
+    const path = prompt.match(/"path":"(\.anybot-inbox\/[^"\s]+)"/)?.[1];
+    if (calls === 2) await writeFile(join(workspace, path), Buffer.alloc(11 * 1024 * 1024, 65));
+    else assert.equal(await readFile(join(workspace, path), "utf8"), "a,b\n1,2\n");
+    return "ok";
+  });
+  for (const body of ["Export", "Grow it", "Check"]) {
+    await send(body);
+    await settle(c);
+  }
+  assert.deepEqual(c.snapshot().runs.map((r) => r.status), ["succeeded", "succeeded", "succeeded"]);
 });

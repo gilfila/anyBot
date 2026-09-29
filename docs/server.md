@@ -2,6 +2,14 @@
 
 The desktop app and the headless server use the same coordinator and mobile gateway. The server mode is intended for a private VPS, a LAN host, or a local development service; it does not add a second execution engine.
 
+> **Experimental: not usable on its own yet.** The server starts and answers `/healthz`, but a fresh `dataDir` can't reach a working conversation:
+>
+> - **No pairing codes.** Nothing in `server/index.mjs` creates one (no command, prompt or endpoint); only the desktop app and the tests call `createPairing` in-process. A device can connect only through the optional RS256/OIDC identity block below.
+> - **No way to add bots.** The `/v1` API doesn't create or edit employees, and a conversation needs at least one. The only workaround is starting from a copy of a desktop workspace database, whose bots' workspace folders must exist on the server.
+> - **No approvals.** Claude Code approval requests have no route to answer them, so each one is declined after 15 minutes.
+>
+> Pairing, bot management and approvals are desktop-only for now.
+
 ## Local loopback smoke test
 
 ```powershell

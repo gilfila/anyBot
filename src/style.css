@@ -3188,6 +3188,23 @@ dialog::backdrop {
   animation: spin 0.8s linear infinite;
 }
 
+/* The folder the next command runs in. */
+.rail-terminal-cwd {
+  padding: 6px 12px 0;
+  background: var(--block-2);
+  border-top: 1px solid var(--ink-2);
+  color: var(--block-muted);
+  font-family: Consolas, Monaco, monospace;
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rail-terminal-cwd + .rail-terminal-input-row {
+  border-top: none;
+}
+
 .rail-terminal-input-row {
   display: flex;
   align-items: center;

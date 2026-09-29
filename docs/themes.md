@@ -24,8 +24,9 @@ Applying a theme (`src/lib/theme.js`) sets the tokens as custom properties on `<
 - a decoration isn't one of the presets
 - any text pairing falls below its contrast floor (`CONTRAST_RULES`):
   - primary text: 7:1 on paper and on cards
-  - secondary text: 4.5:1
-  - muted text, status colors, and text on accent-colored buttons: 3:1
+  - secondary and muted text: 4.5:1 on paper and cards, and on the darker paper steps where chips and the sidebar sit
+  - danger text: 4.5:1
+  - other status colors (ok, warn) and text on accent-colored buttons: 3:1
   - code: 7:1
 
 The knowledge-graph category colors are checked separately, as a set, for color-vision deficiency on each theme's surface. `tests/themes.test.mjs` runs all of these checks against the built-in themes.

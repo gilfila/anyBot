@@ -156,3 +156,13 @@ test("deleting a routine removes it and its history; its finished work stays", a
   assert.equal(c.snapshot().runs.length, 1, "nothing is scheduled after delete");
   await assert.rejects(c.command("routines.delete", { id: routine }), /not found/);
 });
+
+// Every snapshot lists the routines, and each fired routine looks up the runs
+// of its latest occurrence by root; the Slack bridge looks runs up by message
+// and root. Those lookups use indexes instead of scanning every run.
+test("routine status and bridge lookups use indexes, not a scan of every run", async (t) => {
+  const { c } = await setup(t);
+  const plan = (sql) => c.store.all(`EXPLAIN QUERY PLAN ${sql}`, "x").map((row) => row.detail).join(" | ");
+  for (const sql of ["SELECT status FROM runs WHERE root=?", "SELECT id FROM runs WHERE message=? AND parent IS NULL"])
+    assert.match(plan(sql), /USING INDEX/, sql);
+});

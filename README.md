@@ -24,7 +24,7 @@ Everything runs on your machine, using your own accounts.
    - The builds aren't code-signed yet, so SmartScreen may warn you. Choose **More info → Run anyway**.
 3. **Hire your first bot.** Any Bot suggests a few starter roles. Pick one, or make your own.
 
-Any Bot updates itself. When a new version is ready, an **Update** button appears next to your name. One click installs the update and restarts the app.
+Any Bot updates itself. When a new version is ready, an **Update** button appears next to your name. One click downloads it, and **Restart** installs it. If bots are working, Any Bot asks first and offers to install once they finish.
 
 ## What you can do
 
@@ -58,19 +58,21 @@ Bots can **report to other bots**. A manager can hand work down its chain and re
 - **Easy to follow.** Each bot's replies sit in its own colored bubble, so you can tell who said what at a glance, even over the animated backgrounds.
 - **Hand-offs.** Bots pass work to each other on their own, and each result comes back to the bot that asked for it. Delegated work runs in the team's own project room, so your chat stays clean.
 - **Watch the work.** Live output streams in while a bot works. You can stop one bot or everything at once.
-- **Voice.** You can dictate a message. In a one-to-one chat, voice chat reads the reply back to you.
+- **Voice (experimental).** You can dictate a message, if the speech recognition built into Any Bot works on your PC (if it doesn't, Any Bot says so). In a one-to-one chat, voice chat sends each phrase you say as its own message, and reads a reply aloud only if it arrives within about 24 seconds. Longer replies still show in the chat, but aren't read out.
 
 ### Stay in control
 
-Bots run in **Auto** mode by default:
+Bots run in **Auto** mode by default. For Claude Code bots, that means:
 
 - **Safe actions just run,** like reading files or listing folders.
 - **Edits inside the bot's own workspace are always allowed.**
 - **Risky actions wait for you,** such as deleting files, force-pushing, or anything outside the workspace.
 
-When a bot needs permission, an approval card appears above the message box. It shows exactly what the bot wants to run, with **Approve** and **Decline** buttons. A Windows notification tells you if Any Bot is in the background. Requests nobody answers within 15 minutes are declined.
+When a Claude Code bot needs permission, an approval card appears above the message box. It shows exactly what the bot wants to run, with **Approve** and **Decline** buttons. A Windows notification tells you if Any Bot is in the background. Requests nobody answers within 15 minutes are declined, and time spent waiting for you doesn't count against the bot's time limit.
 
-You can also set a bot to ask before every action, or to make edits freely and ask about everything else.
+You can also set a Claude Code bot to ask before every action, or to make edits freely and ask about everything else.
+
+**Only Claude Code bots can ask you.** The other harnesses can't show an approval card, so whatever their mode doesn't allow is refused. The modes mean something different for each of them, and the bot editor says what each one does for the bot's harness (see [Supported harnesses](#supported-harnesses)).
 
 ### Plan on a board
 
@@ -79,15 +81,13 @@ Every project has a task board with four columns: **Backlog**, **In progress**, 
 - **Start a task:** its assignees get to work together. The first assignee leads, and the rest collaborate.
 - **Bots update the board themselves.** They post progress notes, tick checklist items, move cards, and add follow-up tasks.
 - **Review:** a reviewer, or you, approves the work before it moves to Done.
-- **Autopilot** is optional. It starts each idle bot's next Backlog task.
+- **Autopilot** is optional. It starts each idle bot's next Backlog task. It turns itself off when you press **Stop all** in the project's chat, or once the bots have started 20 tasks they created for themselves in a day, so they can't keep each other busy without end.
 
 ![A project board with tasks in each column](docs/screenshots/board.png)
 
 ### Share a Canvas
 
-Open a PR with a new stable version and changelog entry. The **Release Windows** workflow verifies the app and packages the installer; merging to main publishes the verified installer, blockmap, and update metadata to the public feed. Source code and build provenance stay private. No local packaging or release upload is needed.
-
-See [Automated releases](docs/releasing.md) for the one-time GitHub App/billing setup, required PR check, and recovery rules. Until that setup is complete, the publisher fails closed. Share the [direct installer download page](https://github.com/gilfila/anyBot-updates#readme) with users; GitHub's own release page always displays automatic archives of the public README repository.
+Every conversation has a **Canvas**: a shared page like a Slack canvas. You and your bots write it together.
 
 - **What it holds:** text, lists, to-dos, callouts, tables, link cards, and live task cards.
 - **Collected for you:** every file the bots produced and every link shared in the chat, in one place.
@@ -159,16 +159,16 @@ Give any bot its own Slack app: open the bot's **⋯** menu and choose **Connect
 
 ### Keep working in the background
 
-- **The tray:** closing the window keeps Any Bot running in the tray, so your bots keep working. **Quit and stop active work** in the tray menu stops everything.
-- **Launch at login** (Settings → Runtime & privacy) starts Any Bot when you sign in to Windows, so routines and long runs pick up again. The computer still has to stay on.
+- **The tray:** closing the window keeps Any Bot running in the tray, so your bots keep working. **Quit and stop active work** in the tray menu stops everything. Work cut off by quitting is marked in its conversation, and the bot that handed it off is told; start it again when you're back.
+- **Launch at login** (Settings → Runtime & privacy) starts Any Bot when you sign in to Windows, so routines and queued work pick up again. The computer still has to stay on.
 
 ## Supported harnesses
 
 | Harness | How approvals work in Auto mode |
 |---|---|
 | Claude Code | Risky actions wait for your approval in the chat. |
-| Codex CLI | Runs in Codex's workspace-write sandbox. |
-| Antigravity CLI | Edits files freely. Commands are refused, and the chat says so; set the bot to "Edits run, everything else asks you" to let it run them. |
+| Codex CLI | Runs in Codex's workspace-write sandbox: its workspace plus the project's folders. "Read-only" and "plus network access" are the other two modes. |
+| Antigravity CLI | Edits files freely. Commands are refused, and the chat says so; set the bot to "Everything runs, nothing asks you" to let it run them (that turns off its permission checks). |
 | Hermes Agent | Follows Hermes's own settings. |
 | Cursor Agent CLI | Actions that need approval are skipped. |
 | Your own CLI | Add it with [`harnesses.json`](docs/custom-harnesses.md). |
@@ -184,7 +184,7 @@ Give any bot its own Slack app: open the bot's **⋯** menu and choose **Connect
 ## Also in development
 
 - A **phone companion** (Android, built with Capacitor). Pair it by scanning one QR code from **Settings → Your phone**. It then works on Wi-Fi or mobile data, end-to-end encrypted. See [docs/mobile.md](docs/mobile.md).
-- A **headless server mode** for running the same coordinator on a private server. See [docs/server.md](docs/server.md).
+- A **headless server mode** for running the same coordinator on a private server. It's experimental and not usable on its own yet: it can't hand out phone pairing codes, add bots, or answer approvals, so those still need the desktop app. See [docs/server.md](docs/server.md).
 
 ## For developers
 

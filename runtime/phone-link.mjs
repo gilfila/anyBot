@@ -31,6 +31,72 @@ const MAX_BODY = 32 * 1024;
 const methods = new Set(["GET", "POST", "DELETE"]);
 const clean = (value, fallback) => String(value || fallback).replace(/[\u0000-\u001f]/g, "").slice(0, 60) || fallback;
 
+// The relay drops the desktop's connection when a frame passes 64 KB
+// (MAX_FRAME in relay/room.mjs), which knocks every phone offline. A sealed
+// reply is base64 of its JSON plus a little framing, so the JSON gets about
+// three quarters of a frame.
+export const RELAY_MAX_FRAME = 64 * 1024;
+const REPLY_BUDGET = Math.floor(((RELAY_MAX_FRAME - 1024) * 3) / 4);
+const MIN_TEXT = 200;
+const SHORTENED = "… [shortened for the phone]";
+const bytes = (value) => Buffer.byteLength(JSON.stringify(value) ?? "");
+function capText(value, max) {
+  if (typeof value === "string") return value.length > max ? `${value.slice(0, max)}${SHORTENED}` : value;
+  if (Array.isArray(value)) return value.map((item) => capText(item, max));
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, capText(item, max)]));
+  return value;
+}
+function longestText(value) {
+  if (typeof value === "string") return value.length;
+  if (value && typeof value === "object") return Math.max(0, ...Object.values(value).map(longestText));
+  return 0;
+}
+function largestList(value) {
+  let best = null;
+  const visit = (item) => {
+    if (!item || typeof item !== "object") return;
+    if (Array.isArray(item) && item.length > 1 && (!best || bytes(item) > bytes(best))) best = item;
+    Object.values(item).forEach(visit);
+  };
+  visit(value);
+  return best;
+}
+// A reply cut down to `limit` bytes of JSON: first every long text is
+// shortened (the longest ones, as little as possible), and when even short
+// texts don't fit, lists lose their oldest half at a time (lists run oldest
+// to newest). Null when nothing fits.
+export function fitReply(value, limit = REPLY_BUDGET) {
+  if (bytes(value) <= limit) return value;
+  const current = capText(value, Infinity);
+  while (bytes(capText(current, MIN_TEXT)) > limit) {
+    const list = largestList(current);
+    if (!list) return null;
+    list.splice(0, Math.ceil(list.length / 2));
+  }
+  let [low, high] = [MIN_TEXT, longestText(current)];
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (bytes(capText(current, middle)) <= limit) low = middle;
+    else high = middle - 1;
+  }
+  return capText(current, low);
+}
+// fitReply for a conversation page: when its oldest messages had to go, the
+// page's cursor moves to the oldest one kept, so paging back shows them
+// instead of skipping them.
+export function fitPage(value, limit = REPLY_BUDGET) {
+  const fitted = fitReply(value, limit);
+  if (
+    fitted &&
+    fitted !== value &&
+    Array.isArray(value?.messages) &&
+    "olderCursor" in value &&
+    fitted.messages?.length < value.messages.length
+  )
+    fitted.olderCursor = fitted.messages[0]?.id ?? value.olderCursor;
+  return fitted;
+}
+
 // `protect`/`unprotect` wrap secrets at rest (Electron's safeStorage on the
 // desktop); tests pass identity functions.
 export async function createPhoneLink({
@@ -163,7 +229,14 @@ export async function createPhoneLink({
       changed();
     }
     touch(known);
-    const answer = (status, value) => cipher.seal({ id: ask?.id, status, value }).then((box) => sendTo(id, { t: "res", box }));
+    // Never more than the relay passes in one frame (see fitReply).
+    const answer = async (status, value) => {
+      const fitted = fitPage(value);
+      let box = await cipher.seal(fitted === null ? { id: ask?.id, status: 413, value: { error: "That is too much to send to the phone at once." } } : { id: ask?.id, status, value: fitted });
+      if (JSON.stringify({ to: id, data: JSON.stringify({ t: "res", box }) }).length > RELAY_MAX_FRAME)
+        box = await cipher.seal({ id: ask?.id, status: 413, value: { error: "That is too much to send to the phone at once." } });
+      sendTo(id, { t: "res", box });
+    };
     if (
       !ask ||
       typeof ask.id !== "string" ||

@@ -1,5 +1,7 @@
 # Release readiness
 
+> **Historical record, as of 0.2.11 (2026-09-21).** This page has not been updated since, and much of it is out of date: Gemini CLI has been replaced by Antigravity CLI, and approvals, memory, boards, the canvas, the knowledge graph, Slack and QR phone pairing have all shipped since. For what Any Bot does today see the [README](../README.md); for what changed and how each release was verified, see the [CHANGELOG](../CHANGELOG.md).
+
 ## Local Phase 1
 
 | Requirement | Evidence | Status |

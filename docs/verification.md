@@ -1,5 +1,7 @@
 # Verification record
 
+> **Historical record, as of 0.2.11 (2026-09-21).** This page has not been updated since, and much of it is out of date: Gemini CLI has been replaced by Antigravity CLI, and approvals, memory, boards, the canvas, the knowledge graph, Slack and QR phone pairing have all shipped since. For what Any Bot does today see the [README](../README.md); for what changed and how each release was verified, see the [CHANGELOG](../CHANGELOG.md).
+
 ## Version 0.2.11 package
 
 - `npm test`: 71 passing tests, including five-harness invocation/protocol contracts and subprocess execution, immediate structured-provider failure cancellation, read-only Codex configuration warnings, release checksum verification, configured provider-model discovery, hosted preflight acceptance/rejection and CORS-origin checks, fresh-data-directory creation, the Snake two-agent handoff, model selector guards, owner model-catalog validation, external RS256 identity mapping, durable owner membership management, hosted image/service/Compose hardening checks, headless server identity wiring, mobile ACLs, safe configured-member pairing choices, the installable mobile PWA shell, browser OIDC PKCE state/token handling, headless gateway checks, the VPS backup manifest, and writable deployment preflight validation.

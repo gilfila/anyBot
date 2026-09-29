@@ -495,6 +495,11 @@ export class Store {
         throw error;
       }
     }
+    // Runs are looked up by root (routine status on every snapshot, delegation
+    // limits, the Slack bridge) and by the message they answer. Plain indexes
+    // need no schema bump: an older version reads the database as before.
+    this.db.exec(`CREATE INDEX IF NOT EXISTS runs_root ON runs(root);
+      CREATE INDEX IF NOT EXISTS runs_message ON runs(message);`);
     this.db
       .prepare("INSERT OR IGNORE INTO metadata VALUES ('paused', 'false')")
       .run();
@@ -516,6 +521,20 @@ export class Store {
       return value;
     } catch (error) {
       this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  // All of fn's writes or none of them, inside or outside a transaction:
+  // a failure rolls back only what fn wrote.
+  savepoint(fn) {
+    this.db.exec("SAVEPOINT step");
+    try {
+      const value = fn();
+      this.db.exec("RELEASE step");
+      return value;
+    } catch (error) {
+      this.db.exec("ROLLBACK TO step");
+      this.db.exec("RELEASE step");
       throw error;
     }
   }

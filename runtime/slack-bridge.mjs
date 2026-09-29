@@ -197,13 +197,20 @@ export function createSlackBridge({
 
   async function onEvent(employee, event) {
     const bot = state.bots[employee];
-    if (!bot || !event || !event.user || event.bot_id || event.subtype || event.user === bot.botUser) return;
+    // New messages only: a message with a file (file_share) or a thread reply
+    // also sent to the conversation (thread_broadcast) counts; edits,
+    // deletions and other system messages don't.
+    const subtype = !event?.subtype || ["file_share", "thread_broadcast"].includes(event.subtype);
+    if (!bot || !event || !event.user || event.bot_id || !subtype || event.user === bot.botUser) return;
     const dm = event.type === "message" && event.channel_type === "im";
     if (!dm && event.type !== "app_mention") return;
     const body = fromSlackText(event.text, bot.botUser);
     const where = { channel: event.channel, ts: event.ts, thread: dm ? event.thread_ts || null : event.thread_ts || event.ts };
     if (!bot.users.some((u) => u.id === event.user)) return stranger(employee, event.user, body, where, dm);
-    if (!body) return;
+    // Files from Slack aren't passed on yet (the app can't download them).
+    // Say so, and send whatever text came with them.
+    const files = Array.isArray(event.files) ? event.files.map((f) => String(f?.name || f?.title || "a file").slice(0, 120)) : [];
+    if (!body && !files.length) return;
     const requestId = `slack:${bot.team}:${event.channel}:${event.ts}`;
     // Slack redelivers an event it thinks was missed, sometimes while the
     // first delivery is still being sent.
@@ -211,7 +218,17 @@ export function createSlackBridge({
     sending.add(requestId);
     let sent;
     try {
-      sent = await request("bridge.send", { employee, body: `${dm ? "[Slack DM]" : "[Slack channel]"} ${body}`, requestId });
+      if (files.length)
+        await post(
+          employee,
+          where,
+          body
+            ? "I can't open files from Slack yet, so I only got your text. Paste what I need from the file, or put it in a folder I can reach and tell me where."
+            : "I can't open files from Slack yet. Paste what I need from the file, or put it in a folder I can reach and tell me where.",
+        ).catch((error) => report(error, { employee, step: "files" }));
+      if (!body) return;
+      const note = files.length ? `\n\n[Attached in Slack but not delivered: ${files.join(", ")}]` : "";
+      sent = await request("bridge.send", { employee, body: `${dm ? "[Slack DM]" : "[Slack channel]"} ${body}${note}`, requestId });
     } catch (error) {
       await post(employee, where, `I couldn't take that on: ${error.message}`);
       return;
@@ -219,7 +236,7 @@ export function createSlackBridge({
       sending.delete(requestId);
     }
     if (state.bots[employee] !== bot) return;
-    bot.pending.push({ requestId, message: sent.message, ...where, at: clock(), announced: [] });
+    bot.pending.push({ requestId, message: sent.message, ...where, at: clock(), announced: [], handed: [] });
     save();
     react(employee, where, "eyes", true);
     refresh();
@@ -328,8 +345,20 @@ export function createSlackBridge({
           changed = true;
           await announceApproval(employee, entry, approval).catch((error) => report(error, { employee, step: "approval" }));
         }
+      // Work handed to another bot: say so once, since the answer comes
+      // when that work is back.
+      for (const handoff of item.handoffs || []) {
+        entry.handed ||= [];
+        if (entry.handed.includes(handoff.id)) continue;
+        entry.handed.push(handoff.id);
+        changed = true;
+        if (!["queued", "running", "cancelling"].includes(item.status)) continue;
+        await post(employee, entry, `Handed to ${toSlackText(handoff.to)}. I'll post the result here when it's back.`).catch((error) =>
+          report(error, { employee, step: "handoff" }),
+        );
+      }
       const expired = clock() - entry.at > PENDING_MS;
-      if (!["succeeded", "failed", "cancelled", "unknown"].includes(item.status) && !expired) continue;
+      if (!["succeeded", "failed", "cancelled", "interrupted", "unknown"].includes(item.status) && !expired) continue;
       bot.pending = bot.pending.filter((p) => p !== entry);
       changed = true;
       const text =
@@ -339,9 +368,11 @@ export function createSlackBridge({
             ? `I couldn't finish that: ${toSlackText(firstLine(item.error))}`
             : item.status === "cancelled"
               ? "That was stopped in Any Bot."
-              : expired
-                ? "I lost track of that request. Check Any Bot for my reply."
-                : null;
+              : item.status === "interrupted"
+                ? "Any Bot stopped before I finished (it quit, updated, or restarted), so this may be partly done. Ask again to pick it up."
+                : expired
+                  ? "I lost track of that request. Check Any Bot for my reply."
+                  : null;
       if (text) await post(employee, entry, text).catch((error) => report(error, { employee, step: "reply" }));
       react(employee, entry, "eyes", false);
     }

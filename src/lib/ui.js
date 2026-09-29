@@ -29,3 +29,16 @@ export function shouldShowUpdateChrome(update) {
   if (!state) return false;
   return ACTIONABLE_UPDATE_STATES.has(state);
 }
+
+// Bots with a run in progress: what restarting for an update, or quitting,
+// would stop (queued work waits and starts after the restart).
+export function workingBots(data) {
+  const names = new Map(data.employees.map((employee) => [employee.id, employee.name]));
+  return [
+    ...new Set(
+      data.runs
+        .filter((run) => run.status === "running" || run.status === "cancelling")
+        .map((run) => names.get(run.employee) || "A bot"),
+    ),
+  ];
+}

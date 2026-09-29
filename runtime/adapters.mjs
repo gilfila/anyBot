@@ -6,6 +6,7 @@ import { delimiter, dirname, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { formatEvent } from "./terminal.mjs";
 import { finishUsage, readUsage, usageState } from "./usage.mjs";
+import { permissionLabel } from "./permission-modes.mjs";
 
 export const harnesses = [
   {
@@ -465,6 +466,11 @@ export function invocation(harness, model = "", permissionMode = "auto", approva
       return args;
     }
     case "codex":
+      // Codex exec can't ask the owner, so each mode is a sandbox:
+      // - ask: "read-only" (it reads and answers; nothing is changed).
+      // - auto: "workspace-write" (edits and commands in the workspace and
+      //   --add-dir folders, no network).
+      // - dontAsk: the same plus network access. No mode lifts the sandbox.
       // --image takes several values, so a plain flag must follow it before
       // the "-" that reads the prompt from stdin.
       return [
@@ -474,8 +480,9 @@ export function invocation(harness, model = "", permissionMode = "auto", approva
         ...images.flatMap((image) => ["--image", image]),
         ...addDirs.flatMap((dir) => ["--add-dir", dir]),
         ...(effort ? ["-c", `model_reasoning_effort="${effort}"`] : []),
+        ...(permissionMode === "dontAsk" ? ["-c", "sandbox_workspace_write.network_access=true"] : []),
         "--sandbox",
-        "workspace-write",
+        permissionMode === "ask" ? "read-only" : "workspace-write",
         "-",
       ];
     case "antigravity":
@@ -525,11 +532,16 @@ export function invocation(harness, model = "", permissionMode = "auto", approva
 function antigravityDenied(actions) {
   if (!Array.isArray(actions) || !actions.length) return "";
   const names = [...new Set(actions.map((a) => String(a?.display_name || a?.action || "a tool").slice(0, 40)))];
-  return `Antigravity wasn't allowed to use ${names.join(", ")}: it can't ask for permission when Any Bot runs it. To let it, edit the bot and set Permission mode to "Edits run, everything else asks you", which lets Antigravity run every tool.`;
+  return `Antigravity wasn't allowed to use ${names.join(", ")}: it can't ask for permission when Any Bot runs it. To let it, edit the bot and set Permission mode to "${permissionLabel("antigravity", "dontAsk")}", which turns off Antigravity's permission checks for every tool.`;
 }
 
-// `state` carries what a harness's earlier events said (Codex: whether its
-// turn has started). One object per run.
+// Codex errors that retrying won't fix: out of credits or quota, not signed
+// in, or a model it can't use. A plain rate limit (429) is retried.
+const CODEX_FATAL =
+  /usage (limit|credits)|out of credits|quota|insufficient (credits|balance|funds)|billing|not logged in|log ?in again|unauthori[sz]ed|\b401\b|invalid api key|authenticat|unknown model|invalid model|model\b.{0,60}\b(not found|not available|not supported|does not exist)/i;
+
+// `state` carries what a harness's earlier events said (Codex: whether it
+// has started a message, its last error). One object per run.
 export function extractEvent(harness, value, state = {}) {
   if (harness === "claude") {
     if (value.type === "assistant")
@@ -545,6 +557,14 @@ export function extractEvent(harness, value, state = {}) {
         : { final: value.result || "" };
   }
   if (harness === "codex") {
+    // Progress after a retry notice means the retry worked, so that notice
+    // no longer explains a failure that comes later.
+    if (
+      value.type === "item.started" ||
+      value.type === "turn.completed" ||
+      (value.type === "item.completed" && value.item?.type !== "error")
+    )
+      delete state.lastError;
     // Each agent_message is a whole message ("I'll run ls." then the answer),
     // so later ones start a new paragraph instead of running on.
     if (value.type === "item.completed" && value.item?.type === "agent_message") {
@@ -552,15 +572,22 @@ export function extractEvent(harness, value, state = {}) {
       state.messages = true;
       return { text };
     }
-    if (value.type === "turn.started") state.turn = true;
-    // Before the turn, error items are startup warnings (an unrecognized
-    // config.toml key, an unreachable MCP server) and Codex carries on.
-    // During the turn they're provider failures: stop instead of waiting
-    // out Codex's retries.
+    // Error items are Codex's warnings: config notices before the turn (an
+    // unrecognized config.toml key, an unreachable MCP server) and notices
+    // during it (auto-compaction). Codex carries on after them.
     if (value.type === "item.completed" && value.item?.type === "error")
-      return state.turn ? { error: value.item.message || "Codex failed" } : { warning: value.item.message || "" };
-    if (value.type === "turn.failed" || value.type === "error")
-      return { error: value.error?.message || value.message || "Codex failed" };
+      return { warning: value.item.message || "" };
+    // A top-level error is usually a retry notice ("Reconnecting... 1/5");
+    // Codex ends a turn it can't finish with turn.failed. Errors no retry
+    // fixes (credits, sign-in, the model) stop the run right away instead
+    // of waiting out the retries.
+    if (value.type === "error") {
+      const message = String(value.message || "Codex reported an error");
+      state.lastError = message;
+      return CODEX_FATAL.test(message) ? { error: message } : { warning: message };
+    }
+    if (value.type === "turn.failed")
+      return { error: value.error?.message || state.lastError || "Codex failed" };
   }
   if (harness === "antigravity") {
     const step = value.step_update;
@@ -748,10 +775,71 @@ export async function probeAll(modelCatalog = {}) {
   );
 }
 
+// What one run may print. Structured harnesses stream every tool call and
+// result (Claude repeats each file it reads or edits in its events), and
+// none of that stream is kept: only the current line and the reply are held
+// in memory, so a long run is never stopped for printing a lot.
+export const OUTPUT_LIMITS = {
+  line: 64 * 1024 * 1024, // one event (line); a longer one is skipped
+  reply: 2_000_000, // the reply kept as the run's output; the rest is cut with a note
+  total: 256 * 1024 * 1024, // everything printed in one run: a runaway guard only
+};
+const size = (bytes) => (bytes >= 1024 * 1024 ? `${Math.round(bytes / (1024 * 1024))} MB` : `${bytes.toLocaleString("en-US")} bytes`);
+
+// Splits streamed text into complete lines for `onLine`. A line longer than
+// `max` characters is dropped up to its newline instead of held
+// (`onOversized` is told), and `rest()` is what follows the last newline.
+// Only new text is searched for a newline, and a partial line is kept as
+// pieces joined once when it ends: a long event costs time linear in its
+// size (appending to one string and searching it from the start on every
+// chunk was quadratic, seconds of frozen coordinator for a 32 MB event).
+export function lineSplitter(max, onLine, onOversized = () => {}) {
+  let pending = [];
+  let pendingLength = 0;
+  let skipping = false;
+  const take = () => {
+    const text = pending.join("");
+    pending = [];
+    pendingLength = 0;
+    return text;
+  };
+  return {
+    feed(text) {
+      let start = 0;
+      if (skipping) {
+        const end = text.indexOf("\n");
+        if (end < 0) return;
+        start = end + 1;
+        skipping = false;
+      }
+      for (let end; (end = text.indexOf("\n", start)) >= 0; start = end + 1) {
+        const piece = text.slice(start, end);
+        if (pending.length) {
+          pending.push(piece);
+          onLine(take());
+        } else onLine(piece);
+      }
+      if (start < text.length) {
+        pending.push(text.slice(start));
+        pendingLength += text.length - start;
+      }
+      if (pendingLength > max) {
+        take();
+        skipping = true;
+        onOversized();
+      }
+    },
+    rest: take,
+  };
+}
+
+// `waitedMs()` is how long the run has spent waiting on the owner (pending
+// approvals); that time doesn't count against `timeoutMs`.
 export async function runHarness(
-  { harness, model, workspace, prompt, signal, onText, onTerminal, onUsage, timeoutMs = 600000, permissionMode = "auto", approvals, addDirs, images, effort },
-  { resolve = resolveExecutable, args, outputFormat, pipeGraceMs = 2000 } = {},
+  { harness, model, workspace, prompt, signal, onText, onTerminal, onUsage, timeoutMs = 600000, permissionMode = "auto", approvals, addDirs, images, effort, waitedMs },
+  { resolve = resolveExecutable, args, outputFormat, pipeGraceMs = 2000, limits = {} } = {},
 ) {
+  const limit = { ...OUTPUT_LIMITS, ...limits };
   // The raw CLI view for the Activity terminal: redacted, never parsed for results.
   const term = (text) => {
     if (text) onTerminal?.(redact(text));
@@ -778,7 +866,6 @@ export async function runHarness(
     },
   );
   let output = "",
-    buffer = "",
     diagnostics = "",
     parseError = "",
     bytes = 0,
@@ -788,8 +875,14 @@ export async function runHarness(
   // Token counts from the harness's result events, reported however the run ends.
   const usage = usageState();
   const started = Date.now();
+  let truncated = false;
+  const cut = `\n\n[output truncated at ${limit.reply.toLocaleString("en-US")} characters]`;
   const append = (text) => {
-    output += text;
+    if (truncated || !text) return;
+    if (output.length + text.length > limit.reply) {
+      output += `${text.slice(0, Math.max(0, limit.reply - output.length))}${cut}`;
+      truncated = true;
+    } else output += text;
     onText(redact(output));
   };
   const line = (text) => {
@@ -805,7 +898,9 @@ export async function runHarness(
     try {
       const event = extractEvent(harness, value ?? JSON.parse(text), eventState);
       if (event.text) append(event.text);
-      if (event.final !== undefined) final = event.final;
+      // The result event's reply is kept under the same cap as a streamed one.
+      if (event.final !== undefined)
+        final = event.final.length > limit.reply ? `${event.final.slice(0, limit.reply)}${cut}` : event.final;
       if (event.error) {
         parseError = event.error;
         abort();
@@ -820,15 +915,35 @@ export async function runHarness(
     termination ??= terminateTree(child);
   };
   signal.addEventListener("abort", abort, { once: true });
+  // The time limit counts working time: time spent waiting on the owner's
+  // approval is added back, so a request answered late still finishes.
   let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    abort();
-  }, timeoutMs);
+  let timer;
+  const waited = () => {
+    try {
+      return Math.max(0, Number(waitedMs?.()) || 0);
+    } catch {
+      return 0;
+    }
+  };
+  const checkTime = () => {
+    const worked = Date.now() - started - waited();
+    if (worked >= timeoutMs) {
+      timedOut = true;
+      abort();
+    } else timer = setTimeout(checkTime, Math.max(250, timeoutMs - worked));
+  };
+  timer = setTimeout(checkTime, timeoutMs);
+  // Complete lines are parsed one at a time; an event longer than
+  // `limit.line` is dropped up to its newline instead of held.
+  const lines = lineSplitter(limit.line, line, () =>
+    term(`[oversized event skipped: one line passed ${size(limit.line)}]\n`),
+  );
+  const feed = (text) => lines.feed(text);
   child.stdout.on("data", (data) => {
     bytes += data.length;
-    if (bytes > 2_000_000) {
-      parseError = "Harness output exceeded the 2 MB run limit";
+    if (bytes > limit.total) {
+      parseError = `Harness output passed Any Bot's ${size(limit.total)} safety limit for one run, so the run was stopped. A harness that prints this much is usually stuck in a loop.`;
       abort();
       return;
     }
@@ -836,15 +951,7 @@ export async function runHarness(
     if (harness === "hermes" || outputFormat === "text") {
       term(text);
       append(text);
-    }
-    else {
-      buffer += text;
-      let index;
-      while ((index = buffer.indexOf("\n")) >= 0) {
-        line(buffer.slice(0, index));
-        buffer = buffer.slice(index + 1);
-      }
-    }
+    } else feed(text);
   });
   child.stderr.on("data", (data) => {
     diagnostics = (diagnostics + data.toString()).slice(-8000);
@@ -873,22 +980,23 @@ export async function runHarness(
     if (harness === "hermes" || outputFormat === "text") {
       term(tail);
       append(tail);
-    }
-    else buffer += tail;
+    } else if (!parseError) feed(tail);
+    const rest = lines.rest();
     if (
       !parseError &&
       harness !== "hermes" &&
       outputFormat !== "text" &&
-      buffer.trim()
+      rest.trim()
     )
-      line(buffer);
+      line(rest);
     if (signal.aborted) throw new Error("Run cancelled");
     if (timedOut)
       throw new Error(`Run exceeded its configured ${Math.round(timeoutMs / 60000)}-minute time limit`);
     if (parseError) throw new Error(redact(parseError));
+    // Codex's last reported error explains an exit better than its stderr.
     if (code !== 0)
       throw new Error(
-        redact(diagnostics || `Harness exited with code ${code}`),
+        redact([eventState.lastError, diagnostics].filter(Boolean).join("\n\n") || `Harness exited with code ${code}`),
       );
     const result = redact(final ?? output).trim();
     if (!result)

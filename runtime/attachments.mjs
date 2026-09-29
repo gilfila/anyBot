@@ -127,10 +127,15 @@ export async function materialize(message, list, workspace) {
   return out;
 }
 
-// What the harness can take natively: folders to allow, images to attach.
-export function harnessInputs(delivered, workspace) {
+// What the harness can take natively: folders to allow (attached ones plus
+// `folders`, the project's; each once), images to attach.
+export function harnessInputs(delivered, workspace, folders = []) {
+  const key = (path) => (process.platform === "win32" ? resolve(path).toLowerCase() : resolve(path));
+  const dirs = new Map();
+  for (const dir of [...delivered.filter((a) => a.kind === "folder" && !a.missing).map((a) => a.path), ...folders])
+    if (!dirs.has(key(dir))) dirs.set(key(dir), dir);
   return {
-    addDirs: delivered.filter((a) => a.kind === "folder" && !a.missing).map((a) => a.path),
+    addDirs: [...dirs.values()],
     images: delivered
       .filter((a) => isImage(a) && !a.missing && !a.note)
       .map((a) => (isAbsolute(a.path) ? a.path : join(workspace, a.path))),

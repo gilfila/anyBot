@@ -48,6 +48,8 @@ export function ConversationForm({ employees, busy, onSave }) {
       {!employees.length && (
         <p>Create an employee first to start a project.</p>
       )}
+      {/* A project is two or more bots; one bot already has its chat in Bots. */}
+      <p className="field-hint">Pick at least two bots. To work with one bot, open its chat from the Bots list.</p>
       <div className="member-picker">
         {employees.map((e) => (
           <label className="checkbox" key={e.id}>
@@ -73,7 +75,7 @@ export function ConversationForm({ employees, busy, onSave }) {
       <div className="project-folders-section">
         <label>
           Allowed folders
-          <small>Folders this project's agents may access</small>
+          <small>Claude Code and Codex bots can read and write these; other harnesses only see them listed</small>
         </label>
         <div className="folder-list">
           {allowedFolders.map((folder, index) => (
@@ -103,7 +105,7 @@ export function ConversationForm({ employees, busy, onSave }) {
       <div className="project-folders-section">
         <label>
           Artifacts folder
-          <small>Default folder for project artifacts</small>
+          <small>Files bots return are copied here; a file with the same name gets a new name, never replaced</small>
         </label>
         <div className="folder-picker">
           <input
@@ -123,7 +125,7 @@ export function ConversationForm({ employees, busy, onSave }) {
           </button>
         </div>
       </div>
-      <button className="primary full" disabled={busy || !members.length}>
+      <button className="primary full" disabled={busy || members.length < 2}>
         <MessageSquare size={16} />
         Create project
       </button>

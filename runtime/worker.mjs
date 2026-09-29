@@ -4,7 +4,9 @@ import { isUnexpected } from "./diagnostics.mjs";
 const port = process.parentPort;
 if (!port)
   throw new Error("Coordinator must be started by the desktop supervisor");
-const coordinator = new Coordinator({ directory: process.argv[2] });
+// --hold: an update is waiting for the team to finish, so nothing queued
+// starts, including before this process is ready for main's runtime.hold.
+const coordinator = new Coordinator({ directory: process.argv[2], holding: process.argv.includes("--hold") });
 let ready = false,
   changedTimer;
 coordinator.on("diagnostic", (entry) => port.postMessage({ type: "diagnostic", entry }));

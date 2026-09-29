@@ -4,6 +4,9 @@ import { Avatar } from "./Avatar.jsx";
 
 export function ConversationMembersForm({ employees, selected, busy, onSave }) {
   const [members, setMembers] = useState(selected);
+  // A project keeps two or more bots; trimmed to one it would stop being a
+  // project (no board, no hand-offs). Delete it from its menu instead.
+  const minimum = selected.length > 1 ? 2 : 1;
   return (
     <form
       className="modal-form"
@@ -36,7 +39,10 @@ export function ConversationMembersForm({ employees, selected, busy, onSave }) {
           </label>
         ))}
       </div>
-      <button className="primary full" disabled={busy || !members.length}>
+      {minimum > 1 && members.length < 2 && (
+        <p className="field-hint">A project needs at least two bots. To stop using it, delete it from its menu in Projects.</p>
+      )}
+      <button className="primary full" disabled={busy || members.length < minimum}>
         <Check size={16} />
         Save bot membership
       </button>

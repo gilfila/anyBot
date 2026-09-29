@@ -12,9 +12,11 @@ import {
   parseAgyModels,
   extractEvent,
   invocation,
+  lineSplitter,
   runHarness,
   resolveExecutable,
 } from "../runtime/adapters.mjs";
+import { classifyRunError } from "../runtime/diagnostics.mjs";
 
 test("owner model catalog supplies current provider choices and fails closed", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "anybot-models-"));
@@ -85,11 +87,22 @@ test("built-in structured parsers expose text, final, and error semantics", () =
   const codexMessages = {};
   extractEvent("codex", { type: "item.completed", item: { type: "agent_message", text: "I'll run ls." } }, codexMessages);
   assert.deepEqual(extractEvent("codex", { type: "item.completed", item: { type: "agent_message", text: "Done." } }, codexMessages), { text: "\n\nDone." });
-  // Codex error items: startup warnings before the turn, failures during it.
+  // Codex error items are warnings, before the turn (config notices) and
+  // during it (compaction notices): a failure ends with turn.failed.
   const codexRun = {};
   assert.deepEqual(extractEvent("codex", { type: "item.completed", item: { type: "error", message: "config.toml key is ignored" } }, codexRun), { warning: "config.toml key is ignored" });
   extractEvent("codex", { type: "turn.started" }, codexRun);
-  assert.deepEqual(extractEvent("codex", { type: "item.completed", item: { type: "error", message: "Codex network failed" } }, codexRun), { error: "Codex network failed" });
+  const compaction = "Heads up: Long threads and multiple compactions can cause the model to be less accurate.";
+  assert.deepEqual(extractEvent("codex", { type: "item.completed", item: { type: "error", message: compaction } }, codexRun), { warning: compaction });
+  // A top-level error is a retry notice unless it can't recover (credits,
+  // sign-in, model); turn.failed carries the last one when it has no message.
+  const retry = "Reconnecting... 1/5 (stream disconnected before completion: error sending request)";
+  assert.deepEqual(extractEvent("codex", { type: "error", message: retry }, codexRun), { warning: retry });
+  assert.deepEqual(extractEvent("codex", { type: "turn.failed", error: {} }, codexRun), { error: retry });
+  assert.deepEqual(extractEvent("codex", { type: "turn.failed", error: { message: "stream closed" } }, codexRun), { error: "stream closed" });
+  const credits = "You've hit your usage limit. Upgrade to Pro or try again later.";
+  assert.deepEqual(extractEvent("codex", { type: "error", message: credits }, {}), { error: credits });
+  assert.deepEqual(extractEvent("codex", { type: "error", message: "unexpected status 401 Unauthorized" }, {}), { error: "unexpected status 401 Unauthorized" });
   // Antigravity: text deltas stream, the result's response is the reply, and a
   // non-SUCCESS status is the error (shapes captured from agy 1.2.10).
   assert.deepEqual(
@@ -100,7 +113,7 @@ test("built-in structured parsers expose text, final, and error semantics", () =
   assert.deepEqual(extractEvent("antigravity", { event: "result", result: { status: "ERROR", error: "quota exceeded" } }), { error: "quota exceeded" });
   // Headless agy auto-denies tools that need permission: say so, and how to allow it.
   const denied = [{ action: "command", display_name: "RunCommand" }];
-  assert.match(extractEvent("antigravity", { event: "result", result: { status: "SUCCESS", response: "", denied_actions: denied } }).error, /wasn't allowed to use RunCommand[\s\S]*Edits run, everything else asks you/);
+  assert.match(extractEvent("antigravity", { event: "result", result: { status: "SUCCESS", response: "", denied_actions: denied } }).error, /wasn't allowed to use RunCommand[\s\S]*Everything runs, nothing asks you/);
   assert.match(extractEvent("antigravity", { event: "result", result: { status: "SUCCESS", response: "Partly done", denied_actions: denied } }).final, /^Partly done\n\n_Antigravity wasn't allowed to use RunCommand/);
   assert.deepEqual(extractEvent("cursor", { type: "assistant", message: { content: [{ type: "text", text: "Cursor reply" }] } }), { text: "Cursor reply" });
   assert.deepEqual(extractEvent("cursor", { type: "result", subtype: "success", result: "Cursor final", is_error: false }), { final: "Cursor final" });
@@ -142,6 +155,24 @@ test("built-in structured parsers expose text, final, and error semantics", () =
   assert.deepEqual(invocation("claude", "sonnet", "ask").slice(-4), [
     "--permission-mode", "default", "--model", "sonnet",
   ]);
+});
+
+test("Codex's sandbox follows the bot's permission mode", () => {
+  // Codex exec can't ask, so each mode is a sandbox (flags checked against
+  // `codex exec --help` 0.130/0.157): ask reads only, auto writes the
+  // workspace, dontAsk adds network access. None lifts the sandbox.
+  const sandbox = (mode) => {
+    const argv = invocation("codex", "", mode);
+    return argv.slice(argv.indexOf("--sandbox") - 2);
+  };
+  assert.deepEqual(invocation("codex", "", "ask"), ["exec", "--json", "--skip-git-repo-check", "--sandbox", "read-only", "-"]);
+  assert.deepEqual(invocation("codex"), ["exec", "--json", "--skip-git-repo-check", "--sandbox", "workspace-write", "-"]);
+  assert.deepEqual(sandbox("dontAsk"), ["-c", "sandbox_workspace_write.network_access=true", "--sandbox", "workspace-write", "-"]);
+  for (const mode of ["ask", "auto", "dontAsk"]) {
+    const argv = invocation("codex", "", mode, undefined, { addDirs: ["C:/Shared"] });
+    assert.ok(!argv.some((part) => /bypass|danger-full-access/.test(part)), mode);
+    assert.ok(argv.indexOf("--add-dir") < argv.indexOf("--sandbox"), "folders before the sandbox flag");
+  }
 });
 
 test("provider model discovery reads the configured model without inventing a catalog", async (t) => {
@@ -247,7 +278,7 @@ test(
   },
 );
 
-async function fixture(t, source, options = {}) {
+async function fixture(t, source, options = {}, internals = {}) {
   const harness = options.harness || "codex";
   const workspace = await mkdtemp(join(tmpdir(), "anybot-process-"));
   const script = join(workspace, "provider.cjs");
@@ -275,6 +306,7 @@ async function fixture(t, source, options = {}) {
           },
           {
             resolve: async () => ({ file: process.execPath, prefix: [script] }),
+            ...internals,
           },
         );
       } finally {
@@ -336,12 +368,72 @@ test("real subprocess malformed output fails even after a valid answer", async (
   await assert.rejects(f.run(), /invalid structured output/);
 });
 
-test("structured provider errors cancel a retrying Codex process promptly", async (t) => {
+test("a Codex error that can't recover (out of credits) stops a retrying process promptly", async (t) => {
   const f = await fixture(
     t,
-    `process.stdout.write(JSON.stringify({type:'turn.started'})+'\\n'+JSON.stringify({type:'item.completed',item:{type:'error',message:'Codex network failed'}})+'\\n'); setInterval(() => {},1000);`,
+    `process.stdout.write(JSON.stringify({type:'turn.started'})+'\\n'+JSON.stringify({type:'error',message:"You've hit your usage limit. Try again later."})+'\\n'); setInterval(() => {},1000);`,
   );
-  await assert.rejects(f.run(), /Codex network failed/);
+  await assert.rejects(f.run(), /hit your usage limit/);
+});
+
+test("a failed Codex turn stops the run with the error it reported", async (t) => {
+  const f = await fixture(
+    t,
+    [
+      `const say = (e) => process.stdout.write(JSON.stringify(e) + '\\n');`,
+      `say({type:'turn.started'});`,
+      `say({type:'error',message:'Reconnecting... 5/5 (stream disconnected before completion)'});`,
+      `say({type:'turn.failed',error:{}});`,
+      `setInterval(() => {},1000);`,
+    ].join(" "),
+  );
+  await assert.rejects(f.run(), /Reconnecting\.\.\. 5\/5/);
+});
+
+test("Codex notices mid-turn (a compaction warning, a reconnect) don't end the run", async (t) => {
+  // The same event shapes as the real capture in tests/fixtures/usage/codex.jsonl.
+  const f = await fixture(
+    t,
+    [
+      `const say = (e) => process.stdout.write(JSON.stringify(e) + '\\n');`,
+      `say({type:'thread.started',thread_id:'t1'});`,
+      `say({type:'turn.started'});`,
+      `say({type:'item.completed',item:{id:'item_0',type:'agent_message',text:'Working.'}});`,
+      `say({type:'item.completed',item:{id:'item_1',type:'error',message:'Heads up: Long threads and multiple compactions can cause the model to be less accurate.'}});`,
+      `say({type:'error',message:'Reconnecting... 1/5 (stream disconnected before completion: error sending request)'});`,
+      `say({type:'item.completed',item:{id:'item_2',type:'agent_message',text:'Done.'}});`,
+      `say({type:'turn.completed',usage:{input_tokens:5,output_tokens:1}});`,
+    ].join(" "),
+  );
+  assert.equal(await f.run(), "Working.\n\nDone.");
+});
+
+test("a Codex exit with no turn.failed reports its last error", async (t) => {
+  const f = await fixture(
+    t,
+    `process.stdout.write(JSON.stringify({type:'turn.started'})+'\\n'+JSON.stringify({type:'error',message:'Reconnecting... 2/5 (connection reset)'})+'\\n'); process.exitCode = 1;`,
+  );
+  await assert.rejects(f.run(), /Reconnecting\.\.\. 2\/5 \(connection reset\)/);
+});
+
+test("a Codex retry notice that recovered doesn't explain a later, unrelated failure", async (t) => {
+  const f = await fixture(
+    t,
+    [
+      `const say = (e) => process.stdout.write(JSON.stringify(e) + '\\n');`,
+      `say({type:'turn.started'});`,
+      `say({type:'error',message:'Reconnecting... 1/5 (unexpected status 429 Too Many Requests)'});`,
+      `say({type:'item.completed',item:{id:'item_0',type:'agent_message',text:'Working.'}});`,
+      `process.stderr.write("thread 'main' panicked at src/main.rs:1\\n");`,
+      `process.exitCode = 3;`,
+    ].join(" "),
+  );
+  await assert.rejects(f.run(), (error) => {
+    assert.doesNotMatch(error.message, /Reconnecting/);
+    assert.match(error.message, /panicked/);
+    assert.notEqual(classifyRunError(error.message), "usage_limit");
+    return true;
+  });
 });
 
 test("a Codex startup warning (an unrecognized config.toml key) doesn't fail the run", async (t) => {
@@ -360,17 +452,123 @@ test("a Codex startup warning (an unrecognized config.toml key) doesn't fail the
   assert.equal(await f.run(), "OK");
 });
 
-test("real subprocess output overflow reports its limit instead of a generic killed-process error", async (t) => {
+test("a long run's tool output past 2 MB doesn't stop it", async (t) => {
+  // Claude repeats each file it reads or edits in its tool events (a 100 KB
+  // file is ~200 KB of stream): 30 of them is ~6 MB and a normal run.
   const f = await fixture(
     t,
-    `process.stdout.write('x'.repeat(2100000)); setInterval(() => {},1000);`,
+    [
+      `const say = (e) => process.stdout.write(JSON.stringify(e) + '\\n');`,
+      `const file = 'x'.repeat(100000);`,
+      `for (let i = 0; i < 30; i++) say({type:'user',message:{content:[{type:'tool_result',content:file}]},tool_use_result:{file:{content:file}}});`,
+      `say({type:'assistant',message:{content:[{type:'text',text:'Edited all of it.'}]}});`,
+      `say({type:'result',result:'Edited all of it.',is_error:false});`,
+    ].join(" "),
+    { harness: "claude" },
   );
-  await assert.rejects(f.run(), /2 MB run limit/);
+  assert.equal(await f.run(), "Edited all of it.");
+});
+
+test("a runaway harness stops at the output backstop, with its own error", async (t) => {
+  const f = await fixture(
+    t,
+    `const line = JSON.stringify({type:'user',message:{content:[{type:'tool_result',content:'y'.repeat(50000)}]}}) + '\\n'; setInterval(() => process.stdout.write(line), 1);`,
+    { harness: "claude" },
+    { limits: { total: 1_000_000 } },
+  );
+  await assert.rejects(f.run(), (error) => {
+    assert.match(error.message, /safety limit/);
+    assert.equal(classifyRunError(error.message), "output_limit");
+    return true;
+  });
+});
+
+test("one oversized event is skipped, not fatal", async (t) => {
+  const terminal = [];
+  const f = await fixture(
+    t,
+    [
+      `const say = (e) => process.stdout.write(JSON.stringify(e) + '\\n');`,
+      `say({type:'user',message:{content:[{type:'tool_result',content:'z'.repeat(300000)}]}});`,
+      `say({type:'result',result:'Still here',is_error:false});`,
+    ].join(" "),
+    { harness: "claude", onTerminal: (text) => terminal.push(text) },
+    { limits: { line: 100_000 } },
+  );
+  assert.equal(await f.run(), "Still here");
+  assert.ok(terminal.some((text) => /oversized event skipped/.test(text)));
+});
+
+test("streamed output splits into lines across chunks; an oversized line is skipped to its newline", () => {
+  const lines = [];
+  let oversized = 0;
+  const split = lineSplitter(10, (line) => lines.push(line), () => oversized++);
+  split.feed("ab");
+  split.feed("c\nde\nf");
+  split.feed("g\n\nh");
+  assert.deepEqual(lines, ["abc", "de", "fg", ""]);
+  split.feed("0123456789A"); // past 10 characters without a newline
+  assert.equal(oversized, 1);
+  split.feed("more of it");
+  split.feed(" still\nnext\ntail");
+  assert.deepEqual(lines, ["abc", "de", "fg", "", "next"], "the oversized line is dropped, the next one kept");
+  assert.equal(split.rest(), "tail");
+  assert.equal(split.rest(), "");
+});
+
+test("one very long event is read in time linear in its size", () => {
+  // A 48 MB line in 64 KB chunks, as a harness's stdout delivers it (a large
+  // file read returned as base64 is one event). Rescanning and rejoining the
+  // whole pending line on every chunk took seconds here and froze the
+  // coordinator; reading it once takes milliseconds.
+  const chunk = "x".repeat(64 * 1024);
+  let length = 0;
+  const split = lineSplitter(64 * 1024 * 1024, (line) => (length = line.length));
+  const started = performance.now();
+  for (let i = 0; i < 768; i++) split.feed(chunk);
+  split.feed("\n");
+  const elapsed = performance.now() - started;
+  assert.equal(length, 768 * chunk.length);
+  assert.ok(elapsed < 1000, `took ${Math.round(elapsed)} ms`);
+});
+
+test("a plain-text harness's kept reply is capped instead of killing the run", async (t) => {
+  const f = await fixture(t, `process.stdout.write('h'.repeat(5000));`, { harness: "hermes" }, { limits: { reply: 1000 } });
+  const result = await f.run();
+  assert.ok(result.startsWith("h".repeat(1000)));
+  assert.match(result, /output truncated/);
+  assert.ok(result.length < 1200);
+});
+
+test("a structured harness's final result is capped like its streamed reply", async (t) => {
+  const f = await fixture(
+    t,
+    `process.stdout.write(JSON.stringify({type:'result',result:'r'.repeat(5000),is_error:false})+'\\n');`,
+    { harness: "claude" },
+    { limits: { reply: 1000 } },
+  );
+  const result = await f.run();
+  assert.ok(result.startsWith("r".repeat(1000)));
+  assert.match(result, /output truncated/);
+  assert.ok(result.length < 1200);
 });
 
 test("real subprocess timeout terminates a hanging provider", async (t) => {
   const f = await fixture(t, `setInterval(() => {},1000);`, { timeoutMs: 150 });
   await assert.rejects(f.run(), /time limit/);
+});
+
+test("time spent waiting on the owner's approval doesn't count against the run limit", async (t) => {
+  // The harness needs 900 ms; 830 of them are an approval wait, so it
+  // worked for well under its 400 ms limit.
+  const source = `setTimeout(() => process.stdout.write(JSON.stringify({type:'result',result:'Approved and done',is_error:false})+'\\n'), 900);`;
+  const started = Date.now();
+  const waitedMs = () => Math.max(0, Math.min(Date.now() - started, 850) - 20);
+  const paused = await fixture(t, source, { harness: "claude", timeoutMs: 400, waitedMs });
+  assert.equal(await paused.run(), "Approved and done");
+  // Without the pause, the same run is cut off.
+  const counted = await fixture(t, source, { harness: "claude", timeoutMs: 400 });
+  await assert.rejects(counted.run(), /time limit/);
 });
 
 test("real subprocess cancellation waits for process shutdown", async (t) => {

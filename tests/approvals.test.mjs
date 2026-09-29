@@ -113,6 +113,50 @@ test("requests are declined when nobody answers or the run ends", async (t) => {
   assert.ok(notices.some((body) => /withdrawn when the run ended/.test(body)));
 });
 
+test("time a run spends waiting on the owner is measured, so the run limit can leave it out", async (t) => {
+  const readings = {};
+  let decided;
+  const { c, send, until } = await fixture(t, async (opts) => {
+    assert.equal(typeof opts.waitedMs, "function", "the run gets the approval clock");
+    readings.before = opts.waitedMs();
+    const answer = ask(opts.approvals.configPath, { tool_name: "Bash", input: { command: "npm publish" } });
+    await new Promise((resolve) => (decided = resolve));
+    await answer;
+    readings.after = opts.waitedMs();
+    await new Promise((r) => setTimeout(r, 80));
+    readings.later = opts.waitedMs();
+    return "Published.";
+  });
+  await send("Publish it");
+  await until(() => decided && c.snapshot().approvals.some((a) => a.status === "pending"), "the request");
+  await new Promise((r) => setTimeout(r, 150));
+  await c.command("approvals.decide", { id: c.snapshot().approvals[0].id, decision: "allow" });
+  decided();
+  await until(() => c.snapshot().runs.every((r) => r.status === "succeeded"), "the run");
+  assert.equal(readings.before, 0);
+  assert.ok(readings.after >= 140, `waited ${readings.after} ms`);
+  assert.equal(readings.later, readings.after, "the clock stops once the request is answered");
+});
+
+test("an approval outcome is posted in the run's thread", async (t) => {
+  const { c, sol, until } = await fixture(t, async (opts) => {
+    await ask(opts.approvals.configPath, { tool_name: "Bash", input: { command: "rm -rf dist" } });
+    return "Done.";
+  });
+  await c.command("employees.create", { name: "Kit", role: "Editor", harness: "codex", trusted: true });
+  const kit = c.snapshot().employees.find((e) => e.name === "Kit");
+  await c.command("conversations.create", { title: "Studio", members: [sol.id, kit.id] });
+  const studio = c.snapshot().conversations.find((x) => x.title === "Studio");
+  await c.command("messages.send", { conversation: studio.id, body: "@Sol clean up", requestId: crypto.randomUUID() });
+  await until(() => c.snapshot().approvals.some((a) => a.status === "pending"), "the request");
+  await c.command("approvals.decide", { id: c.snapshot().approvals[0].id, decision: "deny" });
+  await until(() => c.snapshot().runs.every((r) => r.status === "succeeded"), "the run");
+  const run = c.snapshot().runs[0];
+  assert.ok(run.thread, "a project run works in a thread");
+  const notice = c.snapshot().messages.find((m) => /You declined Sol's request/.test(m.body));
+  assert.equal(notice.thread, run.thread);
+});
+
 test("other harnesses get no approval bridge", async (t) => {
   const seen = [];
   const { c, chat, send, until } = await fixture(t, async (opts) => {
