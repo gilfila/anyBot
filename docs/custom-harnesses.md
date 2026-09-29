@@ -1,6 +1,6 @@
 # Custom CLI harnesses
 
-The five built-in adapters are supplemented by an owner-controlled configuration file. Create `harnesses.json` in the app data directory displayed under **Runtime & privacy**, then fully quit and restart anyBot. Closing its window performs a coordinated shutdown; use the tray menu when you need to stop active work explicitly.
+The five built-in adapters are supplemented by an owner-controlled configuration file. Create `harnesses.json` in the app data directory displayed under **Runtime & privacy**, then fully quit and restart anyBot. Closing the window only hides anyBot to the tray, so quit from the tray menu (**Quit and stop active work**) or **Settings → Quit**, then start it again.
 
 ```json
 {

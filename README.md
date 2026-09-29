@@ -58,11 +58,11 @@ Bots can **report to other bots**. A manager can hand work down its chain and re
 - **Easy to follow.** Each bot's replies sit in its own colored bubble, so you can tell who said what at a glance, even over the animated backgrounds.
 - **Hand-offs.** Bots pass work to each other on their own, and each result comes back to the bot that asked for it. Delegated work runs in the team's own project room, so your chat stays clean.
 - **Watch the work.** Live output streams in while a bot works. You can stop one bot or everything at once.
-- **Voice.** You can dictate a message. In a one-to-one chat, voice chat reads the reply back to you.
+- **Voice (experimental).** You can dictate a message, if the speech recognition built into Any Bot works on your PC (if it doesn't, Any Bot says so). In a one-to-one chat, voice chat sends each phrase you say as its own message, and reads a reply aloud only if it arrives within about 24 seconds. Longer replies still show in the chat, but aren't read out.
 
 ### Stay in control
 
-Bots run in **Auto** mode by default:
+Bots run in **Auto** mode by default. For Claude Code bots, that means:
 
 - **Safe actions just run,** like reading files or listing folders.
 - **Edits inside the bot's own workspace are always allowed.**
@@ -70,7 +70,9 @@ Bots run in **Auto** mode by default:
 
 When a Claude Code bot needs permission, an approval card appears above the message box. It shows exactly what the bot wants to run, with **Approve** and **Decline** buttons. A Windows notification tells you if Any Bot is in the background. Requests nobody answers within 15 minutes are declined, and time spent waiting for you doesn't count against the bot's time limit.
 
-You can also set a bot to ask before every action, or to make edits freely and ask about everything else. Other harnesses can't ask: what their mode doesn't allow is refused, and the bot editor says what each mode does for each harness (see [Supported harnesses](#supported-harnesses)).
+You can also set a Claude Code bot to ask before every action, or to make edits freely and ask about everything else.
+
+**Only Claude Code bots can ask you.** The other harnesses can't show an approval card, so whatever their mode doesn't allow is refused. The modes mean something different for each of them, and the bot editor says what each one does for the bot's harness (see [Supported harnesses](#supported-harnesses)).
 
 ### Plan on a board
 
@@ -85,9 +87,7 @@ Every project has a task board with four columns: **Backlog**, **In progress**, 
 
 ### Share a Canvas
 
-Open a PR with a new stable version and changelog entry. The **Release Windows** workflow verifies the app and packages the installer; merging to main publishes the verified installer, blockmap, and update metadata to the public feed. Source code and build provenance stay private. No local packaging or release upload is needed.
-
-See [Automated releases](docs/releasing.md) for the one-time GitHub App/billing setup, required PR check, and recovery rules. Until that setup is complete, the publisher fails closed. Share the [direct installer download page](https://github.com/gilfila/anyBot-updates#readme) with users; GitHub's own release page always displays automatic archives of the public README repository.
+Every conversation has a **Canvas**: a shared page like a Slack canvas. You and your bots write it together.
 
 - **What it holds:** text, lists, to-dos, callouts, tables, link cards, and live task cards.
 - **Collected for you:** every file the bots produced and every link shared in the chat, in one place.
@@ -184,7 +184,7 @@ Give any bot its own Slack app: open the bot's **⋯** menu and choose **Connect
 ## Also in development
 
 - A **phone companion** (Android, built with Capacitor). Pair it by scanning one QR code from **Settings → Your phone**. It then works on Wi-Fi or mobile data, end-to-end encrypted. See [docs/mobile.md](docs/mobile.md).
-- A **headless server mode** for running the same coordinator on a private server. See [docs/server.md](docs/server.md).
+- A **headless server mode** for running the same coordinator on a private server. It's experimental and not usable on its own yet: it can't hand out phone pairing codes, add bots, or answer approvals, so those still need the desktop app. See [docs/server.md](docs/server.md).
 
 ## For developers
 

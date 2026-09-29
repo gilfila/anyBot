@@ -15,10 +15,13 @@ A run from source uses its own profile, `%APPDATA%\anybot-desktop-dev`, not the 
 
 `npm run verify:local` is the local acceptance gate. It runs these in order:
 
-1. the unit and integration suite
-2. the renderer build
-3. the Electron runtime smoke test
-4. the mobile web and Capacitor sync checks
+1. the unit and integration suite (`npm test`)
+2. the renderer build (`npm run build`)
+3. the Electron runtime smoke test (`npm run test:runtime`)
+4. the Electron thread-collaboration end-to-end test (`npm run test:e2e`)
+5. the Electron 3D bot recovery test (`npm run test:avatars`)
+6. the mobile web build and Capacitor sync (`npm run mobile:sync`)
+7. installed-harness and model discovery (`npm run doctor`)
 
 The desktop shell tries Electron's Chromium renderer sandbox first. Some Windows hosts reject the sandbox before the page loads. On those, anyBot retries with context isolation on, Node integration off, and the same narrow IPC surface.
 
@@ -33,7 +36,7 @@ The desktop shell tries Electron's Chromium renderer sandbox first. Some Windows
 
 Closing the window hides anyBot to the tray. The coordinator and active employees keep running. **Quit and stop active work** in the tray menu, or **Quit** in Settings, stops everything the same graceful way: the coordinator stops each run, records it as cut off, and at the next start posts a note in its conversation, tells the bot that handed it the work, and notes its task. Queued work starts again at the next start. Settings asks first when bots are working.
 
-**Launch at login** (Settings → Runtime & privacy) is opt-in. It starts the runtime after you sign in to Windows, so routines and long runs keep going. The computer still has to stay on.
+**Launch at login** (Settings → Runtime & privacy) is opt-in. It starts the runtime after you sign in to Windows, so routines and queued work pick up again (runs cut off by a quit or restart are reported, not resumed). The computer still has to stay on.
 
 ## Automatic updates
 
@@ -77,29 +80,28 @@ Security properties:
 
 ## Publishing a release
 
-1. Merge the release PR to `main`. It must bump the version in `package.json` and `package-lock.json` and add a CHANGELOG entry.
-2. Build from a **clean checkout** of `main`. Run a real `npm ci` and `node node_modules/electron/install.js`, then `npm run package`. A linked or junctioned `node_modules` produces an `app.asar` without its dependencies.
-3. Check the build:
-   - `npx @electron/asar list release/win-unpacked/resources/app.asar` includes `node_modules/electron-updater` and `node_modules/builder-util-runtime`.
-   - `release/win-unpacked/resources/app.asar.unpacked/runtime/approval-mcp.mjs` exists. Claude Code starts it as the approval bridge.
-   - The `sha512` and `size` in `release/latest.yml` match `anyBot-Setup-X.Y.Z.exe`.
-4. Tag the source repo with an annotated tag `vX.Y.Z` ("anyBot X.Y.Z") and push it.
-5. Create the release on the source repository and on the mirror, each with the installer, its blockmap, and `latest.yml`:
+Releases are published by `.github/workflows/release.yml`, never by hand:
 
-   ```powershell
-   gh release create vX.Y.Z -R gilfila/anyBot --verify-tag --latest --title "anyBot X.Y.Z" `
-     release/anyBot-Setup-X.Y.Z.exe release/anyBot-Setup-X.Y.Z.exe.blockmap release/latest.yml
-   gh release create vX.Y.Z -R gilfila/anyBot-updates --target main --latest --title "anyBot X.Y.Z" `
-     release/anyBot-Setup-X.Y.Z.exe release/anyBot-Setup-X.Y.Z.exe.blockmap release/latest.yml
-   ```
+1. Open a PR that bumps the version in `package.json` and `package-lock.json` (`npm version X.Y.Z --no-git-tag-version`) and adds a CHANGELOG entry for it, written for users. The **Release Windows / Verify release** check validates the version and the entry, runs the test suites, builds the installer from a real `npm ci`, and checks the packaged app (its `electron-updater` and `builder-util-runtime`, its UI assets, and `latest.yml` against the installer).
+2. Merge it to `main`. A merge is a release, so merge only with the owner's OK. The publish job uploads the verified installer, blockmap and `latest.yml` to `gilfila/anyBot` and to the `gilfila/anyBot-updates` mirror (plus `AnyBot-phone.apk` on `gilfila/anyBot` once the phone signing secrets are set), tags the source commit, and checks both live feeds. The version's CHANGELOG entry becomes the release notes that the in-app update card shows.
 
-6. Fetch `https://github.com/gilfila/anyBot/releases/latest/download/latest.yml` (and the same path on `anyBot-updates`) and confirm it shows the new version. Installed copies pick it up on their next check.
+The one-time setup, the required PR check and recovery (`workflow_dispatch` on `main`) are in [releasing.md](releasing.md).
+
+**Don't package and upload a version yourself** (`npm run package` plus `gh release create`). The publisher only continues a release that carries its own `<!-- source-commit: ... -->` marker, so a hand-made release blocks that version for good and needs a new patch version to fix. It would also have no release notes and no phone app. A local `npm run package` is still fine for testing, from a clean checkout with a real `npm ci` and `node node_modules/electron/install.js`: a linked or junctioned `node_modules` produces an `app.asar` without its dependencies.
+
+If a publish run fails, read its **Verify release** and **Publish verified installer** logs first. These read-only checks help too:
+
+- `https://github.com/gilfila/anyBot/releases/latest/download/latest.yml` (and the same path on `anyBot-updates`) shows the version the feeds serve.
+- In a local build, `npx @electron/asar list release/win-unpacked/resources/app.asar` includes `node_modules/electron-updater` and `node_modules/builder-util-runtime`, and `release/win-unpacked/resources/app.asar.unpacked/runtime/approval-mcp.mjs` exists (Claude Code starts it as the approval bridge).
+
+Each release holds these files:
 
 | File | Purpose | Required |
 |---|---|---|
 | `anyBot-Setup-X.Y.Z.exe` | NSIS installer | Yes |
 | `latest.yml` | electron-updater metadata | Yes |
 | `anyBot-Setup-X.Y.Z.exe.blockmap` | Delta updates | Optional |
+| `AnyBot-phone.apk` | The Android phone app (`gilfila/anyBot` only) | Only when the signing secrets are set |
 
 ## Windows install recovery
 
@@ -135,7 +137,7 @@ npx playwright test --config playwright.snake.config.mjs
 - mobile gateway roles and human-member conversation ACLs
 - headless server startup
 
-Tests that need a signed-in provider are opt-in, because they depend on installed CLIs and account state. More evidence is in [verification.md](verification.md) and [implementation-status.md](implementation-status.md).
+Tests that need a signed-in provider are opt-in, because they depend on installed CLIs and account state. [verification.md](verification.md), [implementation-status.md](implementation-status.md) and [release-readiness.md](release-readiness.md) are historical records of the 0.2.11 build, not current evidence; the [CHANGELOG](../CHANGELOG.md) records what each release was checked with.
 
 `tests/server.test.mjs` binds port 4319. If another process holds that port, two tests fail with `EADDRINUSE`. CI is unaffected.
 

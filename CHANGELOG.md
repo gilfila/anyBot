@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.32] - 2026-09-29
+
+### Fixed
+- **Updating or quitting no longer cuts your bots off without warning.** If bots are working when you click **Restart** to update, or **Quit** in Settings, Any Bot asks first. **Install when they finish** waits until they're done (new work waits too), then installs. **Stop and restart now** stops them cleanly first. Either way, Any Bot shuts down properly before the installer starts.
+- **Work cut off by a quit, an update or a crash isn't forgotten.** At the next start its conversation gets a note, the bot that handed the work off is told so it can carry on, and its task card says so. A Slack request gets an answer too, instead of the "eyes" reaction staying for a day.
+- **Long runs aren't stopped partway.** A Claude Code or Codex bot doing a lot of work (big tool output, pictures) was stopped once its output passed 2 MB. Now only a truly runaway run is stopped, with its own message.
+- **Codex bots don't give up on a passing hiccup.** A Codex warning or retry notice no longer ends the run. Only errors it can't recover from (out of credits, signed out, a model it can't use) do.
+- **Bots can work in your project's folders.** A project's **Allowed folders** and **Artifacts folder** are now opened to Claude Code and Codex bots instead of only being mentioned to them. Codex bots couldn't write there before.
+- **Waiting for your approval no longer uses up a bot's time limit.**
+- **Nothing in the Artifacts folder is overwritten.** A file with the same name as one already there is saved as, for example, "report (2).pdf".
+- **Editing a file in a bot's inbox no longer breaks that bot's later runs.**
+- **Slack follows the whole piece of work.** When a bot hands work off, Slack says so once and then posts the final answer, not raw hand-off text. A message with a file attached gets a reply saying files aren't passed on yet (its text still reaches the bot).
+- **The phone stays connected with long replies.** A reply too big for the phone link is shortened instead of knocking the phone offline.
+- **The Terminal runs where you'd expect.** It runs in the project's folder or the bot's workspace (never Any Bot's own data folder), `cd` sticks, and **Stop** stops the command.
+- **A crashed window reloads by itself** instead of showing a "could not start" message while the bots kept running behind it.
+- **Your unsent message stays** when you switch to another conversation and back.
+- **A project with only one bot left stays in the sidebar**, where you can still edit or delete it.
+- **Boards:** a bot action that's rejected now changes nothing at all, and the notice says which action it was. Approval notices appear in the thread where the bot is working. A canvas section no longer repeats its heading.
+- **Autopilot can't run away.** It turns off when you press **Stop all** in the project's chat, and after the bots have started 20 tasks they created for themselves in a day. A task it can't start is noted once instead of every few seconds.
+- **Bots know direct chats have no board**, so they no longer try to add tasks there and have them rejected.
+- Update checks that fail because you're offline (at login, after sleep) no longer show up as problems.
+
+### Changed
+- **The permission choices in the bot editor say what they really do for each harness.** Only Claude Code bots can ask you for approval.
+  - **Codex:** the three choices are now three real sandboxes: **Read-only**, **Auto** (its workspace and the project's folders), and Auto **plus network access**. A Codex bot set to "Ask before every action" is now read-only; before, it could edit like Auto.
+  - **Antigravity and Cursor:** the choice that lets everything run is now called "Everything runs, nothing asks you", because it turns off their permission checks.
+- **The docs catch up with the app.** The README's Canvas section is back, voice chat and the headless server are marked experimental with what they really do today, and the release notes for 0.3.5 (Diagnostics) and 0.3.6 (Canvas) are restored below.
+- **For developers:** running Any Bot from source uses its own profile, so it never touches the installed app's bots, data or Launch at login setting.
+
 ## [0.3.30] - 2026-09-28
 
 ### Changed
@@ -312,11 +341,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [0.3.10] - 2026-09-23
 
-
 ### Changed
 - Unified Any Bot branding around the approved darker sage Scout helmet, with matching desktop, taskbar, tray, installer, app header, browser, and mobile launcher artwork.
 - Product display name is now **Any Bot**. Existing app IDs, executable/update filenames, installation identity and user profiles remain compatible.
 - Enabled Windows icon and executable metadata embedding while retaining unsigned builds. Added reproducible icon exports from one approved master.
+
 ## [0.3.9] - 2026-09-23
 
 ### Added
@@ -404,9 +433,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [0.3.6] - 2026-09-23
 
+### Changed
+- **The Doc page is now the Canvas**, and it works like a Slack canvas: one shared, semi-structured page per conversation that you and your bots both write. Every conversation has one, one-bot chats included: the tabs are **Chat · Board · Canvas** in projects and **Chat · Canvas** in direct chats.
+- **Canvas beside the chat:** the chat side panel's **Deliverables** tab is now **Canvas**. It shows the same editable canvas next to the conversation, with **Open full canvas** to expand it.
+
 ### Added
+- **Files & outputs** at the top of every canvas: every file the bots returned in the conversation, with who made it, size, and age. Click a file to open it, show it in its folder, or add it to the page.
+- **Links from the chat:** every link shared in the conversation, newest first, one per address. Click to open, or add it to the page as a link card.
+- **Tables:** `/table`, editable in place.
+  - Tab and Shift+Tab move between cells, and Enter moves down, adding a row at the end.
+  - A toolbar adds and deletes rows and columns.
+  - Cells render links, bold, and code.
+- **Link cards:** `/link`, or any line in a bot's canvas update that is only a link.
+- **Starter templates** for an empty canvas: Project brief, Meeting notes, and Tracker.
+- **Markdown tables from bots:** they become canvas tables in `doc.append` and `doc.section`, and they now render as real tables in chat messages instead of raw pipes.
+
+### Added (release automation)
+Two branches used the 0.3.6 number: the Canvas above and the automated release workflow. A merge lost this Canvas entry and the 0.3.5 Diagnostics entry below; both were restored in 0.3.32.
 - PR-driven Windows release workflow with version validation, packaged dependency/UI verification, exact-source provenance, and an installer-only public asset allowlist. Merging to main publishes after verification once the scoped GitHub App and Actions billing are configured.
 - Direct installer download page and safeguards against reused versions, mismatched source tags, incomplete uploads, and update-feed downgrades.
+
+### Technical
+- Canvas blocks add `table` (`rows`, at most 100 × 12, cells up to 500 characters) and `link` (http(s) `url` only). `markdownToBlocks` and `blocksToMarkdown` round-trip GFM tables, including escaped pipes.
+- Doc actions now work in any conversation whose members include the bot. Prompts and the action guide call it "the canvas".
+- New `src/components/doc/CanvasParts.jsx` and `canvas.css`. Tests: `tests/canvas.test.mjs`.
+
+## [0.3.5] - 2026-09-23
+
+### Added
+- **Diagnostics** (Settings → Diagnostics). anyBot keeps a local log of problems and shows them grouped by kind, each with a plain-language next step. A badge on **Runtime & privacy** counts new problems. The log keeps error details only (never conversation text), redacts keys, is capped at about 3 MB, and never leaves the computer. Copy report, Open log folder, and Clear are one click each.
+  - **Harness failures are sorted by cause:** not installed, sign-in, usage limit, timeout, unavailable model, no answer, failed to start, or another exit. Each has a fix hint and an Edit bot or Open harnesses button.
+  - **Bot output anyBot couldn't use:** unreadable `anybot-actions` blocks, refused board, doc, memory, and graph actions, refused handoffs, and files that weren't collected.
+  - **Updates:** the updater's timeline and failures are logged. Before installing, anyBot notes the version it expects, so an installer that fails (like the 0.2.25 → 0.2.26 case) shows up as "The update didn't install" on the next start.
+  - **Crashes and internal errors:** coordinator exits and error output, crashed background processes, unexpected command failures, window errors, and formatting failures.
+- **Crash recovery screen:** a rendering bug now shows "Something went wrong on this screen" with Reload and Copy details, instead of a blank window.
+
+### Fixed
+- A message the markdown renderer can't process now falls back to plain text instead of breaking the view.
+
+### Technical
+- New `desktop/diagnostics.cjs` (JSONL log with rotation, fingerprint grouping, burst suppression, and the pending-update check), `runtime/diagnostics.mjs` (harness error classification), and `src/lib/diagnostics.js` (reporting, descriptions, and the copyable report).
+- The coordinator emits `diagnostic` events, which the worker forwards to the main process. Main-process IPC methods: `diagnostics.list|report|markSeen|clear|reveal`. Snapshots carry `diagnostics: {issues, unseen, errors}`.
+- Updater install behavior is unchanged; anyBot only writes `update-pending.json` just before `quitAndInstall`. Tests: `tests/diagnostics.test.mjs`.
 
 ## [0.3.4] - 2026-09-23
 
