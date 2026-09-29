@@ -75,6 +75,10 @@ function phoneAppDownload() {
 // Override with ANYBOT_UPDATE_FEED_URL environment variable if needed.
 const DEFAULT_UPDATE_FEED_URL = "https://github.com/gilfila/anyBot/releases/latest/download";
 const UPDATE_FEED_URL = process.env.ANYBOT_UPDATE_FEED_URL || DEFAULT_UPDATE_FEED_URL;
+// Updates ship only as the Windows NSIS installer. A copy run from source
+// (`npm start`, any platform) updates with git, so the updater stays off and
+// Settings says how.
+const AUTO_UPDATE_SUPPORTED = app.isPackaged && process.platform === "win32";
 
 // Update state machine: idle → checking → available → downloading → downloaded → error
 const UpdateState = {
@@ -430,6 +434,7 @@ function getUpdateState() {
   // Always include feedConfigured so the UI knows whether the feed is set up,
   // even when there's no pending update to display.
   const feedConfigured = !!UPDATE_FEED_URL && isValidUpdateFeedUrl(UPDATE_FEED_URL);
+  const supported = AUTO_UPDATE_SUPPORTED;
 
   // If update is dismissed, hide it unless we're already downloading/downloaded
   if (
@@ -438,11 +443,11 @@ function getUpdateState() {
     compareVersions(updateInfo.version, dismissedVersion) <= 0 &&
     updateState === UpdateState.AVAILABLE
   ) {
-    return { feedConfigured };
+    return { feedConfigured, supported };
   }
 
   if (!updateInfo && updateState === UpdateState.IDLE) {
-    return { feedConfigured };
+    return { feedConfigured, supported };
   }
 
   return {
@@ -454,6 +459,7 @@ function getUpdateState() {
     error: updateError,
     feedConfigured,
     installWhenIdle,
+    supported,
   };
 }
 
@@ -642,6 +648,7 @@ async function retryUpdate() {
 }
 
 function startUpdateChecker() {
+  if (!AUTO_UPDATE_SUPPORTED) return;
   dismissedVersion = loadDismissedVersion();
   autoUpdater = initializeAutoUpdater();
   
