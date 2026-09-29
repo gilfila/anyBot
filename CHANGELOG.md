@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.35] - 2026-09-29
+
+### Added
+- **Talk to a bot in Buzz.** Open a bot's **⋯** menu and choose **Connect to Buzz**. A four-step checklist walks you through it, ticking each step off as you go:
+  1. Turn on the Buzz connection.
+  2. Add Any Bot to Buzz Desktop.
+  3. Create the agent in Buzz, with its name and link copied from the checklist.
+  4. Say hello.
+
+  After that, @mention the agent in any Buzz channel. The bot works on it here, in its direct chat, and replies in the Buzz thread.
+  - Buzz keeps the agent's identity and decides who may mention it. Any Bot stores no Buzz keys.
+  - The connection is off until you turn it on, and only programs on this computer can reach it.
+  - Risky steps still wait for your approval in Any Bot. The Buzz thread only says the bot is waiting, never what the command is.
+  - `!cancel` in Buzz, or a new mention while the bot is working, stops the run.
+
 ## [0.3.34] - 2026-09-29
 
 ### Fixed

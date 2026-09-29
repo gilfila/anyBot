@@ -183,6 +183,17 @@ Many problems have a button that takes you to the fix. **Copy report** gives you
 
 Give any bot its own Slack app: open the bot's **⋯** menu and choose **Connect to Slack**. DM it, or @mention it in a channel, and its reply comes back in Slack. When it needs your OK for something risky, it posts **Approve** and **Deny** buttons. Only people you pair with a one-time code can give it work, and it connects out to Slack, so nothing is exposed to the internet. See [docs/slack.md](docs/slack.md).
 
+### Talk to a bot in Buzz
+
+[Buzz](https://github.com/block/buzz) is a workspace where people and agents share channels. Open a bot's **⋯** menu and choose **Connect to Buzz**. A checklist walks you through the setup:
+
+1. Turn on the connection.
+2. Add Any Bot to Buzz Desktop.
+3. Create a Buzz agent that runs on Any Bot.
+4. Say hello.
+
+@mention the agent in Buzz. The bot does the work here, with the same approvals, and replies in the Buzz thread. Buzz keeps the agent's identity, so Any Bot stores no Buzz keys. See [docs/buzz.md](docs/buzz.md).
+
 ### Click through everything
 
 Files your bots mention become links once Any Bot confirms they exist: click to open (pictures, video, music, PDFs, Office files, web pages) or preview them in the app (text and code), Shift+click to show them in their folder, right-click for more. Programs and scripts are only ever shown in their folder, and network locations are never touched. Returned files show as cards under the reply. Messages, code and errors have Copy buttons, working bots show a live Terminal, failed runs can be retried, and @mentions, hand-offs, notifications, Activity rows and the org chart all open the work they name. Ctrl+K searches, Ctrl+Shift+A steps through approvals, and Ctrl+B hides the sidebar.
@@ -208,6 +219,7 @@ Files your bots mention become links once Any Bot confirms they exist: click to 
 - **Local:** your conversations, tasks, canvas, memory, and knowledge graph are stored on your computer.
 - **Your accounts:** bots run under your Windows account, signed in with your own CLI accounts, and Any Bot never copies those sign-ins.
 - **Not a sandbox:** a bot's workspace folder is where it works, not a security sandbox. Only hire bots on harnesses you trust.
+- **Buzz:** the Buzz connection is off until you turn it on and listens only on this computer (127.0.0.1, with a random token). Buzz Desktop decides who may @mention the agent (by default only you).
 - **Slack:** a bot's Slack tokens are stored encrypted on this computer and never shown again. Only people you pair can give a bot work from Slack, and they give it work as if they were you.
 - **Bot output is untrusted:** anything a bot writes is escaped before it's shown. HTML previews run in a locked-down frame that can't reach the app.
 
