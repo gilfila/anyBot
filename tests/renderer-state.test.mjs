@@ -83,6 +83,12 @@ test("cd in the Terminal moves its folder", () => {
   assert.equal(resolveCd("/home/tony/site", "../notes"), "/home/tony/notes");
   assert.equal(resolveCd("/home/tony", "/tmp/x/"), "/tmp/x");
   assert.equal(resolveCd("", "src"), null, "a relative cd needs a folder to start from");
+  // On Windows a leading \ or / means the root of the current drive, as in cmd.
+  assert.equal(resolveCd("C:\\Users\\Tony\\proj", "\\Windows"), "C:\\Windows");
+  assert.equal(resolveCd("D:\\music\\live", "\\"), "D:\\");
+  assert.equal(resolveCd("C:\\Users\\Tony\\proj", "/"), "C:\\");
+  assert.equal(resolveCd("C:\\Users\\Tony\\proj", "/Windows/Temp"), "C:\\Windows\\Temp");
+  assert.equal(resolveCd("C:\\Users\\Tony\\proj", "\\\\server\\share"), null, "a network path isn't guessed at");
 });
 
 test("the working bots an update or quit would stop", () => {

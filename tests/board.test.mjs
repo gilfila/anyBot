@@ -316,7 +316,7 @@ test("the chat's Stop all also turns autopilot off for that project", async (t) 
 
 test("autopilot turns itself off once bots have started too many of their own tasks in a day", async (t) => {
   let made = 0;
-  const { c, conversation, names } = await fixture(t, (options, who) =>
+  const { c, conversation, names, task } = await fixture(t, (options, who) =>
     who === "Lead" ? actions([{ type: "task.create", title: `Follow-up ${++made}`, assignees: [names.Lead.id] }]) : "ok",
   );
   c.autopilotBotTasksPerDay = 2;
@@ -330,4 +330,18 @@ test("autopilot turns itself off once bots have started too many of their own ta
   assert.deepEqual(started.sort(), ["Follow-up 1", "Follow-up 2", "Seed"]);
   assert.equal(c.snapshot().conversations[0].autopilot, 0);
   assert.ok(c.snapshot().messages.some((m) => m.kind === "notice" && /Autopilot turned itself off/.test(m.body)));
+
+  // Turning it back on starts a fresh count: the bots' next task and the
+  // owner's own task both start, and autopilot stays on.
+  const notices = () => c.snapshot().messages.filter((m) => m.kind === "notice" && /Autopilot turned itself off/.test(m.body)).length;
+  await c.command("tasks.create", { conversation: conversation.id, title: "Owner's task", assignees: [names.Lead.id] });
+  await c.command("conversations.setAutopilot", { conversation: conversation.id, enabled: true });
+  tick(c);
+  assert.equal(c.snapshot().conversations[0].autopilot, 1, "re-enabling lifts the cap");
+  assert.equal(notices(), 1);
+  assert.notEqual(task("Follow-up 3").status, "backlog");
+  await settled(c);
+  tick(c);
+  assert.notEqual(task("Owner's task").status, "backlog", "the owner's task starts");
+  await settled(c);
 });

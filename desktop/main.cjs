@@ -591,7 +591,13 @@ function checkIdleInstall() {
   idleCheck = (async () => {
     do {
       idleAgain = false;
-      const activity = await request("runtime.activity");
+      const activity = await request("runtime.activity").catch((error) => {
+        // A quit (or a cancel) meanwhile rejects the check ("Runtime
+        // interrupted") and ends the wait on purpose: nothing failed.
+        if (quitting || !installWhenIdle) return null;
+        throw error;
+      });
+      if (!activity) return;
       if (installWhenIdle && activity.running === 0) {
         await installUpdate();
         return;
@@ -1128,10 +1134,17 @@ function settleReadyWaiters(error) {
   for (const waiter of readyWaiters) waiter.finish(error);
   readyWaiters.clear();
 }
+// A restart scheduled after the coordinator stopped unexpectedly; a quit or
+// an update install cancels it (shutdown's before()).
+let restartTimer = null;
 function startWorker() {
+  restartTimer = null;
+  if (quitting) return;
+  // A coordinator restarted while an update waits for the team starts
+  // holding: its first dispatch runs before it's ready for runtime.hold.
   const child = utilityProcess.fork(
     path.join(__dirname, "../runtime/worker.mjs"),
-    [app.getPath("userData")],
+    [app.getPath("userData"), ...(installWhenIdle ? ["--hold"] : [])],
     { serviceName: "Any Bot coordinator", stdio: "pipe" },
   );
   worker = child;
@@ -1207,7 +1220,7 @@ function startWorker() {
       context: { exitCode: code, restarts: restarts.count },
     });
     if (delay !== null) {
-      setTimeout(startWorker, delay);
+      restartTimer = setTimeout(startWorker, delay);
       return;
     }
     // Not a blocking dialog: Slack and the phone link keep answering (with
@@ -1341,6 +1354,8 @@ const shutdown = createShutdown({
   before: () => {
     quitting = true;
     installWhenIdle = false;
+    clearTimeout(restartTimer);
+    restartTimer = null;
     stopUpdateChecker();
     for (const command of commands.values()) command.stop();
     void mobileGateway?.close();

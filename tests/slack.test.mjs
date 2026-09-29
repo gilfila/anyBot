@@ -374,6 +374,62 @@ test("the coordinator follows a Slack request through a hand-off to the bot's su
   assert.equal(item.reply, "On it, handing this over.");
 });
 
+test("in a chain of hand-offs, a bot summing up what came back isn't announced as another hand-off", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "anybot-bridge-"));
+  const who = {};
+  const ids = {};
+  let release;
+  const gate = new Promise((r) => (release = r));
+  const handOff = (target, objective) =>
+    `Handing this over.\n\`\`\`anybot\n${JSON.stringify({ type: "delegate", employeeId: target, objective })}\n\`\`\``;
+  const c = new Coordinator({
+    directory,
+    concurrency: 2,
+    probe: async () => [],
+    runner: async ({ workspace, prompt, signal }) => {
+      const name = who[workspace];
+      const returned = prompt.includes("Delegated work returned");
+      if (name === "Rex") return "Competitors charge $12 to $20.";
+      if (name === "Nova" && returned) {
+        await Promise.race([gate, new Promise((resolve) => signal.addEventListener("abort", resolve))]);
+        return "Research done: $12 to $20.";
+      }
+      if (name === "Nova") return handOff(ids.rex, "Collect competitor prices");
+      if (returned) return "Charge $15.";
+      return handOff(ids.nova, "Research competitor prices");
+    },
+  });
+  t.after(async () => {
+    if (!c.closed) await c.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  await c.initialize();
+  for (const name of ["Chief", "Nova", "Rex"]) await c.command("employees.create", { name, role: name, harness: "claude", trusted: true });
+  const e = Object.fromEntries(c.snapshot().employees.map((x) => [x.name, x]));
+  for (const x of Object.values(e)) who[x.workspace] = x.name;
+  ids.nova = e.Nova.id;
+  ids.rex = e.Rex.id;
+  await c.command("employees.setManager", { id: e.Nova.id, manager: e.Chief.id });
+  await c.command("employees.setManager", { id: e.Rex.id, manager: e.Nova.id });
+  const { message } = await c.command("bridge.send", { employee: e.Chief.id, body: "[Slack DM] price the course", requestId: "slack:T1:D1:20" });
+  const update = async () => (await c.command("bridge.updates", { messages: [message] })).items[0];
+  const until2 = async (check, what) => {
+    for (let i = 0; i < 500; i++) {
+      const item = await update();
+      if (check(item)) return item;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    throw new Error(`Timed out waiting for ${what}`);
+  };
+  // Rex has answered and Nova is summing up: two hand-offs, not three.
+  await until2(() => c.snapshot().runs.some((r) => r.employee === e.Nova.id && r.status === "running" && r.parent && c.snapshot().runs.some((x) => x.employee === e.Rex.id && x.status === "succeeded")), "Nova's summary run");
+  assert.deepEqual((await update()).handoffs.map((h) => h.to), ["Nova", "Rex"]);
+  release();
+  const done = await until2((item) => !["running", "queued"].includes(item.status), "the summary");
+  assert.equal(done.reply, "Charge $15.");
+  assert.deepEqual(done.handoffs.map((h) => h.to), ["Nova", "Rex"]);
+});
+
 test("a dropped connection reconnects; a revoked token stops retrying and says why", async (t) => {
   const fail = {};
   const { bridge, slack } = await bridgeFixture(t, { fail });

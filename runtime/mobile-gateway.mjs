@@ -432,9 +432,10 @@ export function createMobileGateway({
         if (end < 0) return reply(400, { error: "Invalid cursor" });
         // A page is up to 100 messages or about PAGE_BYTES, newest first (at
         // least one), so a chat of long replies still fits a phone-link frame.
+        // Bytes, not characters: a character can take 3 bytes.
         let start = end;
         for (let size = 0; start > Math.max(0, end - 100); start--) {
-          size += JSON.stringify(all[start - 1]).length;
+          size += Buffer.byteLength(JSON.stringify(all[start - 1]));
           if (size > PAGE_BYTES && start < end) break;
         }
         // Attachments are desktop paths: the phone sees their names only.

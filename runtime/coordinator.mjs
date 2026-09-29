@@ -128,6 +128,9 @@ export class Coordinator extends EventEmitter {
     clock = Date.now,
     keepPrompts = KEEP_PROMPTS,
     eventDays = EVENT_DAYS,
+    // Start already holding new work (a restart while an update waits for
+    // the team; see runtime.hold).
+    holding = false,
   }) {
     super();
     this.directory = directory;
@@ -186,7 +189,7 @@ export class Coordinator extends EventEmitter {
     this.installations = [];
     this.closed = false;
     // An update waiting for the team to finish holds new work (runtime.hold).
-    this.holding = false;
+    this.holding = holding === true;
     this.startupDiagnostics = [];
     this.reconcileInterrupted();
     this.paused =
@@ -1045,11 +1048,21 @@ export class Coordinator extends EventEmitter {
       ),
       "Conversation",
     );
-    this.store.run(
-      "UPDATE conversations SET autopilot=? WHERE id=?",
-      payload.enabled === true ? 1 : 0,
-      conversation.id,
-    );
+    this.store.transaction(() => {
+      this.store.run(
+        "UPDATE conversations SET autopilot=? WHERE id=?",
+        payload.enabled === true ? 1 : 0,
+        conversation.id,
+      );
+      // The owner turning it on starts a fresh count of bot-created task
+      // starts (autopilotMayStartBotTask).
+      if (payload.enabled === true)
+        this.store.run(
+          "INSERT OR REPLACE INTO metadata(key,value) VALUES (?, ?)",
+          `autopilotSince:${conversation.id}`,
+          now(),
+        );
+    });
   }
   // Starts an idle assignee's top Backlog task in projects with autopilot on.
   // Brakes: a task that can't start is noted once and skipped for a while
@@ -1131,9 +1144,12 @@ export class Coordinator extends EventEmitter {
   }
   // Bots can keep a board busy by adding tasks for each other. Past
   // `autopilotBotTasksPerDay` such starts in 24 hours, autopilot turns
-  // itself off in that project and says so in its chat.
+  // itself off in that project and says so in its chat. Starts before the
+  // owner last turned it on don't count, so turning it back on lifts the cap.
   autopilotMayStartBotTask(conversation) {
-    const since = new Date(Date.now() - 24 * 3600_000).toISOString();
+    const dayAgo = new Date(Date.now() - 24 * 3600_000).toISOString();
+    const enabled = this.store.one("SELECT value FROM metadata WHERE key=?", `autopilotSince:${conversation.id}`)?.value || "";
+    const since = enabled > dayAgo ? enabled : dayAgo;
     const started = this.store.one(
       `SELECT count(*) AS n FROM task_activity a JOIN tasks t ON t.id=a.task
        WHERE t.conversation=? AND a.kind='started' AND a.author='system' AND a.created>=? AND t.createdBy NOT IN ('human','system')`,
@@ -1408,12 +1424,13 @@ export class Coordinator extends EventEmitter {
       });
     return files;
   }
-  // The project's Allowed folders and Artifacts folder that exist, for the
-  // harness to be given (Claude Code and Codex take them as --add-dir; the
-  // prompt lists them for every harness). Allowed folders that are missing
-  // or not absolute are left out and reported once per session.
+  // The project's Allowed folders that exist, for the harness to be given
+  // (Claude Code and Codex take them as --add-dir; the prompt lists them for
+  // every harness). Missing or relative ones are left out and reported once
+  // per session. The Artifacts folder is never given: Any Bot copies files
+  // there without replacing any, and a bot writing there directly could.
   async projectFolders(run, employee) {
-    const conversation = this.store.one("SELECT allowedFolders,artifactsFolder FROM conversations WHERE id=?", run.conversation);
+    const conversation = this.store.one("SELECT allowedFolders FROM conversations WHERE id=?", run.conversation);
     if (!conversation) return [];
     const exists = async (folder) => {
       try {
@@ -1427,8 +1444,6 @@ export class Coordinator extends EventEmitter {
     for (const folder of JSON.parse(conversation.allowedFolders || "[]"))
       if (await exists(folder)) found.push(folder);
       else missing += 1;
-    // The Artifacts folder is created when files are first copied there.
-    if (conversation.artifactsFolder && (await exists(conversation.artifactsFolder))) found.push(conversation.artifactsFolder);
     const key = `${run.conversation}:${missing}`;
     if (missing && !this.reportedFolders.has(key)) {
       this.reportedFolders.add(key);
@@ -1442,9 +1457,11 @@ export class Coordinator extends EventEmitter {
     }
     return found;
   }
-  // Whether a bot's harness is given the project's folders (--add-dir).
+  // Whether a bot's harness is given the project's folders (--add-dir):
+  // "write", "read" (Codex on Ask runs in a read-only sandbox), or false.
   grantsFolders(employee) {
-    return ["claude", "codex"].includes(employee.harness) && !this.custom.adapters.some((a) => a.id === employee.harness);
+    if (!["claude", "codex"].includes(employee.harness) || this.custom.adapters.some((a) => a.id === employee.harness)) return false;
+    return employee.harness === "codex" && employee.permissionMode === "ask" ? "read" : "write";
   }
   // A stored attachment, addressed by message and position; the renderer
   // never asks for arbitrary paths.
@@ -1515,8 +1532,14 @@ export class Coordinator extends EventEmitter {
           "SELECT id,tool,summary FROM approvals WHERE run IN (SELECT id FROM runs WHERE root=?) AND status='pending' ORDER BY created",
           root,
         );
+        // Runs a bot handed work to. A delegator summing up what came back
+        // (started by the system's "Delegated work returned" message) isn't one.
         const handoffs = this.store
-          .all("SELECT id,employee FROM runs WHERE root=? AND parent IS NOT NULL ORDER BY created, rowid", root)
+          .all(
+            `SELECT r.id,r.employee FROM runs r JOIN messages m ON m.id=r.message
+             WHERE r.root=? AND r.parent IS NOT NULL AND m.author <> 'system' ORDER BY r.created, r.rowid`,
+            root,
+          )
           .map((r) => ({ id: r.id, to: name(r.employee) }));
         const live = ["queued", "running", "cancelling"];
         if (this.store.one("SELECT id FROM runs WHERE root=? AND status IN ('queued','running','cancelling') LIMIT 1", root))
@@ -1571,7 +1594,9 @@ export class Coordinator extends EventEmitter {
   // (never their text) are stored per run for the usage metrics
   // (docs/architecture/metrics.md). Building it has no side effects: reports
   // it delivers are marked read only when the run succeeds.
-  promptParts(run, employee, files = [], attachments = []) {
+  // `folders`: the Allowed folders the harness was given (projectFolders);
+  // without it, the project's list as saved.
+  promptParts(run, employee, files = [], attachments = [], folders) {
     const conversation = this.store.one(
       "SELECT * FROM conversations WHERE id=?",
       run.conversation,
@@ -1644,7 +1669,7 @@ export class Coordinator extends EventEmitter {
       employee,
       run,
       project: this.isProject(conversation),
-      allowedFolders: JSON.parse(conversation.allowedFolders || "[]"),
+      allowedFolders: folders ?? JSON.parse(conversation.allowedFolders || "[]"),
       artifactsFolder: conversation.artifactsFolder || "",
       foldersGranted: this.grantsFolders(employee),
       // Only built-in Claude Code runs can pause for the owner's approval.
@@ -1800,7 +1825,7 @@ export class Coordinator extends EventEmitter {
       const attachments = await this.deliverAttachments(run, employee);
       const folders = await this.projectFolders(run, employee);
       if (controller.signal.aborted) throw new Error("Run cancelled");
-      const { text: prompt, sections, deliveredReports } = this.promptParts(run, employee, files, attachments);
+      const { text: prompt, sections, deliveredReports } = this.promptParts(run, employee, files, attachments, folders);
       // Built-in Claude runs route risky actions to the owner (runtime/approvals.mjs).
       let approval = null;
       if (employee.harness === "claude" && !this.custom.adapters.some((a) => a.id === "claude")) {
@@ -1886,6 +1911,26 @@ export class Coordinator extends EventEmitter {
               .join("; ")}`.slice(0, 4000),
             run.thread,
           );
+        // Collected all the same (they are in the chat); only the folder copy failed.
+        const notCopied = artifacts.filter((a) => a.copyError);
+        if (notCopied.length) {
+          this.addMessage(
+            run.conversation,
+            "system",
+            "notice",
+            `Not copied to the project's Artifacts folder (the files are still here): ${notCopied
+              .map((a) => `${a.name}: ${a.copyError}`)
+              .join("; ")}`.slice(0, 4000),
+            run.thread,
+          );
+          this.diagnostic({
+            level: "warn",
+            source: "artifacts",
+            code: "artifacts.copy_failed",
+            message: `${notCopied.length} file(s) couldn't be copied to the project's Artifacts folder`,
+            context: this.runContext(run, employee),
+          });
+        }
         if (artifactError) {
           this.addMessage(
             run.conversation,

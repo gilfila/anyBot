@@ -500,3 +500,26 @@ test("an update waiting for the team holds new work and reports what's still run
   await c.command("runtime.hold", { hold: false });
   await until((a) => a.queued === 0 && a.running === 0, "the held job to run");
 });
+
+// A coordinator that restarts while an update waits for the team starts
+// holding (main passes --hold), not once it's ready: its first dispatch and
+// autopilot tick would otherwise start queued work.
+test("a coordinator started holding starts no queued work until released", async (t) => {
+  const { c, directory, send } = await fixture(t);
+  await c.command("runtime.hold", { hold: true });
+  await send("Queued before the restart");
+  await c.close();
+  const ran = [];
+  const reopened = new Coordinator({ directory, probe: async () => [], runner: async (options) => (ran.push(options), "ok"), holding: true });
+  try {
+    await reopened.initialize();
+    await new Promise((r) => setTimeout(r, 700)); // past a dispatch tick
+    assert.equal(ran.length, 0);
+    assert.equal((await reopened.command("runtime.activity")).holding, true);
+    await reopened.command("runtime.hold", { hold: false });
+    for (let i = 0; i < 500 && !ran.length; i++) await new Promise((r) => setTimeout(r, 10));
+    assert.equal(ran.length, 1, "released, the queued work runs");
+  } finally {
+    await reopened.close();
+  }
+});

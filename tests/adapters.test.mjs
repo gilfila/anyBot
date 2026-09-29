@@ -12,6 +12,7 @@ import {
   parseAgyModels,
   extractEvent,
   invocation,
+  lineSplitter,
   runHarness,
   resolveExecutable,
 } from "../runtime/adapters.mjs";
@@ -415,6 +416,26 @@ test("a Codex exit with no turn.failed reports its last error", async (t) => {
   await assert.rejects(f.run(), /Reconnecting\.\.\. 2\/5 \(connection reset\)/);
 });
 
+test("a Codex retry notice that recovered doesn't explain a later, unrelated failure", async (t) => {
+  const f = await fixture(
+    t,
+    [
+      `const say = (e) => process.stdout.write(JSON.stringify(e) + '\\n');`,
+      `say({type:'turn.started'});`,
+      `say({type:'error',message:'Reconnecting... 1/5 (unexpected status 429 Too Many Requests)'});`,
+      `say({type:'item.completed',item:{id:'item_0',type:'agent_message',text:'Working.'}});`,
+      `process.stderr.write("thread 'main' panicked at src/main.rs:1\\n");`,
+      `process.exitCode = 3;`,
+    ].join(" "),
+  );
+  await assert.rejects(f.run(), (error) => {
+    assert.doesNotMatch(error.message, /Reconnecting/);
+    assert.match(error.message, /panicked/);
+    assert.notEqual(classifyRunError(error.message), "usage_limit");
+    return true;
+  });
+});
+
 test("a Codex startup warning (an unrecognized config.toml key) doesn't fail the run", async (t) => {
   const warning = "Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings.";
   const f = await fixture(
@@ -478,10 +499,56 @@ test("one oversized event is skipped, not fatal", async (t) => {
   assert.ok(terminal.some((text) => /oversized event skipped/.test(text)));
 });
 
+test("streamed output splits into lines across chunks; an oversized line is skipped to its newline", () => {
+  const lines = [];
+  let oversized = 0;
+  const split = lineSplitter(10, (line) => lines.push(line), () => oversized++);
+  split.feed("ab");
+  split.feed("c\nde\nf");
+  split.feed("g\n\nh");
+  assert.deepEqual(lines, ["abc", "de", "fg", ""]);
+  split.feed("0123456789A"); // past 10 characters without a newline
+  assert.equal(oversized, 1);
+  split.feed("more of it");
+  split.feed(" still\nnext\ntail");
+  assert.deepEqual(lines, ["abc", "de", "fg", "", "next"], "the oversized line is dropped, the next one kept");
+  assert.equal(split.rest(), "tail");
+  assert.equal(split.rest(), "");
+});
+
+test("one very long event is read in time linear in its size", () => {
+  // A 48 MB line in 64 KB chunks, as a harness's stdout delivers it (a large
+  // file read returned as base64 is one event). Rescanning and rejoining the
+  // whole pending line on every chunk took seconds here and froze the
+  // coordinator; reading it once takes milliseconds.
+  const chunk = "x".repeat(64 * 1024);
+  let length = 0;
+  const split = lineSplitter(64 * 1024 * 1024, (line) => (length = line.length));
+  const started = performance.now();
+  for (let i = 0; i < 768; i++) split.feed(chunk);
+  split.feed("\n");
+  const elapsed = performance.now() - started;
+  assert.equal(length, 768 * chunk.length);
+  assert.ok(elapsed < 1000, `took ${Math.round(elapsed)} ms`);
+});
+
 test("a plain-text harness's kept reply is capped instead of killing the run", async (t) => {
   const f = await fixture(t, `process.stdout.write('h'.repeat(5000));`, { harness: "hermes" }, { limits: { reply: 1000 } });
   const result = await f.run();
   assert.ok(result.startsWith("h".repeat(1000)));
+  assert.match(result, /output truncated/);
+  assert.ok(result.length < 1200);
+});
+
+test("a structured harness's final result is capped like its streamed reply", async (t) => {
+  const f = await fixture(
+    t,
+    `process.stdout.write(JSON.stringify({type:'result',result:'r'.repeat(5000),is_error:false})+'\\n');`,
+    { harness: "claude" },
+    { limits: { reply: 1000 } },
+  );
+  const result = await f.run();
+  assert.ok(result.startsWith("r".repeat(1000)));
   assert.match(result, /output truncated/);
   assert.ok(result.length < 1200);
 });

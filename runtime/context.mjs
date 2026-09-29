@@ -92,12 +92,17 @@ export function buildContext(input) {
   // 2. Platform rules; variable paths are appended whole, never cut.
   // Claude Code and Codex are given the project's folders (--add-dir); other
   // harnesses only see them listed. Only Claude Code can ask the owner.
-  const access = input.foldersGranted
-    ? " (you can read and write them)"
-    : " (listed for context: this harness isn't given access to them, so work there may be refused)";
+  // foldersGranted: "write", "read" (a read-only sandbox), or false.
+  const access =
+    input.foldersGranted === "read"
+      ? " (you can read them; your permission mode doesn't let you change files)"
+      : input.foldersGranted
+        ? " (you can read and write them)"
+        : " (listed for context: this harness isn't given access to them, so work there may be refused)";
   const folders = input.allowedFolders?.length ? ` Project allowed folders${access}: ${JSON.stringify(input.allowedFolders)}.` : "";
+  // Only Any Bot writes the Artifacts folder, so nothing there is replaced.
   const artifactsFolder = input.artifactsFolder
-    ? ` Project artifacts folder: ${JSON.stringify(input.artifactsFolder)} (files you return in an anybot-artifacts block are also copied there, next to files already there).`
+    ? ` Project artifacts folder: ${JSON.stringify(input.artifactsFolder)} (files you return in an anybot-artifacts block are copied there, next to files already there; the folder isn't opened to you, so return files instead of writing there).`
     : "";
   const approvals =
     input.approvals === false

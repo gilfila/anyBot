@@ -140,26 +140,38 @@ test("a project's folders are granted to Claude Code and Codex, and only listed 
   await mkdir(out);
   await c.command("employees.create", { name: "Reel", role: "Editor", harness: "codex", trusted: true });
   await c.command("employees.create", { name: "Nova", role: "Producer", harness: "antigravity", trusted: true });
-  const [reel, nova] = c.snapshot().employees;
+  await c.command("employees.create", { name: "Scout", role: "Reviewer", harness: "codex", permissionMode: "ask", trusted: true });
+  const [reel, nova, scout] = c.snapshot().employees;
   await c.command("conversations.create", {
     title: "Studio",
-    members: [reel.id, nova.id],
+    members: [reel.id, nova.id, scout.id],
     allowedFolders: [site, process.platform === "win32" ? site.toUpperCase() : site, join(directory, "gone"), "relative/path"],
     artifactsFolder: out,
   });
   const studio = c.snapshot().conversations[0];
-  await c.command("messages.send", { conversation: studio.id, body: "@Reel @Nova render it", requestId: crypto.randomUUID() });
+  await c.command("messages.send", { conversation: studio.id, body: "@Reel @Nova @Scout render it", requestId: crypto.randomUUID() });
   const deadline = Date.now() + 30000;
   while (c.snapshot().runs.some((r) => ["queued", "running"].includes(r.status))) {
     if (Date.now() > deadline) throw new Error("Queue did not settle");
     await new Promise((r) => setTimeout(r, 10));
   }
-  const codex = calls.find((o) => o.harness === "codex");
+  const codex = calls.find((o) => o.harness === "codex" && o.permissionMode !== "ask");
+  const readOnly = calls.find((o) => o.permissionMode === "ask");
   const agy = calls.find((o) => o.harness === "antigravity");
-  // Existing folders only, once each, including the Artifacts folder.
-  assert.deepEqual(codex.addDirs, [site, out]);
+  // Existing folders only, once each. The Artifacts folder isn't opened to
+  // bots: Any Bot copies returned files there without replacing any, and a
+  // bot writing there directly could replace the owner's files.
+  assert.deepEqual(codex.addDirs, [site]);
   assert.match(codex.prompt, /you can read and write them/);
+  assert.match(codex.prompt, /Project artifacts folder: [^\n]*isn't opened to you/);
   assert.match(agy.prompt, /listed for context/);
+  // Codex on Ask runs in a read-only sandbox, and the prompt says so.
+  assert.deepEqual(readOnly.addDirs, [site]);
+  assert.match(readOnly.prompt, /you can read them; your permission mode doesn't let you change files/);
+  // The prompt lists only the folders the harness was given.
+  const listed = JSON.parse(codex.prompt.match(/Project allowed folders \([^)]*\): (\[[^\]]*\])/)[1]);
+  assert.ok(listed.includes(site));
+  assert.ok(!listed.includes("relative/path") && !listed.includes(join(directory, "gone")), "missing folders aren't offered");
   // Folders that don't exist are reported once, without their paths.
   const missing = diagnostics.filter((d) => d.code === "project.folder_missing");
   assert.equal(missing.length, 1);

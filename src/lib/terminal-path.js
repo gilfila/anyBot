@@ -15,6 +15,13 @@ export function resolveCd(cwd, argument) {
   } else if (!windows && target.startsWith("/")) {
     base = "";
     rest = target;
+  } else if (/^[\\/]/.test(target)) {
+    // Windows: a leading \ or / is the root of the current drive, as in cmd.
+    // A network path (\\server\share) or a bare /d isn't guessed at.
+    const drive = /^[a-z]:/i.exec(cwd || "");
+    if (!drive || /^[\\/]{2}/.test(target) || /^\/d$/i.test(target)) return null;
+    base = drive[0].toUpperCase();
+    rest = target;
   } else {
     if (!cwd) return null;
     const drive = /^[a-z]:/i.exec(cwd);

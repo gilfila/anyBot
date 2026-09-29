@@ -102,6 +102,10 @@ export function describeIssue(issue) {
       title: `Files from ${who(c)} weren't collected`,
       hint: "The bot listed files Any Bot couldn't accept (see below).",
     },
+    "artifacts.copy_failed": {
+      title: "Files couldn't be copied to a project's Artifacts folder",
+      hint: "The bot's files were collected and are in the chat, but Any Bot couldn't write them into the project's Artifacts folder, usually because the folder was moved or deleted or is read-only. Edit the project and pick the folder again.",
+    },
     "autopilot.start_failed": {
       title: "Autopilot couldn't start a task",
       hint: "The reason is below and on the task. The task stays in Backlog, and Autopilot skips it (and goes on with the bot's other tasks) until the task changes; it tries again every 10 minutes without repeating this note.",

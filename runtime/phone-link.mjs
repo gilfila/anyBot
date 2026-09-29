@@ -81,6 +81,21 @@ export function fitReply(value, limit = REPLY_BUDGET) {
   }
   return capText(current, low);
 }
+// fitReply for a conversation page: when its oldest messages had to go, the
+// page's cursor moves to the oldest one kept, so paging back shows them
+// instead of skipping them.
+export function fitPage(value, limit = REPLY_BUDGET) {
+  const fitted = fitReply(value, limit);
+  if (
+    fitted &&
+    fitted !== value &&
+    Array.isArray(value?.messages) &&
+    "olderCursor" in value &&
+    fitted.messages?.length < value.messages.length
+  )
+    fitted.olderCursor = fitted.messages[0]?.id ?? value.olderCursor;
+  return fitted;
+}
 
 // `protect`/`unprotect` wrap secrets at rest (Electron's safeStorage on the
 // desktop); tests pass identity functions.
@@ -216,7 +231,7 @@ export async function createPhoneLink({
     touch(known);
     // Never more than the relay passes in one frame (see fitReply).
     const answer = async (status, value) => {
-      const fitted = fitReply(value);
+      const fitted = fitPage(value);
       let box = await cipher.seal(fitted === null ? { id: ask?.id, status: 413, value: { error: "That is too much to send to the phone at once." } } : { id: ask?.id, status, value: fitted });
       if (JSON.stringify({ to: id, data: JSON.stringify({ t: "res", box }) }).length > RELAY_MAX_FRAME)
         box = await cipher.seal({ id: ask?.id, status: 413, value: { error: "That is too much to send to the phone at once." } });

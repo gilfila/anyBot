@@ -557,6 +557,14 @@ export function extractEvent(harness, value, state = {}) {
         : { final: value.result || "" };
   }
   if (harness === "codex") {
+    // Progress after a retry notice means the retry worked, so that notice
+    // no longer explains a failure that comes later.
+    if (
+      value.type === "item.started" ||
+      value.type === "turn.completed" ||
+      (value.type === "item.completed" && value.item?.type !== "error")
+    )
+      delete state.lastError;
     // Each agent_message is a whole message ("I'll run ls." then the answer),
     // so later ones start a new paragraph instead of running on.
     if (value.type === "item.completed" && value.item?.type === "agent_message") {
@@ -778,6 +786,53 @@ export const OUTPUT_LIMITS = {
 };
 const size = (bytes) => (bytes >= 1024 * 1024 ? `${Math.round(bytes / (1024 * 1024))} MB` : `${bytes.toLocaleString("en-US")} bytes`);
 
+// Splits streamed text into complete lines for `onLine`. A line longer than
+// `max` characters is dropped up to its newline instead of held
+// (`onOversized` is told), and `rest()` is what follows the last newline.
+// Only new text is searched for a newline, and a partial line is kept as
+// pieces joined once when it ends: a long event costs time linear in its
+// size (appending to one string and searching it from the start on every
+// chunk was quadratic, seconds of frozen coordinator for a 32 MB event).
+export function lineSplitter(max, onLine, onOversized = () => {}) {
+  let pending = [];
+  let pendingLength = 0;
+  let skipping = false;
+  const take = () => {
+    const text = pending.join("");
+    pending = [];
+    pendingLength = 0;
+    return text;
+  };
+  return {
+    feed(text) {
+      let start = 0;
+      if (skipping) {
+        const end = text.indexOf("\n");
+        if (end < 0) return;
+        start = end + 1;
+        skipping = false;
+      }
+      for (let end; (end = text.indexOf("\n", start)) >= 0; start = end + 1) {
+        const piece = text.slice(start, end);
+        if (pending.length) {
+          pending.push(piece);
+          onLine(take());
+        } else onLine(piece);
+      }
+      if (start < text.length) {
+        pending.push(text.slice(start));
+        pendingLength += text.length - start;
+      }
+      if (pendingLength > max) {
+        take();
+        skipping = true;
+        onOversized();
+      }
+    },
+    rest: take,
+  };
+}
+
 // `waitedMs()` is how long the run has spent waiting on the owner (pending
 // approvals); that time doesn't count against `timeoutMs`.
 export async function runHarness(
@@ -811,7 +866,6 @@ export async function runHarness(
     },
   );
   let output = "",
-    buffer = "",
     diagnostics = "",
     parseError = "",
     bytes = 0,
@@ -822,10 +876,11 @@ export async function runHarness(
   const usage = usageState();
   const started = Date.now();
   let truncated = false;
+  const cut = `\n\n[output truncated at ${limit.reply.toLocaleString("en-US")} characters]`;
   const append = (text) => {
     if (truncated || !text) return;
     if (output.length + text.length > limit.reply) {
-      output += `${text.slice(0, Math.max(0, limit.reply - output.length))}\n\n[output truncated at ${limit.reply.toLocaleString("en-US")} characters]`;
+      output += `${text.slice(0, Math.max(0, limit.reply - output.length))}${cut}`;
       truncated = true;
     } else output += text;
     onText(redact(output));
@@ -843,7 +898,9 @@ export async function runHarness(
     try {
       const event = extractEvent(harness, value ?? JSON.parse(text), eventState);
       if (event.text) append(event.text);
-      if (event.final !== undefined) final = event.final;
+      // The result event's reply is kept under the same cap as a streamed one.
+      if (event.final !== undefined)
+        final = event.final.length > limit.reply ? `${event.final.slice(0, limit.reply)}${cut}` : event.final;
       if (event.error) {
         parseError = event.error;
         abort();
@@ -879,26 +936,10 @@ export async function runHarness(
   timer = setTimeout(checkTime, timeoutMs);
   // Complete lines are parsed one at a time; an event longer than
   // `limit.line` is dropped up to its newline instead of held.
-  let skipping = false;
-  const feed = (text) => {
-    if (skipping) {
-      const end = text.indexOf("\n");
-      if (end < 0) return;
-      text = text.slice(end + 1);
-      skipping = false;
-    }
-    buffer += text;
-    let index;
-    while ((index = buffer.indexOf("\n")) >= 0) {
-      line(buffer.slice(0, index));
-      buffer = buffer.slice(index + 1);
-    }
-    if (buffer.length > limit.line) {
-      buffer = "";
-      skipping = true;
-      term(`[oversized event skipped: one line passed ${size(limit.line)}]\n`);
-    }
-  };
+  const lines = lineSplitter(limit.line, line, () =>
+    term(`[oversized event skipped: one line passed ${size(limit.line)}]\n`),
+  );
+  const feed = (text) => lines.feed(text);
   child.stdout.on("data", (data) => {
     bytes += data.length;
     if (bytes > limit.total) {
@@ -940,13 +981,14 @@ export async function runHarness(
       term(tail);
       append(tail);
     } else if (!parseError) feed(tail);
+    const rest = lines.rest();
     if (
       !parseError &&
       harness !== "hermes" &&
       outputFormat !== "text" &&
-      buffer.trim()
+      rest.trim()
     )
-      line(buffer);
+      line(rest);
     if (signal.aborted) throw new Error("Run cancelled");
     if (timedOut)
       throw new Error(`Run exceeded its configured ${Math.round(timeoutMs / 60000)}-minute time limit`);

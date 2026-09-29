@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, open, realpath, rename, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, realpath, rename, writeFile } from "node:fs/promises";
 import {
   basename,
   extname,
@@ -137,22 +137,30 @@ export async function confinedFile(root, path) {
 
 // Writes `name` into `folder`, or "name (2).ext", "name (3).ext"... when
 // that name is taken by different contents. A file already there with the
-// same contents is left as it is. Returns the name used.
+// same contents is left as it is. Returns the name used. There is no limit:
+// a routine that revises the same file every day keeps getting new names.
 async function copyWithoutReplacing(folder, name, bytes, digest) {
   const extension = extname(name);
   const stem = extension ? name.slice(0, -extension.length) : name;
-  for (let n = 1; n <= 100; n++) {
+  // One listing instead of probing name after name (case-insensitive, as on
+  // Windows); only a taken name whose file has the same size is read.
+  const taken = new Set((await readdir(folder)).map((entry) => entry.toLowerCase()));
+  for (let n = 1; ; n++) {
     const candidate = n === 1 ? name : `${stem} (${n})${extension}`;
     const target = join(folder, candidate);
+    if (taken.has(candidate.toLowerCase())) {
+      if (await sameContents(target, bytes.length, digest)) return candidate;
+      continue;
+    }
     try {
       await writeFile(target, bytes, { flag: "wx", mode: 0o600 });
       return candidate;
     } catch (error) {
+      // Created since the listing: compare it like any other taken name.
       if (error.code !== "EEXIST") throw error;
+      if (await sameContents(target, bytes.length, digest)) return candidate;
     }
-    if (await sameContents(target, bytes.length, digest)) return candidate;
   }
-  throw new Error(`The project's Artifacts folder already has 100 files named like ${name}`);
 }
 async function sameContents(path, length, digest) {
   try {
@@ -179,8 +187,15 @@ export class Artifacts {
       entries = [];
     let total = 0;
     await mkdir(this.directory, { recursive: true });
+    // The copy in the project's folder is extra: a folder that can't be
+    // written costs only that copy (`copyError`), never the run's files.
+    let folderError;
     if (projectArtifactsFolder) {
-      await mkdir(projectArtifactsFolder, { recursive: true });
+      try {
+        await mkdir(projectArtifactsFolder, { recursive: true });
+      } catch (error) {
+        folderError = error.message;
+      }
     }
     for (const path of paths) {
       if (signal?.aborted) throw new Error("Run cancelled");
@@ -227,9 +242,15 @@ export class Artifacts {
       }
       // The project's folder may hold the owner's own files and earlier
       // deliverables: never replace one. `copiedAs` is the name used there.
-      const copiedAs = projectArtifactsFolder
-        ? await copyWithoutReplacing(projectArtifactsFolder, basename(path), bytes, digest)
-        : undefined;
+      let copiedAs, copyError;
+      if (projectArtifactsFolder && folderError) copyError = folderError;
+      else if (projectArtifactsFolder) {
+        try {
+          copiedAs = await copyWithoutReplacing(projectArtifactsFolder, basename(path), bytes, digest);
+        } catch (error) {
+          copyError = error.message;
+        }
+      }
       entries.push({
         id: id(),
         conversation: run.conversation,
@@ -240,6 +261,7 @@ export class Artifacts {
         bytes: bytes.length,
         created: now(),
         ...(copiedAs ? { copiedAs } : {}),
+        ...(copyError ? { copyError } : {}),
       });
     }
     return entries;

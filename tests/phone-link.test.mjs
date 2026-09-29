@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { startRelay } from "../relay/node-server.mjs";
 import { MAX_FRAME, onClose, onMessage, onOpen } from "../relay/room.mjs";
 import { createMobileGateway } from "../runtime/mobile-gateway.mjs";
-import { RELAY_MAX_FRAME, createPhoneLink, fitReply } from "../runtime/phone-link.mjs";
+import { RELAY_MAX_FRAME, createPhoneLink, fitPage, fitReply } from "../runtime/phone-link.mjs";
 import { buildLink, createCipher, deriveSession, exportPublic, generateKeys, parseLink, randomToken } from "../runtime/link-protocol.mjs";
 import { memoryStore, pairWithLink, resumeLink } from "../mobile/link-client.mjs";
 
@@ -110,6 +110,29 @@ test("replies bigger than one relay frame are shortened, so pairing works and th
   assert.deepEqual(env.link.status().devices.map((d) => d.name), ["Pixel"]);
 });
 
+test("paging back through a chat of multibyte messages shows every message once", async (t) => {
+  const env = await setup(t);
+  // Chinese is 3 bytes a character: a page counted in characters came out
+  // about twice the size in bytes, the link then dropped its oldest half,
+  // and the cursor skipped the dropped messages.
+  const body = "这是一个很长的回复，用来测试手机分页。".repeat(10).slice(0, 192);
+  for (let n = 0; n < 300; n++)
+    env.ws.state.messages.push({ id: `m${n}`, conversation: "c1", author: n % 2 ? "e1" : "human", kind: "message", body, created: "2026-09-29T00:00:00.000Z", attachments: "[]" });
+  for (let n = 0; n < 30; n++)
+    env.ws.state.runs.push({ id: `r${n}`, conversation: "c1", employee: "e1", status: "succeeded", output: body.repeat(2), error: "", created: "2026-09-29T00:00:00.000Z" });
+  const phone = env.track(await pairWithLink(env.link.createPairing().link, { store: memoryStore(), name: "Pixel" }));
+  const seen = [];
+  let page = await phone.request("/conversations/c1");
+  for (let pages = 0; ; pages++) {
+    assert.ok(pages < 300, "paging ends");
+    seen.unshift(...page.messages.map((m) => m.id));
+    if (!page.olderCursor) break;
+    page = await phone.request(`/conversations/c1?before=${page.olderCursor}`);
+  }
+  assert.deepEqual(seen, env.ws.state.messages.map((m) => m.id));
+  assert.equal(env.link.status().connection, "online");
+});
+
 test("a reply is cut to fit a frame: long text first, then the oldest items", () => {
   const value = { items: Array.from({ length: 400 }, (_, n) => ({ id: `i${n}`, text: "y".repeat(2000) })) };
   const fitted = fitReply(value, 20000);
@@ -120,6 +143,18 @@ test("a reply is cut to fit a frame: long text first, then the oldest items", ()
   assert.ok(text.length < 20000 && text.startsWith("zzz") && /shortened/.test(text));
   assert.equal(fitReply({ ids: ["x".repeat(30000)].map((id) => ({ id })) }, 100), null, "gives up when nothing can fit");
   assert.equal(RELAY_MAX_FRAME, MAX_FRAME, "the desktop sizes replies for the relay's limit");
+});
+
+test("a conversation page cut to fit a frame points its cursor at the oldest message it kept", () => {
+  const messages = Array.from({ length: 40 }, (_, n) => ({ id: `m${n}`, body: "短".repeat(200) }));
+  for (const olderCursor of [null, "m0"]) {
+    const fitted = fitPage({ messages, olderCursor, runs: [] }, 8000);
+    assert.ok(fitted.messages.length < messages.length);
+    assert.equal(fitted.olderCursor, fitted.messages[0].id, "the dropped messages are the next page");
+    assert.equal(fitted.messages.at(-1).id, "m39");
+  }
+  const whole = { messages: messages.slice(0, 2), olderCursor: null, runs: [] };
+  assert.equal(fitPage(whole, 100000), whole, "a page that fits is unchanged");
 });
 
 test("a used, expired, or tampered code pairs nothing", async (t) => {
