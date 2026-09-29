@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-## [0.3.34] - 2026-09-29
+## [0.3.35] - 2026-09-29
 
 ### Added
 - **Talk to a bot in Buzz.** Open a bot's **⋯** menu and choose **Connect to Buzz**. A four-step checklist walks you through it, ticking each step off as you go:
@@ -20,6 +20,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - The connection is off until you turn it on, and only programs on this computer can reach it.
   - Risky steps still wait for your approval in Any Bot. The Buzz thread only says the bot is waiting, never what the command is.
   - `!cancel` in Buzz, or a new mention while the bot is working, stops the run.
+
+## [0.3.34] - 2026-09-29
+
+### Fixed
+- **Slack pairing ignored a pasted code.** Any Bot shows the pairing code in bold, and Slack keeps the bold when you paste, so the code arrived as `*123 456*` and never matched. Any Bot now reads only the digits, so a pasted code pairs.
+- **A wrong or expired pairing code got no answer.** The bot now always replies: either the code doesn't match, or it has expired and you need a new one. Five wrong guesses cancel the code.
+- **A brief network hiccup could swallow a Slack reply.** When a connection to Slack timed out before it opened, the reply was dropped, and the person heard nothing for an hour. Any Bot now tries again, and a reply lost this way no longer silences the next hour.
 
 ## [0.3.33] - 2026-09-29
 

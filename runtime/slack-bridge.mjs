@@ -17,6 +17,9 @@ const API = "https://slack.com/api/";
 const PAIRING_MS = 10 * 60_000;
 const PENDING_MS = 24 * 3600_000;
 const REFUSAL_MS = 3600_000;
+const MAX_MISSES = 5;
+// Network failures before the request reached Slack, so retrying is safe.
+const UNSENT = new Set(["UND_ERR_CONNECT_TIMEOUT", "ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH"]);
 // Errors that new tokens fix; retrying them only spams Slack.
 const FATAL = new Set(["invalid_auth", "not_authed", "account_inactive", "token_revoked", "token_expired", "not_allowed_token_type", "missing_scope"]);
 const MESSAGES = {
@@ -71,7 +74,10 @@ export function createSlackBridge({
     renameSync(temporary, statePath);
   }
   function report(error, context) {
-    onDiagnostic({ level: "warn", source: "slack", code: "slack.error", message: String(error?.message || error).slice(0, 300), context });
+    // "fetch failed" alone says nothing; the cause says why (a timeout, DNS...).
+    const cause = error?.cause?.code || error?.cause?.message;
+    const message = `${error?.message || error}${cause ? ` (${cause})` : ""}`;
+    onDiagnostic({ level: "warn", source: "slack", code: "slack.error", message: message.slice(0, 300), context });
   }
 
   async function api(token, method, args = {}) {
@@ -79,11 +85,19 @@ export function createSlackBridge({
     for (const [key, value] of Object.entries(args))
       if (value !== undefined && value !== null) body.set(key, typeof value === "object" ? JSON.stringify(value) : String(value));
     for (let attempt = 0; attempt < 3; attempt++) {
-      const response = await fetchImpl(API + method, {
-        method: "POST",
-        headers: { authorization: `Bearer ${token}`, "content-type": "application/x-www-form-urlencoded" },
-        body: body.toString(),
-      });
+      let response;
+      try {
+        response = await fetchImpl(API + method, {
+          method: "POST",
+          headers: { authorization: `Bearer ${token}`, "content-type": "application/x-www-form-urlencoded" },
+          body: body.toString(),
+        });
+      } catch (error) {
+        // A connection that never opened: nothing reached Slack, so try again.
+        if (!UNSENT.has(error.cause?.code) || attempt === 2) throw error;
+        await sleep(1000 * (attempt + 1));
+        continue;
+      }
       if (response.status === 429) {
         await sleep(Math.min(30, Number(response.headers?.get?.("retry-after")) || 1) * 1000);
         continue;
@@ -247,7 +261,11 @@ export function createSlackBridge({
   async function stranger(employee, user, body, where, dm) {
     const bot = state.bots[employee];
     const pairing = pairings.get(employee);
-    if (dm && pairing && pairing.expires > clock() && body.replace(/\s/g, "") === pairing.code) {
+    // Compare digits only: a pasted code arrives as "*123 456*" when Slack
+    // keeps the bold from Any Bot's panel.
+    const typed = body.length <= 40 ? body.replace(/\D/g, "") : "";
+    const live = pairing && pairing.expires > clock();
+    if (dm && live && typed === pairing.code) {
       pairings.delete(employee);
       let name = user;
       try {
@@ -262,10 +280,32 @@ export function createSlackBridge({
       await post(employee, where, "You're paired. Send me work here, or @mention me in a channel I'm in.");
       return;
     }
+    // Something that looks like a code always gets an answer, so a wrong or
+    // expired one isn't met with silence. Five wrong guesses cancel the code.
+    if (dm && typed.length === 6) {
+      if (live && ++pairing.misses >= MAX_MISSES) {
+        pairings.delete(employee);
+        onChange();
+      }
+      await post(
+        employee,
+        where,
+        live && pairings.has(employee)
+          ? "That isn't the pairing code Any Bot is showing. Check it and send it again."
+          : "That pairing code has expired or was already used. In Any Bot, open Connect to Slack in my menu, get a new code, and send it within 10 minutes.",
+      );
+      return;
+    }
     const key = `${employee}:${user}`;
     if (clock() - (refused.get(key) || 0) < REFUSAL_MS) return;
     refused.set(key, clock());
-    await post(employee, where, "I only take work from people paired with me in Any Bot. If that's you, open Any Bot, choose Connect to Slack in my menu, and DM me the pairing code.");
+    try {
+      await post(employee, where, "I only take work from people paired with me in Any Bot. If that's you, open Any Bot, choose Connect to Slack in my menu, and DM me the pairing code.");
+    } catch (error) {
+      // A refusal lost to the network must not mute the next hour.
+      refused.delete(key);
+      throw error;
+    }
   }
 
   async function onAction(employee, payload) {
@@ -455,7 +495,7 @@ export function createSlackBridge({
     },
     pair(employee) {
       if (!state.bots[employee]) throw new Error("Connect this bot to Slack first.");
-      pairings.set(employee, { code: String(randomInt(0, 1_000_000)).padStart(6, "0"), expires: clock() + PAIRING_MS });
+      pairings.set(employee, { code: String(randomInt(0, 1_000_000)).padStart(6, "0"), expires: clock() + PAIRING_MS, misses: 0 });
       onChange();
       return status(employee);
     },

@@ -32,7 +32,7 @@ Want the bot's picture in Slack? Upload it under **Basic Information → Display
 
 - **Tokens are stored encrypted** with Windows' per-user encryption (`safeStorage`) in `<userData>/slack.json`. They are never shown again, never sent to the app's window, and never written to logs. The diagnostics log masks `xox…` and `xapp-…` tokens.
 - **Anyone in the workspace can DM the app,** but only paired people reach the bot. Anyone else gets one polite refusal an hour, and their message is dropped.
-- **Pairing codes** work once, expire after 10 minutes, and are only accepted by DM.
+- **Pairing codes** work once, expire after 10 minutes, and are only accepted by DM. Only the digits count, so a pasted code still works when Slack keeps its bold. A wrong or expired code always gets an answer, and five wrong guesses cancel the code.
 - **A paired person gives the bot work as if they were you.** The bot runs on this computer with its own permission mode and workspace, so pair only people you trust with that.
 
 ## Limits
