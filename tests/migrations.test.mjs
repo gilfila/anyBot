@@ -28,8 +28,8 @@ test("schema 14 workspaces upgrade with usage and prompt metrics", async (t) => 
   const directory = await v14(t, close);
   const store = new Store(directory);
   close.current = () => store.close();
-  assert.equal(SCHEMA_VERSION, 17);
-  assert.equal(store.one("SELECT value FROM metadata WHERE key='schema'").value, "17");
+  assert.equal(SCHEMA_VERSION, 18);
+  assert.equal(store.one("SELECT value FROM metadata WHERE key='schema'").value, "18");
   // Schema 17: every existing message gets an empty attachment list.
   assert.deepEqual(
     [...new Set(store.all("SELECT attachments FROM messages").map((m) => m.attachments))],

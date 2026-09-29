@@ -56,7 +56,7 @@ Bots can **report to other bots**. A manager can hand work down its chain and re
 - **Talk to your team.** Talk to one bot in a direct chat, or to a whole team in a project. The **To** chips pick who gets each message.
 - **Share files and folders.** Drag files or folders onto the message box, pick them with the paperclip, or paste a screenshot. Bots get their own copies to work from, and Claude and Codex bots see pictures directly.
 - **Easy to follow.** Each bot's replies sit in its own colored bubble, so you can tell who said what at a glance, even over the animated backgrounds.
-- **Hand-offs.** Bots pass work to each other on their own, and each result comes back to the bot that asked for it.
+- **Hand-offs.** Bots pass work to each other on their own, and each result comes back to the bot that asked for it. Delegated work runs in the team's own project room, so your chat stays clean.
 - **Watch the work.** Live output streams in while a bot works. You can stop one bot or everything at once.
 - **Voice.** You can dictate a message. In a one-to-one chat, voice chat reads the reply back to you.
 
