@@ -382,6 +382,8 @@ export class Coordinator extends EventEmitter {
         return this.artifacts.preview(payload);
       case "artifacts.resolve":
         return this.artifacts.resolve(payload);
+      case "files.context":
+        return this.fileContext(payload);
       case "harnesses.probe":
         this.installations = await this.probe();
         break;
@@ -1465,6 +1467,37 @@ export class Coordinator extends EventEmitter {
   }
   // A stored attachment, addressed by message and position; the renderer
   // never asks for arbitrary paths.
+  // The folders a message's relative file links resolve against, in order
+  // (desktop/file-access.cjs): the author bot's workspace (every member's for
+  // your own messages), then the conversation's allowed folders and its
+  // artifacts folder. Main-only, like artifacts.resolve.
+  fileContext(payload) {
+    const message = requireRow(
+      this.store.one("SELECT conversation,author FROM messages WHERE id=?", text(payload.message, "Message ID", 100)),
+      "Message",
+    );
+    const conversation = this.store.one(
+      "SELECT members,allowedFolders,artifactsFolder FROM conversations WHERE id=?",
+      message.conversation,
+    );
+    const workspace = (employee) => this.store.one("SELECT workspace FROM employees WHERE id=?", employee)?.workspace;
+    const author = workspace(message.author);
+    const folders = [
+      ...(author ? [author] : JSON.parse(conversation?.members || "[]").map(workspace)),
+      ...JSON.parse(conversation?.allowedFolders || "[]"),
+      conversation?.artifactsFolder,
+    ];
+    const seen = new Set();
+    const bases = [];
+    for (const folder of folders) {
+      if (typeof folder !== "string" || !folder || !isAbsolute(folder)) continue;
+      const key = process.platform === "win32" ? folder.toLowerCase() : folder;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      bases.push(folder);
+    }
+    return { bases: bases.slice(0, 16) };
+  }
   attachmentRecord(payload) {
     const message = requireRow(
       this.store.one("SELECT attachments FROM messages WHERE id=?", text(payload.message, "Message ID", 100)),

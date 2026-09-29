@@ -34,7 +34,7 @@ export function ChatMessage({ message: m, employees, bubbles, onOpenPreview, onO
         </div>
         {m.body ? (
           <div className="message-body">
-            <MessageContent body={m.body} onOpenPreview={onOpenPreview} onOpenBrowser={onOpenBrowser} people={employees.map((e) => e.name)} />
+            <MessageContent body={m.body} messageId={m.id} onOpenPreview={onOpenPreview} onOpenBrowser={onOpenBrowser} people={employees.map((e) => e.name)} />
           </div>
         ) : null}
         <MessageAttachments message={m} />

@@ -1,6 +1,7 @@
-import React, { useState, useMemo } from "react";
+import React, { useContext, useState, useMemo } from "react";
 import { Code, FileText, ExternalLink, ChevronDown, ChevronUp, Eye } from "lucide-react";
-import { TABLE_ROW, TABLE_RULE, renderMarkdownInline, tableCells } from "../lib/markdown.js";
+import { TABLE_ROW, TABLE_RULE, fileCandidates, renderMarkdownInline, tableCells } from "../lib/markdown.js";
+import { FILE_PLATFORM, FileLinkContext, useFileLinkEvents, useFileRefs } from "./FileLinks.jsx";
 
 const HTML_PATTERN = /^\s*<!doctype\s+html|^\s*<html[\s>]/i;
 const CODE_BLOCK_PATTERN = /```(\w*)\n([\s\S]*?)```/g;
@@ -97,13 +98,15 @@ function HtmlPreviewCard({ html, onPreview }) {
   );
 }
 
-function MarkdownText({ text, people }) {
+// `files` (file links, src/lib/file-refs.js) and `handlers` (their clicks)
+// come from MessageContent; `boxRef` is the element watched for visibility.
+function MarkdownText({ text, people, files = null, handlers, boxRef }) {
   const lines = text.split('\n');
   const elements = [];
   let list = null;
   let quote = [];
 
-  const inline = (value) => ({ __html: renderMarkdownInline(value, { people }) });
+  const inline = (value) => ({ __html: renderMarkdownInline(value, { people, files }) });
   const flushList = () => {
     if (!list) return;
     const Tag = list.ordered ? "ol" : "ul";
@@ -205,11 +208,18 @@ function MarkdownText({ text, people }) {
   }
 
   flush();
-  return <div className="markdown-content">{elements}</div>;
+  return (
+    <div className="markdown-content" ref={boxRef} {...handlers}>
+      {elements}
+    </div>
+  );
 }
 
+const NO_FILES = [];
+
 // `people`: bot names to highlight where the message @mentions them.
-export function MessageContent({ body, onOpenPreview, onOpenBrowser, people = [] }) {
+// `messageId`: the message's id, which file links in it are checked against.
+export function MessageContent({ body, messageId, onOpenPreview, onOpenBrowser, people = [] }) {
   const content = useMemo(() => {
     if (!body || typeof body !== 'string') {
       return { type: 'text', content: String(body || '') };
@@ -235,6 +245,17 @@ export function MessageContent({ body, onOpenPreview, onOpenBrowser, people = []
 
     return { type: 'markdown', content: trimmed };
   }, [body]);
+
+  // File links, only in markdown text: never in fenced code or bot HTML.
+  const fileLinks = useContext(FileLinkContext);
+  const candidates = useMemo(() => {
+    if (!fileLinks || !messageId || (content.type !== 'markdown' && content.type !== 'mixed')) return NO_FILES;
+    const text = content.type === 'mixed' ? content.content.replace(CODE_BLOCK_PATTERN, '\n') : content.content;
+    return fileCandidates(text.split('\n'), FILE_PLATFORM);
+  }, [content, messageId, fileLinks]);
+  const { box, lookup } = useFileRefs(messageId, candidates);
+  const { handlers, menu } = useFileLinkEvents(messageId, lookup);
+  const files = candidates.length ? { platform: FILE_PLATFORM, lookup } : null;
 
   // Previews always go through the sandboxed srcdoc modal. A same-origin blob:
   // URL would give employee HTML access to window.anybot.
@@ -274,7 +295,7 @@ export function MessageContent({ body, onOpenPreview, onOpenBrowser, people = []
         const textBefore = content.content.slice(lastIndex, block.index);
         if (textBefore.trim()) {
           parts.push(
-            <MarkdownText key={`text-${lastIndex}`} text={textBefore} people={people} />
+            <MarkdownText key={`text-${lastIndex}`} text={textBefore} people={people} files={files} handlers={handlers} />
           );
         }
       }
@@ -293,16 +314,26 @@ export function MessageContent({ body, onOpenPreview, onOpenBrowser, people = []
       const textAfter = content.content.slice(lastIndex);
       if (textAfter.trim()) {
         parts.push(
-          <MarkdownText key={`text-${lastIndex}`} text={textAfter} people={people} />
+          <MarkdownText key={`text-${lastIndex}`} text={textAfter} people={people} files={files} handlers={handlers} />
         );
       }
     }
 
-    return <div className="mixed-content">{parts}</div>;
+    return (
+      <div className="mixed-content" ref={box}>
+        {parts}
+        {menu}
+      </div>
+    );
   }
 
   if (content.type === 'markdown') {
-    return <MarkdownText text={content.content} people={people} />;
+    return (
+      <>
+        <MarkdownText text={content.content} people={people} files={files} handlers={handlers} boxRef={box} />
+        {menu}
+      </>
+    );
   }
 
   return <span>{content.content}</span>;
@@ -327,8 +358,12 @@ function sanitizeHtml(html) {
       const name = attr.name.toLowerCase();
       // Browsers ignore whitespace and control characters inside URL schemes.
       const value = attr.value.replace(/[\u0000- ]/g, '');
+      // data-*, role and tabindex go too, so bot HTML can't forge a file link.
       if (
         name.startsWith('on') ||
+        name.startsWith('data-') ||
+        name === 'role' ||
+        name === 'tabindex' ||
         name === 'srcdoc' ||
         (URL_ATTRIBUTES.has(name) && value && !SAFE_URL_PATTERN.test(value))
       ) {

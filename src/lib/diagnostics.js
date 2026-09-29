@@ -198,6 +198,14 @@ export function describeIssue(issue) {
       title: "Attachments couldn't be copied to a bot",
       hint: "Any Bot couldn't write into the bot's workspace inbox (.anybot-inbox). Check the bot's workspace folder exists and isn't read-only.",
     },
+    "files.refused": {
+      title: "A file link in chat was blocked",
+      hint: "Any Bot refused to open, show, or preview a path from a message (the reason is below). Network paths, devices, and files that can run programs are never opened from chat.",
+    },
+    "files.open_failed": {
+      title: "A file from chat couldn't be opened",
+      hint: "Windows couldn't open it with its default app. Check that an app is installed for this type of file, or use Show in folder.",
+    },
     "renderer.gone": {
       title: "The window's renderer stopped",
       hint: c.reloaded === false

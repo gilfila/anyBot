@@ -523,3 +523,28 @@ test("a coordinator started holding starts no queued work until released", async
     await reopened.close();
   }
 });
+
+test("files.context gives a message's folders: its bot's workspace, or every member's, then the project's", async (t) => {
+  const { c, directory, employees, conversation, send } = await fixture(t);
+  const shared = join(directory, "shared");
+  const outputs = join(directory, "outputs");
+  await c.command("conversations.updateSettings", {
+    conversation: conversation.id,
+    allowedFolders: [shared, "relative/folder", shared.toUpperCase()],
+    artifactsFolder: outputs,
+  });
+  await send("Write it up");
+  await settled(c);
+  const messages = c.snapshot().messages;
+  const workspace = (i) => c.snapshot().employees.find((e) => e.id === employees[i].id).workspace;
+  const reply = messages.find((m) => m.author === employees[0].id);
+  const mine = messages.find((m) => m.author === "human");
+  assert.ok(reply && mine, "a bot reply and the owner's message");
+  const sharedOnce = process.platform === "win32" ? [shared] : [shared, shared.toUpperCase()];
+  assert.deepEqual(await c.command("files.context", { message: reply.id }), { bases: [workspace(0), ...sharedOnce, outputs] });
+  assert.deepEqual(await c.command("files.context", { message: mine.id }), {
+    bases: [workspace(0), workspace(1), ...sharedOnce, outputs],
+  });
+  await assert.rejects(c.command("files.context", { message: "missing" }), /Message not found/);
+  await assert.rejects(c.command("files.context", {}), /Message ID/);
+});

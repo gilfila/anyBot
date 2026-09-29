@@ -21,7 +21,9 @@ const { pathToFileURL } = require("node:url");
 const { DiagnosticsLog, checkPendingUpdate, rememberPendingUpdate } = require("./diagnostics.cjs");
 const { createShutdown, createCrashTracker, createRestartBudget, isOfflineError } = require("./lifecycle.cjs");
 const { commandDirectory, killTree } = require("./shell-command.cjs");
+const fileAccess = require("./file-access.cjs");
 let diagnostics = null;
+let fileLinks = null;
 let window,
   worker,
   tray,
@@ -909,6 +911,36 @@ else {
         app.quit();
         return { quitting: true };
       }
+      // File links in chat (desktop/file-access.cjs). The paths come from bot
+      // output, so each action re-inspects from scratch and only a path of an
+      // allowed type ever reaches shell.openPath.
+      if (method === "files.check") return fileLinkService().check(payload);
+      if (method === "files.preview") return fileAccess.readPreview(await fileTarget(payload, "preview"));
+      if (method === "files.open") {
+        const ref = await fileTarget(payload, "open");
+        const failure = await shell.openPath(ref.path);
+        if (failure) {
+          const scrubbed = [ref.path, ref.name.length >= 3 ? ref.name : ""]
+            .filter(Boolean)
+            .reduce((text, part) => text.split(part).join("<file>"), String(failure));
+          diagnostics.record({
+            level: "error",
+            source: "app",
+            code: "files.open_failed",
+            message: "Windows couldn't open a file from chat.",
+            detail: scrubbed.slice(0, 300),
+            context: { ext: fileAccess.safeExtension(ref.name) || undefined },
+          });
+          notifyRenderer();
+          throw new Error(`Couldn't open ${ref.name}: ${failure}`);
+        }
+        return { opened: true };
+      }
+      if (method === "files.reveal") {
+        const ref = await fileTarget(payload, "reveal");
+        shell.showItemInFolder(ref.path);
+        return { revealed: true };
+      }
       if (!methods.has(method)) throw new Error("Operation not allowed");
       await waitForReady();
       if (method === "artifacts.reveal") {
@@ -935,6 +967,7 @@ else {
     });
     ipcMain.handle("anybot:listDirectory", async (event, dirPath) => {
       validateSender(event);
+      fileAccess.ownerPath(dirPath);
       try {
         const entries = fs.readdirSync(dirPath, { withFileTypes: true });
         return {
@@ -952,9 +985,11 @@ else {
         throw new Error(`Cannot read directory: ${error.message}`);
       }
     });
+    // Owner-chosen paths only (attachments, the rail explorer); file links in
+    // chat never come here (tests/desktop-ipc.test.mjs).
     ipcMain.handle("anybot:revealPath", async (event, filePath) => {
       validateSender(event);
-      shell.showItemInFolder(filePath);
+      shell.showItemInFolder(fileAccess.ownerPath(filePath));
       return { revealed: true };
     });
     // The context rail's Terminal: the owner's own commands, typed in the
@@ -1099,6 +1134,36 @@ function isExternalWebUrl(url) {
 function validateSender(event) {
   if (event.sender !== window?.webContents || event.senderFrame?.url !== page)
     throw new Error("Untrusted application sender");
+}
+// A message's folders come from the coordinator (files.context, main-only:
+// it is not in the renderer's `methods` allowlist).
+function fileLinkService() {
+  fileLinks ??= fileAccess.createFileLinks({
+    inspector: fileAccess.createInspector(),
+    context: async (message) => {
+      await waitForReady();
+      return request("files.context", { message });
+    },
+  });
+  return fileLinks;
+}
+// Re-inspects the raw path for an action and throws the owner-facing reason
+// when it isn't allowed. Refusals are logged without the path or message.
+async function fileTarget(payload, action) {
+  const { raw, ref } = await fileLinkService().resolve(payload);
+  const problem = fileAccess.actionProblem(ref, action, raw);
+  if (!problem) return ref;
+  if (problem.record) {
+    diagnostics.record({
+      level: "warn",
+      source: "app",
+      code: "files.refused",
+      message: `A file link from chat was refused (${problem.reason}).`,
+      context: { action, reason: problem.reason, ext: problem.ext || undefined },
+    });
+    notifyRenderer();
+  }
+  throw new Error(problem.message);
 }
 function request(method, payload) {
   return new Promise((resolve, reject) => {

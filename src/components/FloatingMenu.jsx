@@ -23,7 +23,7 @@ export function FloatingMenu({ anchor, label, onClose, children, className = "" 
     const left = Math.min(Math.max(margin, button.right - size.width), window.innerWidth - size.width - margin);
     menu.style.top = `${top}px`;
     menu.style.left = `${left}px`;
-    menu.querySelector('[role="menuitem"]')?.focus();
+    menu.querySelector('[role="menuitem"]:not(:disabled)')?.focus();
   }, [anchor]);
 
   useEffect(() => {

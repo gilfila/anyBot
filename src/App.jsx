@@ -195,6 +195,9 @@ import { ProjectDoc } from "./components/doc/ProjectDoc.jsx";
 const OrgPage = React.lazy(() => import("./components/org/OrgPage.jsx").then((m) => ({ default: m.OrgPage })));
 import { DiagnosticsPanel } from "./components/DiagnosticsPanel.jsx";
 import { FloatingMenu } from "./components/FloatingMenu.jsx";
+import { FileActions, FileLinkContext, runFileAction } from "./components/FileLinks.jsx";
+import { FilePreview } from "./components/FilePreview.jsx";
+import { fileSize } from "./lib/file-refs.js";
 import { SectionToggle } from "./components/SectionToggle.jsx";
 import { AppearancePanel } from "./components/theme/AppearancePanel.jsx";
 import { PhoneLinkPanel } from "./components/PhoneLinkPanel.jsx";
@@ -246,6 +249,26 @@ export function App() {
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [connected, setConnected] = useState(false);
+  // A short confirmation (a copied path, a file shown in its folder).
+  const [notice, setNotice] = useState("");
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timer = setTimeout(() => setNotice(""), 5000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+  // File links in messages (components/FileLinks.jsx): errors use the banner,
+  // Preview opens the file modal.
+  const fileLinks = useMemo(
+    () => ({
+      onFileAction: (action, target) =>
+        runFileAction(action, target, {
+          setError,
+          setNotice,
+          openPreview: (preview, from) => setModal({ type: "file", preview, target: from }),
+        }),
+    }),
+    [],
+  );
   // Each bot's chat bubble tint, as CSS custom properties for its messages.
   const bubbles = useMemo(
     () =>
@@ -707,6 +730,7 @@ export function App() {
     (text || "").split("\n").map((line) => line.trim()).filter(Boolean).at(-1) || "";
   return (
     <AvatarActivityContext.Provider value={employeeAvatarStates(data, lastSeenMessages, view === "chat" ? conversationId : null)}>
+    <FileLinkContext.Provider value={fileLinks}>
     <div className="app-shell">
       <aside className={`sidebar ${leftSidebarOpen ? "" : "collapsed"}`}>
         <div className="brand">
@@ -1119,6 +1143,14 @@ export function App() {
           <div role="alert" className="banner error">
             {error}
             <button aria-label="Dismiss error" onClick={() => setError("")}>
+              <X size={16} />
+            </button>
+          </div>
+        )}
+        {notice && (
+          <div role="status" className="banner">
+            {notice}
+            <button aria-label="Dismiss" onClick={() => setNotice("")}>
               <X size={16} />
             </button>
           </div>
@@ -2290,6 +2322,8 @@ export function App() {
                 : "Create an employee"
               : modal.type === "artifact"
                 ? modal.artifact.name
+                : modal.type === "file"
+                ? modal.preview.name
                 : modal.type === "routine"
                   ? modal.routine
                     ? "Edit routine"
@@ -2307,6 +2341,11 @@ export function App() {
           {error && (
             <p role="alert" className="banner error">
               {error}
+            </p>
+          )}
+          {notice && modal.type === "file" && (
+            <p role="status" className="banner">
+              {notice}
             </p>
           )}
           {modal.type === "slack" ? (
@@ -2328,23 +2367,20 @@ export function App() {
                   setModal(null);
               }}
             />
+          ) : modal.type === "file" ? (
+            <FilePreview preview={modal.preview} name={modal.preview.name} fallback="Can't preview this file.">
+              <p className="file-preview-path">
+                {modal.preview.path}
+                {Number.isFinite(modal.preview.size) ? ` · ${fileSize(modal.preview.size)}` : ""}
+              </p>
+              <FileActions preview={modal.preview} target={modal.target} />
+            </FilePreview>
           ) : modal.type === "artifact" ? (
-            <div className="artifact-preview">
-              {modal.preview.kind === "text" ? (
-                <>
-                  <pre>{modal.preview.text}</pre>
-                  {modal.preview.truncated && (
-                    <p>Preview limited to the first 512 KB.</p>
-                  )}
-                </>
-              ) : modal.preview.kind === "image" ? (
-                <img src={modal.preview.url} alt={modal.artifact.name} />
-              ) : (
-                <p>
-                  This file is available in local storage. Open its folder to
-                  use it in your preferred application.
-                </p>
-              )}
+            <FilePreview
+              preview={modal.preview}
+              name={modal.artifact.name}
+              fallback="This file is available in local storage. Open its folder to use it in your preferred application."
+            >
               <p>
                 Created by{" "}
                 {data.employees.find(
@@ -2362,7 +2398,7 @@ export function App() {
                 <Folder size={16} />
                 Show in folder
               </button>
-            </div>
+            </FilePreview>
           ) : modal.type === "routine" ? (
             <RoutineForm
               data={data}
@@ -2574,6 +2610,7 @@ export function App() {
         </Modal>
       )}
     </div>
+    </FileLinkContext.Provider>
     </AvatarActivityContext.Provider>
   );
 }

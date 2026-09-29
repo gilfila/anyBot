@@ -1,0 +1,63 @@
+/* File links in messages (FileLinks.jsx). Ink with a dotted underline, never
+   vermilion: a path is a quiet reference, not live work. Styled by
+   [data-file-ref], which bot HTML can't carry (sanitizeHtml strips data-*),
+   so bot HTML can't dress text up as a link. */
+.file-link[data-file-ref] {
+  color: var(--ink);
+  text-decoration: underline dotted;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  border-radius: 3px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.file-link[data-file-ref]:hover,
+.file-link[data-file-ref]:focus-visible {
+  text-decoration-style: solid;
+  background: var(--paper-2);
+}
+.file-link[data-file-ref]:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+/* Inside `code` the code styling stays; only the underline is added. */
+code .file-link[data-file-ref] {
+  color: inherit;
+}
+/* Your own messages sit on an ink bubble. */
+.message.from-you .file-link[data-file-ref] {
+  color: inherit;
+}
+.message.from-you .file-link[data-file-ref]:hover,
+.message.from-you .file-link[data-file-ref]:focus-visible {
+  background: none;
+  outline-color: currentColor;
+}
+
+.file-link-menu {
+  min-width: 190px;
+}
+.file-link-menu button small {
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--ink-3);
+  font-size: 11px;
+}
+.file-link-menu button:disabled {
+  color: var(--ink-4);
+  cursor: default;
+}
+.file-link-menu button:disabled:hover {
+  background: none;
+}
+
+/* The file preview modal's details and buttons (App.jsx, modal type "file"). */
+.file-preview-path {
+  overflow-wrap: anywhere;
+  color: var(--ink-3);
+}
+.file-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
