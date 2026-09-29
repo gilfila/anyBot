@@ -17,6 +17,7 @@ const LINKED = new Set(["file", "folder"]);
 const FOUND_TTL = 60_000;
 const OTHER_TTL = 15_000;
 const RETRY_MS = 10_000;
+const INFLIGHT_WAIT_MS = 250;
 const MAX_CACHE = 5000;
 // main's answers, per message and raw path, shared by every copy of a message
 // on screen (the channel and its thread).
@@ -28,6 +29,8 @@ const notify = (message) => listeners.get(message)?.forEach((listener) => listen
 
 function remember(message, raw, ref) {
   const key = cacheKey(message, raw);
+  // A busy drive's "unknown" doesn't unlink a path main already found.
+  if (ref.state === "unknown" && LINKED.has(cache.get(key)?.ref.state)) return;
   cache.delete(key);
   cache.set(key, { ref, until: Date.now() + (LINKED.has(ref.state) ? FOUND_TTL : OTHER_TTL) });
   if (cache.size > MAX_CACHE) for (const old of [...cache.keys()].slice(0, cache.size - MAX_CACHE)) cache.delete(old);
@@ -40,9 +43,11 @@ export function forgetFileRef(message, raw) {
 }
 
 // Asks main about a message's candidate paths once it is near the screen:
-// one files.check per message, at most one in flight, answers cached (60 s
-// for files and folders, 15 s otherwise), and one retry for "unknown" (a
-// slow drive). Returns the element to watch and lookup(raw) for markdown.js.
+// one files.check per message, at most one in flight (paths that turn up
+// meanwhile, as a run's terminal grows, are asked about once it lands),
+// answers cached (60 s for files and folders, 15 s otherwise), and one retry
+// for "unknown" (a slow drive). Returns the element to watch and lookup(raw)
+// for markdown.js.
 export function useFileRefs(message, candidates) {
   const [, setVersion] = useState(0);
   const [visible, setVisible] = useState(false);
@@ -91,7 +96,11 @@ export function useFileRefs(message, candidates) {
         const entry = cache.get(cacheKey(message, raw));
         return !entry || entry.until <= now || entry.ref.state === "unknown";
       });
-      if (!due.length || inflight.has(message)) return;
+      if (!due.length) return;
+      if (inflight.has(message)) {
+        if (!stopped) timer = setTimeout(() => check(retry), INFLIGHT_WAIT_MS);
+        return;
+      }
       inflight.add(message);
       let unknown = false;
       try {
@@ -181,11 +190,16 @@ export function useFileLinkEvents(message, lookup) {
 //   open(raw, el, shift)  the default click; with shift, Show in folder
 //   menu(raw, el)         Open / Preview / Show in folder / Copy path
 //   element               the menu, when open (render it once)
-export function useFileActions(message) {
+// `owner`: the owner chose these paths (attachments, the Files panel). One
+// main won't link (a network share) then still shows in its folder, as it
+// did before file links, through App's onOwnerReveal (the owner-path bridge,
+// which allows a share the owner picked) and without a diagnostics entry.
+export function useFileActions(message, { owner = false } = {}) {
   const links = useContext(FileLinkContext);
   const [menu, setMenu] = useState(null);
   if (!links || !message) return null;
-  const run = (action, raw, ref, click = false) => links.onFileAction(action, { message, raw, ref, click });
+  const run = (action, raw, ref, click = false) =>
+    ref.owner && action === "reveal" ? links.onOwnerReveal(raw) : links.onFileAction(action, { message, raw, ref, click });
   const check = async (raw) => {
     try {
       const answer = await window.anybot.request("files.check", { message, paths: [raw] });
@@ -196,9 +210,11 @@ export function useFileActions(message) {
     }
   };
   // Gone, refused, or unknown: Show in folder asks main, which checks again
-  // and puts the reason in the banner when it can't.
+  // and puts the reason in the banner when it can't. An owner path main
+  // refused gets Show in folder and Copy path only.
   const settle = async (raw, el, choose) => {
     const ref = await check(raw);
+    if (owner && ref.state === "refused" && links.onOwnerReveal) return choose({ el, raw, ref: ownerRef(raw, ref.reason) });
     if (!LINKED.has(ref.state)) return run("reveal", raw, ref);
     return choose({ el, raw, ref });
   };
@@ -214,10 +230,25 @@ export function useFileActions(message) {
   };
 }
 
+// A path main refused that the owner chose, shown in its folder by App.
+const ownerRef = (raw, reason) => ({
+  state: "file",
+  owner: true,
+  path: raw,
+  name: raw.split(/[\\/]+/).filter(Boolean).pop() || raw,
+  open: false,
+  reveal: true,
+  preview: null,
+  action: "reveal",
+  reason,
+});
+
 const WHY_NOT_OPEN = {
   "runs-programs": "Can run programs",
   "shell-pointer": "Shortcut file",
-  "not-supported": "Not opened from chat",
+  "folder-name": "Named like a file",
+  "not-supported": "Not opened by Any Bot",
+  network: "Network location",
 };
 
 function FileLinkMenu({ target, onClose, onAction }) {
@@ -248,11 +279,13 @@ function FileLinkMenu({ target, onClose, onAction }) {
       {!allowed && <small>{why}</small>}
     </button>
   );
+  // A special folder (GodMode, Control Panel) is a shell pointer too.
+  const why = folder && ref.reason === "shell-pointer" ? "Special folder" : WHY_NOT_OPEN[ref.reason];
   return (
     <FloatingMenu anchor={target.el} label={`Actions for ${ref.name}`} onClose={onClose} className="bot-row-menu file-link-menu">
-      {item("open", folder ? "Open folder" : "Open", ExternalLink, ref.open, WHY_NOT_OPEN[ref.reason] || "Not opened from chat")}
+      {item("open", folder ? "Open folder" : "Open", ExternalLink, ref.open, why || "Not opened by Any Bot")}
       {!folder && item("preview", "Preview", Eye, Boolean(ref.preview), "No preview for this type")}
-      {item("reveal", "Show in folder", FolderOpen, ref.reveal, "Shortcut file")}
+      {item("reveal", "Show in folder", FolderOpen, ref.reveal, why || "Shortcut file")}
       {item("copy", "Copy path", Copy, true, "")}
     </FloatingMenu>
   );
@@ -308,7 +341,9 @@ export async function runFileAction(action, target, { setError, setNotice, openP
     } else if (action === "reveal") {
       await window.anybot.request("files.reveal", { message, path: raw });
       if (target.click && ref.state === "file" && !ref.open)
-        setNotice(`Shown in folder. Any Bot doesn't open ${extensionOf(ref.name) || "these"} files from chat.`);
+        setNotice(`Shown in folder. Any Bot doesn't open ${extensionOf(ref.name) || "these"} files.`);
+      else if (target.click && ref.state === "folder" && !ref.open)
+        setNotice("Shown in folder. Any Bot doesn't open folders named like that.");
     }
   } catch (error) {
     const text = cleanError(error);

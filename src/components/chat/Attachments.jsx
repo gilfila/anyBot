@@ -82,9 +82,10 @@ function StoredAttachment({ message, index, item, actions }) {
   );
 }
 
-// What the owner attached to a sent message.
+// What the owner attached to a sent message. The owner chose these paths,
+// so one main won't link (a network share) still shows in its folder.
 export function MessageAttachments({ message }) {
-  const actions = useFileActions(message.id);
+  const actions = useFileActions(message.id, { owner: true });
   const items = messageAttachments(message);
   if (!items.length) return null;
   return (

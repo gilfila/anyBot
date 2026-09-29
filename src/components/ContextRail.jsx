@@ -565,9 +565,10 @@ function TerminalPanel({ folder, onRun }) {
 // absolute, so any of its messages works as the files.* context (which only
 // resolves relative paths); files then open, preview, and show in folder
 // the way file links in chat do. With no messages yet, a file only shows in
-// its folder.
+// its folder. The owner browsed here, so a path main won't link (a network
+// share) still shows in its folder.
 function FileExplorerPanel({ initialPath, onSelect, message }) {
-  const actions = useFileActions(message);
+  const actions = useFileActions(message, { owner: true });
   const [currentPath, setCurrentPath] = useState(initialPath || "");
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(false);

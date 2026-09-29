@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const { contextMenuItems, navigationTarget } = require("../desktop/window-shell.cjs");
+const { contextMenuItems, fileRequestBlocked, navigationTarget } = require("../desktop/window-shell.cjs");
 const isWebUrl = (url) => /^https?:\/\//.test(url);
 const roles = (items) => items.map((item) => item.role || item.action || item.type || item.label);
 
@@ -61,4 +61,34 @@ test("a notification's target keeps only well-formed ids", () => {
   assert.deepEqual(navigationTarget({ conversation: "../../etc", run: 7, thread: "t".repeat(101) }), null);
   assert.equal(navigationTarget(null), null);
   assert.equal(navigationTarget("c-1"), null);
+});
+
+// Bot HTML shown in chat can ask for file://host through CSS or SVG, and the
+// CSP's 'self' allows it on a file: page; main cancels it (SMB leaks NTLM).
+test("the window may load file: URLs only from the app's own folder, and never from a host", () => {
+  const root = "C:\\Program Files\\Any Bot\\resources\\app.asar\\dist";
+  const blocked = (url) => fileRequestBlocked(url, root, "win32");
+  for (const url of [
+    "file:///C:/Program%20Files/Any%20Bot/resources/app.asar/dist/index.html",
+    "file:///c:/program files/any bot/resources/app.asar/dist/assets/index-1.css",
+    "file://localhost/C:/Program%20Files/Any%20Bot/resources/app.asar/dist/favicon.png",
+    "https://example.com/x.png",
+    "data:image/png;base64,AAAA",
+    "devtools://devtools/bundled/x.js",
+  ])
+    assert.equal(blocked(url), false, url);
+  for (const url of [
+    "file://anybot-probe.invalid/share/style.png",
+    "FILE://host/share/x",
+    "file://127.0.0.1/C$/Windows/win.ini",
+    "file:////host/share/x",
+    "file:///C:/Users/me/secret.png",
+    "file:///C:/Program%20Files/Any%20Bot/resources/app.asar/dist/../../x.png",
+    "file:///C:/Program%20Files/Any%20Bot/resources/app.asar/dist%2F..%2F..%2Fx.png",
+    "file:///C:/Program%20Files/Any%20Bot/resources/app.asar/dist-evil/x.png",
+    "file:///C:/Program%20Files/Any%20Bot/resources/app.asar/dist",
+  ])
+    assert.equal(blocked(url), true, url);
+  assert.equal(fileRequestBlocked("file:///opt/anybot/dist/index.html", "/opt/anybot/dist", "posix"), false);
+  assert.equal(fileRequestBlocked("file:///etc/passwd", "/opt/anybot/dist", "posix"), true);
 });

@@ -20,6 +20,11 @@
   outline: 2px solid var(--ink);
   outline-offset: 1px;
 }
+/* A markdown link whose label isn't the file's name shows the name after
+   it ("Q3 notes.txt · payload.docx"), so the label can't hide the target. */
+.file-link-name {
+  white-space: nowrap;
+}
 /* Inside `code` the code styling stays; only the underline is added. */
 code .file-link[data-file-ref] {
   color: inherit;
@@ -43,9 +48,15 @@ code .file-link[data-file-ref] {
   color: var(--ink-3);
   font-size: 11px;
 }
+/* A disabled item keeps readable text (its reason explains why it's off):
+   full opacity instead of the global 0.45, a quieter label, a faint icon. */
 .file-link-menu button:disabled {
-  color: var(--ink-4);
+  opacity: 1;
+  color: var(--ink-3);
   cursor: default;
+}
+.file-link-menu button:disabled svg {
+  color: var(--ink-4);
 }
 .file-link-menu button:disabled:hover {
   background: none;

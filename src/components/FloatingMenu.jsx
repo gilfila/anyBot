@@ -26,6 +26,15 @@ export function FloatingMenu({ anchor, label, onClose, children, className = "" 
     menu.querySelector('[role="menuitem"]:not(:disabled)')?.focus();
   }, [anchor]);
 
+  // Closing by choosing an item unmounts the focused item; focus goes back
+  // to the button that opened the menu instead of dropping to the page.
+  useLayoutEffect(() => {
+    const menu = ref.current;
+    return () => {
+      if (menu?.contains(document.activeElement) && anchor?.isConnected) anchor.focus({ preventScroll: true });
+    };
+  }, [anchor]);
+
   useEffect(() => {
     const dismiss = () => close.current();
     const onScroll = (event) => {

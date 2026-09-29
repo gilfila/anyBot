@@ -88,17 +88,22 @@ function peoplePattern(people) {
 // collect?, more? }: lookup returns main's answer from files.check, and a
 // path links only once main says it is a file or folder. Every other state
 // renders exactly as without `files`. The attribute is always built from the
-// escaped raw path, never from the matched text.
+// escaped raw path, never from the matched text. A markdown link's label is
+// the bot's to choose, so when it isn't the file's own name (main's answer),
+// the name shows after it: "Q3 notes.txt · payload.docx".
 const LINKED = new Set(["file", "folder"]);
-function fileLink(files, raw, display) {
+function fileLink(files, raw, display, { label = false } = {}) {
   const ref = files.lookup?.(raw);
   if (!ref || !LINKED.has(ref.state)) return null;
   const kind = ref.state === "folder" ? "folder" : String(ref.kind || "other");
-  return `<span class="file-link" role="link" tabindex="0" data-file-ref="${escapeHtml(raw)}" data-kind="${escapeHtml(kind)}" data-action="${escapeHtml(String(ref.action || "menu"))}"${ref.open ? "" : ' data-open="no"'} title="${escapeHtml(fileTooltip(ref))}">${display}</span>`;
+  const name = String(ref.name || "");
+  const said = unescapeHtml(display).trim().split(/[\\/]/).pop().trim();
+  const shown = label && name && said.toLowerCase() !== name.toLowerCase() ? `${display}<span class="file-link-name"> · ${escapeHtml(name)}</span>` : display;
+  return `<span class="file-link" role="link" tabindex="0" data-file-ref="${escapeHtml(raw)}" data-kind="${escapeHtml(kind)}" data-action="${escapeHtml(String(ref.action || "menu"))}"${ref.open ? "" : ' data-open="no"'} title="${escapeHtml(fileTooltip(ref))}">${shown}</span>`;
 }
-function fileRef(files, raw, display) {
+function fileRef(files, raw, display, options) {
   files.collect?.add(raw);
-  return fileLink(files, raw, display);
+  return fileLink(files, raw, display, options);
 }
 // Quoted paths (spaces allowed), then unquoted ones. Runs after URLs are
 // parked, so a URL's path can never match.
@@ -155,7 +160,7 @@ function renderInline(text, { mentions = false, people = [], files = null, botLi
     if (SAFE_LINK_PATTERN.test(href)) return park(`<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`);
     // [x.ts](src/x.ts#L42): a local path links like any other file reference.
     const shape = files && pathShape(unescapeHtml(href), { platform, bare: true, href: true });
-    const link = shape && fileRef(files, shape.raw, label);
+    const link = shape && fileRef(files, shape.raw, label, { label: true });
     return link ? park(link) : label;
   });
   result = linkBareUrls(result, park);

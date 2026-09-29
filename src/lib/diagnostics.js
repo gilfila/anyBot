@@ -199,8 +199,12 @@ export function describeIssue(issue) {
       hint: "Any Bot couldn't write into the bot's workspace inbox (.anybot-inbox). Check the bot's workspace folder exists and isn't read-only.",
     },
     "files.refused": {
-      title: "A file link in chat was blocked",
-      hint: "Any Bot refused to open, show, or preview a path from a message (the reason is below). Network paths, devices, and files that can run programs are never opened from chat.",
+      title: "A file link was blocked",
+      hint: "Any Bot refused to open, show, or preview a path from a message (the reason is below). Network paths, devices, files that can run programs, and folders whose shortcuts point to a network location are never opened from a link.",
+    },
+    "files.request_blocked": {
+      title: "The window was stopped from loading a file",
+      hint: "Something shown in the app (usually HTML a bot wrote) tried to load a file from outside Any Bot, or from a network location, which could send your Windows sign-in to another computer. Any Bot blocked it; nothing was loaded.",
     },
     "files.open_failed": {
       title: "A file from chat couldn't be opened",
@@ -230,7 +234,6 @@ const ago = (value) => {
 };
 export { ago as issueAge };
 
-// Plain-text report for pasting into a chat with Claude or a bug tracker.
 // What an issue's context points at that still exists, for the panel's
 // jump buttons: its run (terminal and conversation), else its conversation,
 // its task, and its bot (a direct chat). Ids come from the log; only rows in
@@ -249,6 +252,7 @@ export function issueTargets(context = {}, { runs = [], conversations = [], task
   };
 }
 
+// Plain-text report for pasting into a chat with Claude or a bug tracker.
 export function issueReport(groups, { version = "" } = {}) {
   const lines = [`Any Bot diagnostics (v${version}, ${new Date().toISOString()})`, ""];
   if (!groups.length) lines.push("No problems recorded.");

@@ -337,6 +337,9 @@ test("a failed run can be retried once; the retry's reply is linked to its run",
   assert.equal(reply.body, "Fixed it");
   await assert.rejects(c.command("runs.retry", { id: retry.id }), /Only failed, interrupted, or stopped/);
   await assert.rejects(c.command("runs.retry", { id: "missing" }), /Run not found/);
+  // Only the latest attempt can be retried.
+  await assert.rejects(c.command("runs.retry", { id: old.id }), /already retried or dismissed/);
+  assert.equal(c.snapshot().runs.length, 2);
   const bot = c.snapshot().employees.find((e) => e.id === employees[0].id);
   await c.command("employees.setArchived", { id: bot.id, revision: bot.revision, archived: true });
   await assert.rejects(c.command("runs.retry", { id: old.id }), /archived/);
@@ -366,7 +369,30 @@ test("retrying a failed delegated run keeps its parent, so the result goes back"
   assert.equal(retry.status, "succeeded");
   assert.equal(retry.parent, child.parent);
   assert.equal(retry.root, child.root);
-  assert.match(c.snapshot().messages.filter((m) => m.kind === "handoff").at(-1).body, /Delegated work returned[\s\S]*Review complete/);
+  // The failure came back first; the retry's result says it is the same work again.
+  const returned = c.snapshot().messages.filter((m) => m.kind === "handoff" && /^Delegated work returned/.test(m.body));
+  assert.equal(returned.length, 2);
+  assert.match(returned[0].body, /^Delegated work returned\. [\s\S]*Task failed: Reviewer crashed/);
+  assert.match(returned[1].body, /^Delegated work returned after a retry \(an earlier attempt failed, as reported before\)\.[\s\S]*Review complete/);
+});
+
+test("a retry needs the bot still in the conversation", async (t) => {
+  let calls = 0;
+  const { c, employees, conversation, send } = await fixture(t, async () => {
+    calls++;
+    if (calls === 1) throw new Error("Harness crashed");
+    return "Done";
+  });
+  await send("Try this");
+  await settled(c);
+  const failed = c.snapshot().runs[0];
+  assert.equal(failed.status, "failed");
+  await c.command("conversations.updateMembers", { conversation: conversation.id, members: [employees[1].id] });
+  await assert.rejects(c.command("runs.retry", { id: failed.id }), /isn't in this conversation any more/);
+  await c.command("conversations.updateMembers", { conversation: conversation.id, members: employees.map((e) => e.id) });
+  await c.command("runs.retry", { id: failed.id });
+  await settled(c);
+  assert.equal(c.snapshot().runs.at(-1).status, "succeeded");
 });
 
 test("adapter boundaries preserve structured failures and exclude supervisor secrets", () => {

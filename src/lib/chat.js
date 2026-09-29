@@ -42,6 +42,14 @@ export function matchArtifacts(paths, artifacts = []) {
   });
 }
 
+// A reply still streaming, with a ``` fence that hasn't closed yet, closed
+// for display: the half-written code shows as code, not as markdown (a
+// "# comment" as a heading) or live HTML.
+export function closeOpenFence(text) {
+  const value = String(text ?? "");
+  return (value.match(/```/g) || []).length % 2 ? `${value}\n\`\`\`` : value;
+}
+
 // A reply's ```anybot delegation block ({type:"delegate", employeeId,
 // objective}), or null.
 export function delegationBlock(code) {

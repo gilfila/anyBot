@@ -196,15 +196,21 @@ export function fileTooltip(ref) {
   const what = folder ? "Folder" : [KIND_LABELS[ref.kind] || "File", fileSize(ref.size)].filter(Boolean).join(" · ");
   const ext = extension(ref.name);
   let how;
+  // A folder named like a file (setup.exe/) gets that file's rules.
+  const named = `folders named like ${ext || "files"}${ext ? " files" : ""}`;
   if (ref.action === "menu")
-    how = folder
-      ? "Special folders aren't opened from chat. Right-click to copy the path."
-      : "Shortcut files aren't opened from chat. Right-click to copy the path.";
-  else if (ref.action === "reveal")
     how =
-      ref.reason === "runs-programs"
+      ref.reason === "folder-name"
+        ? `Any Bot doesn't open or show ${named}. Right-click to copy the path.`
+        : folder
+          ? "Any Bot doesn't open special folders. Right-click to copy the path."
+          : "Any Bot doesn't open shortcut files. Right-click to copy the path.";
+  else if (ref.action === "reveal")
+    how = folder
+      ? `Any Bot doesn't open ${named}. Click to show it in its folder.`
+      : ref.reason === "runs-programs"
         ? `This ${ext ? `${ext} ` : ""}file can run programs, so Any Bot won't open it. Click to show it in its folder.`
-        : `Any Bot doesn't open ${ext || "these"} files from chat. Click to show it in its folder.`;
+        : `Any Bot doesn't open ${ext || "these"} files. Click to show it in its folder.`;
   else {
     how = ref.action === "preview" ? "Click to preview" : folder ? "Click to open the folder" : "Click to open";
     if (ref.reveal) how += " · Shift+click to show in folder";

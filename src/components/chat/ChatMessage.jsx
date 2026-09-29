@@ -8,7 +8,7 @@ import { Status } from "../Status.jsx";
 import { RunTerminal } from "../RunTerminal.jsx";
 import { useCopy, useNow } from "../hooks.js";
 import { ChatContext } from "./ChatContext.js";
-import { copyText, elapsed, handedTo, replyRun, stamp } from "../../lib/chat.js";
+import { closeOpenFence, copyText, elapsed, handedTo, replyRun, stamp } from "../../lib/chat.js";
 
 const NO_ARTIFACTS = [];
 
@@ -125,7 +125,8 @@ export function ChatMessage({ message: m, employees, bubbles, onOpenPreview, onO
               Handoff
             </span>
           )}
-          {chat && (
+          {/* Coordinator notices keep a plain centred line. */}
+          {chat && m.author !== "system" && (
             <MessageActions
               text={copyText(m.body)}
               onReply={onReplyInThread}
@@ -191,7 +192,7 @@ export function LiveRun({ run, employees, bubbles, onStop, compact = false }) {
         </div>
         <div className="message-body">
           {run.output ? (
-            <MessageContent body={run.output} people={employees.map((e) => e.name)} />
+            <MessageContent body={closeOpenFence(run.output)} people={employees.map((e) => e.name)} />
           ) : run.status === "queued" ? (
             "Waiting for its turn…"
           ) : (

@@ -11,6 +11,7 @@ const {
   Notification,
   safeStorage,
   clipboard,
+  session,
 } = require("electron");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
@@ -23,7 +24,7 @@ const { DiagnosticsLog, checkPendingUpdate, rememberPendingUpdate } = require(".
 const { createShutdown, createCrashTracker, createRestartBudget, isOfflineError } = require("./lifecycle.cjs");
 const { commandDirectory, killTree } = require("./shell-command.cjs");
 const fileAccess = require("./file-access.cjs");
-const { contextMenuItems, navigationTarget } = require("./window-shell.cjs");
+const { contextMenuItems, fileRequestBlocked, navigationTarget } = require("./window-shell.cjs");
 let diagnostics = null;
 let fileLinks = null;
 let window,
@@ -927,7 +928,12 @@ else {
       if (method === "files.preview") return fileAccess.readPreview(await fileTarget(payload, "preview"));
       if (method === "files.open") {
         const ref = await fileTarget(payload, "open");
-        const failure = await shell.openPath(ref.path);
+        // A folder opens with a trailing separator. If it has been renamed
+        // away since the check, "tools\" is simply not found, where "tools"
+        // would let the shell try tools.exe, tools.cmd…; a file swapped in
+        // under the same name only opens when its name could (policy()).
+        const target = ref.state === "folder" && !ref.path.endsWith(path.sep) ? `${ref.path}${path.sep}` : ref.path;
+        const failure = await shell.openPath(target);
         if (failure) {
           const scrubbed = [ref.path, ref.name.length >= 3 ? ref.name : ""]
             .filter(Boolean)
@@ -1082,6 +1088,7 @@ else {
       return { opened: true };
     });
     // Slack starts when the coordinator first reports ready (ensureSlack).
+    guardFileRequests();
     startWorker();
     startMobileAccess().catch((error) => {
       mobileError = String(error.message);
@@ -1144,6 +1151,31 @@ function validateSender(event) {
   if (event.sender !== window?.webContents || event.senderFrame?.url !== page)
     throw new Error("Untrusted application sender");
 }
+// The window loads only the app's own dist/ folder over file:. Anything else
+// (a file://host request above all, which is SMB and sends the NTLM hash) is
+// cancelled for every frame, the sandboxed previews included; bot HTML shown
+// in chat can ask for one through CSS or SVG (window-shell.cjs). The first
+// block of each kind per session goes to the diagnostics log, without the URL.
+function guardFileRequests() {
+  const root = path.join(__dirname, "../dist");
+  const logged = new Set();
+  session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
+    const blocked = fileRequestBlocked(details.url, root);
+    callback({ cancel: blocked });
+    if (!blocked) return;
+    const kind = /^file:\/\/[^/]/i.test(details.url) ? "network" : "local";
+    if (logged.has(kind)) return;
+    logged.add(kind);
+    diagnostics?.record({
+      level: "warn",
+      source: "app",
+      code: "files.request_blocked",
+      message: `The window tried to load a ${kind} file and was stopped.`,
+      context: { kind },
+    });
+    notifyRenderer();
+  });
+}
 // A message's folders come from the coordinator (files.context, main-only:
 // it is not in the renderer's `methods` allowlist).
 function fileLinkService() {
@@ -1157,17 +1189,20 @@ function fileLinkService() {
   return fileLinks;
 }
 // Re-inspects the raw path for an action and throws the owner-facing reason
-// when it isn't allowed. Refusals are logged without the path or message.
+// when it isn't allowed; opening a folder or showing a file in its folder
+// also checks the folder Explorer will draw. Refusals are logged without the
+// path or message.
 async function fileTarget(payload, action) {
-  const { raw, ref } = await fileLinkService().resolve(payload);
-  const problem = fileAccess.actionProblem(ref, action, raw);
+  const links = fileLinkService();
+  const { raw, ref } = await links.resolve(payload);
+  const problem = fileAccess.actionProblem(ref, action, raw) || (await links.explorerProblem(ref, action));
   if (!problem) return ref;
   if (problem.record) {
     diagnostics.record({
       level: "warn",
       source: "app",
       code: "files.refused",
-      message: `A file link from chat was refused (${problem.reason}).`,
+      message: `A file link was refused (${problem.reason}).`,
       context: { action, reason: problem.reason, ext: problem.ext || undefined },
     });
     notifyRenderer();

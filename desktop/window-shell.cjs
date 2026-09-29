@@ -1,6 +1,8 @@
 // The window's own chrome, kept free of Electron so node:test can load it
-// (tests/window-shell.test.mjs): the right-click menu and where a clicked
-// notification goes.
+// (tests/window-shell.test.mjs): the right-click menu, where a clicked
+// notification goes, and which file: requests the window may make.
+const path = require("node:path");
+const { fileURLToPath } = require("node:url");
 
 const MAX_SUGGESTIONS = 5;
 
@@ -50,4 +52,24 @@ function navigationTarget(value) {
   return Object.keys(target).length ? target : null;
 }
 
-module.exports = { contextMenuItems, navigationTarget };
+// Whether main cancels a request from the window or a frame in it (its
+// webRequest.onBeforeRequest): a file: URL with a host, which is an SMB
+// request that sends the NTLM hash, and a file: URL outside the app's own
+// folder `root`. The page CSP can't stop either ('self' on a file: page
+// matches file://host), and bot HTML shown in chat can ask for one through
+// CSS or SVG. Other schemes are left to the CSP.
+function fileRequestBlocked(url, root, platform = process.platform) {
+  const text = String(url || "");
+  if (!/^file:/i.test(text)) return false;
+  try {
+    const parsed = new URL(text);
+    if (parsed.host) return true;
+    const p = platform === "win32" ? path.win32 : path.posix;
+    const rel = p.relative(root, fileURLToPath(parsed, { windows: platform === "win32" }));
+    return !rel || rel === ".." || rel.startsWith(`..${p.sep}`) || p.isAbsolute(rel);
+  } catch {
+    return true;
+  }
+}
+
+module.exports = { contextMenuItems, fileRequestBlocked, navigationTarget };

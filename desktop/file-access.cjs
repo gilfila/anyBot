@@ -5,9 +5,11 @@
 //
 // Order of checks for a path: refusal() on the raw text before any filesystem
 // call; resolveCandidate() against the conversation's folders; an lstat walk
-// that refuses links to network or device targets before anything follows
-// them; realpath; refusal() again on the real path; containment in the base;
-// stat; then policy() on the real name decides open / reveal / copy.
+// that follows links by hand, refusing one to a network or device target
+// (at any hop) before anything follows it; realpath; refusal() again on the
+// real path; containment in the base; stat; then policy() on the real name
+// decides open / reveal / copy. Opening a folder or showing a file in its
+// folder also checks the folder Explorer will draw (explorerProblem).
 const fsp = require("node:fs").promises;
 const os = require("node:os");
 const path = require("node:path");
@@ -30,11 +32,15 @@ const AUDIO_EXTENSIONS = set("mp3 wav m4a aac flac ogg oga opus wma aiff");
 const DOCUMENT_EXTENSIONS = set("pdf docx xlsx pptx html htm doc xls ppt odt ods odp rtf");
 const ARCHIVE_EXTENSIONS = set("zip 7z rar tar gz tgz bz2 xz");
 // The only types shell.openPath ever gets. Anything else is never opened.
+// Not Office files, HTML or SVG: a bot writes them without Mark-of-the-Web, so
+// Word opens them outside Protected View and a browser runs them as file://
+// pages, and both fetch what they point at (a remote template, a \\host
+// image). Not .zip either: Explorer's zip view draws the icons inside it.
 const OPEN_EXTENSIONS = new Set([
-  ...IMAGE_EXTENSIONS,
+  ...[...IMAGE_EXTENSIONS].filter((ext) => ext !== ".svg"),
   ...VIDEO_EXTENSIONS,
   ...AUDIO_EXTENSIONS,
-  ...set("pdf docx xlsx pptx txt md csv tsv log json html htm zip"),
+  ...set("pdf txt md csv tsv log json"),
 ]);
 // Shell pointer files: selecting them in Explorer has itself leaked NTLM
 // hashes (CVE-2025-24054), so they only get Copy path and a text preview.
@@ -161,6 +167,20 @@ function policy(name, { folder = false } = {}) {
   if (folder) {
     if (GUID_NAME.test(lower))
       return { tier: "copy", kind: "folder", open: false, reveal: false, preview: null, action: "menu", reason: "shell-pointer" };
+    // A folder named like a file could be swapped for that file between the
+    // check and the click, and the shell would then open the file. So a
+    // folder is only opened when a file of its name could be.
+    const file = path.extname(lower) ? policy(name) : null;
+    if (file && file.tier !== "open")
+      return {
+        tier: file.tier,
+        kind: "folder",
+        open: false,
+        reveal: file.reveal,
+        preview: null,
+        action: file.reveal ? "reveal" : "menu",
+        reason: "folder-name",
+      };
     return { tier: "open", kind: "folder", open: true, reveal: true, preview: null, action: "open" };
   }
   const ext = path.extname(lower);
@@ -181,10 +201,25 @@ const stricter = (a, b) => (RANK[b.tier] > RANK[a.tier] ? b : a);
 
 class Slow extends Error {}
 
+const MAX_HOPS = 32;
+// Explorer draws a folder's entries with the icons their pointer files name,
+// and a subfolder's desktop.ini. How much of a folder explorerProblem reads.
+const MAX_LISTED = 2000;
+const MAX_POINTER_FILES = 200;
+const MAX_POINTER_BYTES = 64 * 1024;
+const POINTER_EXTENSIONS = new Set([...COPY_EXTENSIONS]);
+// A network location inside a pointer file: a UNC path (\\host, //host/,
+// \\?\UNC\host), a file: URL with a host, or a variable that holds one.
+const REMOTE_REFERENCE = /(?:^|[^\\])\\\\[\w.$@%?-]|(?:^|[^:/\\\w])\/\/[\w.$@%-]+\/|file:\/\/(?!\/)|file:\/{4}|%(?:logonserver|homeshare)%/i;
+// Read as ANSI and as UTF-16 (desktop.ini and .lnk strings are often UTF-16LE).
+const namesRemote = (bytes) =>
+  [bytes.toString("latin1"), bytes.toString("utf16le"), bytes.subarray(1).toString("utf16le")].some((text) => REMOTE_REFERENCE.test(text));
+
 // inspect(raw, { bases, walks }) -> FileRef. Every fs call is timed per
 // drive: one that takes longer than slowMs marks the drive slow for coolMs,
 // and its candidates answer "unknown" without touching it again (a dead
-// mapped drive can pin libuv threads for tens of seconds).
+// mapped drive can pin libuv threads for tens of seconds). A slow call that
+// does answer in the end clears the mark: that drive was only busy.
 function createInspector({ fs = fsp, platform = process.platform, home = os.homedir(), slowMs = 800, coolMs = 5 * 60_000, now = Date.now } = {}) {
   const p = platform === "win32" ? path.win32 : path.posix;
   const slow = new Map();
@@ -198,7 +233,9 @@ function createInspector({ fs = fsp, platform = process.platform, home = os.home
   };
   const timed = (drive, call) =>
     new Promise((resolve, reject) => {
+      let late = false;
       const timer = setTimeout(() => {
+        late = true;
         slow.set(drive, now() + coolMs);
         reject(new Slow("slow drive"));
       }, slowMs);
@@ -207,6 +244,7 @@ function createInspector({ fs = fsp, platform = process.platform, home = os.home
         .then(
           (value) => {
             clearTimeout(timer);
+            if (late) slow.delete(drive);
             resolve(value);
           },
           (error) => {
@@ -216,30 +254,45 @@ function createInspector({ fs = fsp, platform = process.platform, home = os.home
         );
     });
 
-  // lstat each component from the root; a link is followed only if its target
-  // is refusal-free (so a link to \\server\x is never touched). Cached per batch.
-  async function linkProblem(full, drive, walks) {
-    const root = p.parse(full).root;
-    let current = root;
-    for (const part of full.slice(root.length).split(p.sep).filter(Boolean)) {
-      const parent = current;
-      current = p.join(current, part);
-      const key = `walk:${platform === "win32" ? current.toLowerCase() : current}`;
-      if (!walks.has(key)) {
-        const at = current;
-        walks.set(
-          key,
-          (async () => {
-            const stat = await timed(drive, () => fs.lstat(at));
-            if (!stat.isSymbolicLink()) return false;
-            const target = await timed(drive, () => fs.readlink(at));
-            return Boolean(refusal(String(target), { platform }) || refusal(p.resolve(parent, String(target)), { platform }));
-          })(),
-        );
+  // A path's link target (readlink), or null when it isn't a link. Cached per batch.
+  function linkTarget(at, walks) {
+    const key = `walk:${platform === "win32" ? at.toLowerCase() : at}`;
+    if (!walks.has(key))
+      walks.set(
+        key,
+        (async () => {
+          const drive = driveOf(at);
+          if (isSlow(drive)) throw new Slow("slow drive");
+          const stat = await timed(drive, () => fs.lstat(at));
+          return stat.isSymbolicLink() ? String(await timed(drive, () => fs.readlink(at))) : null;
+        })(),
+      );
+    return walks.get(key);
+  }
+
+  // Walks the path one component at a time from its root, following links by
+  // hand: a link's target is refusal-checked and then walked the same way, so
+  // in a -> b -> \\server\x the walk stops at b before the system follows a.
+  // Only the last component of each lstat can be a link (everything before
+  // it is already link-free). Returns the path with its links resolved, or
+  // null when one leads somewhere refused (or there are too many).
+  async function walkLinks(full, walks) {
+    let current = p.parse(full).root;
+    let parts = full.slice(current.length).split(p.sep).filter(Boolean);
+    for (let hops = 0; parts.length; ) {
+      const next = p.join(current, parts.shift());
+      const target = await linkTarget(next, walks);
+      if (target === null) {
+        current = next;
+        continue;
       }
-      if (await walks.get(key)) return true;
+      if (++hops > MAX_HOPS || refusal(target, { platform })) return null;
+      const resolved = p.resolve(current, target);
+      if (refusal(resolved, { platform })) return null;
+      current = p.parse(resolved).root;
+      parts = [...resolved.slice(current.length).split(p.sep).filter(Boolean), ...parts];
     }
-    return false;
+    return current;
   }
 
   async function realBase(base, walks) {
@@ -249,10 +302,12 @@ function createInspector({ fs = fsp, platform = process.platform, home = os.home
   }
 
   async function inspectOption(option, walks) {
-    const drive = driveOf(option.path);
-    if (await linkProblem(option.path, drive, walks)) return { state: "refused", reason: "link" };
-    // fs.promises.realpath is native: it expands 8.3 names and junctions.
-    const real = String(await timed(drive, () => fs.realpath(option.path)));
+    const walked = await walkLinks(option.path, walks);
+    if (walked === null) return { state: "refused", reason: "link" };
+    // fs.promises.realpath is native: with the links already resolved, it
+    // expands 8.3 short names.
+    const drive = driveOf(walked);
+    const real = String(await timed(drive, () => fs.realpath(walked)));
     const why = refusal(real, { platform });
     if (why) return { state: "refused", reason: why };
     if (option.within && !inside(p, String(await realBase(option.within, walks)), real, true))
@@ -264,7 +319,82 @@ function createInspector({ fs = fsp, platform = process.platform, home = os.home
     // The stricter of the real name and the name as written (a link or an
     // 8.3 short name can hide the real extension).
     const rule = stricter(policy(name), policy(p.basename(option.path)));
-    return { state: "file", path: real, name, size: stat.size, ...rule };
+    // readPreview compares this with the handle it reads through.
+    const identity = Number.isFinite(stat.ino) ? { identity: `${stat.dev}:${stat.ino}` } : {};
+    return { state: "file", path: real, name, size: stat.size, ...rule, ...identity };
+  }
+
+  // Up to MAX_POINTER_BYTES of a pointer file: true when it names a network
+  // location (or is too big to check). A missing or unreadable one is fine:
+  // Explorer can't read it either.
+  async function pointsAway(file, drive) {
+    let handle;
+    try {
+      handle = await timed(drive, () => fs.open(file, "r"));
+    } catch (error) {
+      if (error instanceof Slow) throw error;
+      return false;
+    }
+    try {
+      const buffer = Buffer.alloc(MAX_POINTER_BYTES + 1);
+      const { bytesRead } = await timed(drive, () => handle.read(buffer, 0, buffer.length, 0));
+      return bytesRead > MAX_POINTER_BYTES || namesRemote(buffer.subarray(0, bytesRead));
+    } finally {
+      await handle.close().catch(() => {});
+    }
+  }
+
+  // Opening a folder draws it in Explorer, and so does showing a file (or a
+  // folder) in the folder that holds it. That folder's pointer files (.lnk,
+  // .url, .library-ms, desktop.ini…), its subfolders' desktop.ini, and its
+  // links must not name a network location: Explorer fetches their icons and
+  // targets as it draws, and SMB sends the NTLM hash. Answers null, "pointer"
+  // (one does), "crowded" (too many to check), or "unknown" (a slow drive).
+  async function explorerProblem(ref, action) {
+    const folder = action === "open" && ref.state === "folder" ? ref.path : action === "reveal" ? p.dirname(ref.path) : null;
+    if (!folder) return null;
+    const drive = driveOf(folder);
+    if (isSlow(drive)) return "unknown";
+    try {
+      const entries = await timed(drive, () => fs.readdir(folder, { withFileTypes: true }));
+      if (entries.length > MAX_LISTED) return "crowded";
+      const pointers = [];
+      let named = 0;
+      for (const entry of entries) {
+        const name = String(entry.name);
+        const full = p.join(folder, name);
+        let directory = entry.isDirectory();
+        if (entry.isSymbolicLink()) {
+          const target = await timed(drive, () => fs.readlink(full)).then(String, (error) => {
+            if (error instanceof Slow) throw error;
+            return null;
+          });
+          if (target === null) {
+            // readdir calls every reparse point a link; a OneDrive folder is
+            // one that isn't. A real link that can't be read is refused.
+            const stat = await timed(drive, () => fs.lstat(full));
+            if (stat.isSymbolicLink()) return "pointer";
+            directory = Boolean(stat.isDirectory?.());
+          } else if (refusal(target, { platform }) || refusal(p.resolve(folder, target), { platform })) return "pointer";
+          // A linked folder is drawn with its target's desktop.ini.
+          else directory = true;
+        }
+        if (directory) pointers.push(p.join(full, "desktop.ini"));
+        else if (name.toLowerCase() === "desktop.ini" || POINTER_EXTENSIONS.has(p.extname(name).toLowerCase())) {
+          if (++named > MAX_POINTER_FILES) return "crowded";
+          pointers.push(full);
+        }
+      }
+      for (let i = 0; i < pointers.length; i += 16) {
+        const found = await Promise.all(pointers.slice(i, i + 16).map((file) => pointsAway(file, drive)));
+        if (found.includes(true)) return "pointer";
+      }
+      return null;
+    } catch (error) {
+      if (error instanceof Slow) return "unknown";
+      // A folder (or entry) Any Bot can't read, Explorer can't read either.
+      return null;
+    }
   }
 
   async function inspect(raw, { bases = [], walks = new Map() } = {}) {
@@ -283,7 +413,7 @@ function createInspector({ fs = fsp, platform = process.platform, home = os.home
     return { state: "missing" };
   }
 
-  return { inspect, isSlow, driveOf };
+  return { inspect, explorerProblem, isSlow, driveOf };
 }
 
 // files.check batching: per-message folder context (60 s), per-result cache
@@ -383,7 +513,14 @@ function createFileLinks({ inspector, context, now = Date.now, deadlineMs = 1500
     return { raw, ref: await inspector.inspect(raw, { bases }) };
   }
 
-  return { check, resolve };
+  // Why the folder Explorer would draw for this action can't be shown, as
+  // actionProblem answers, or null (explorerProblem in the inspector).
+  async function explorerProblem(ref, action) {
+    const why = await inspector.explorerProblem?.(ref, action);
+    return why ? { message: SHOWN[why], record: why === "pointer", reason: why, ext: "" } : null;
+  }
+
+  return { check, resolve, explorerProblem };
 }
 
 const safeExtension = (name) => {
@@ -395,14 +532,22 @@ const shownName = (raw) => {
   return name.length > 80 ? `${name.slice(0, 77)}…` : name;
 };
 const REFUSED = {
-  network: "Network locations aren't opened from chat.",
+  network: "Any Bot doesn't open network locations.",
   device: "That path points at a device, not a file, so Any Bot won't use it.",
   outside: "That path is outside the bot's folders, so Any Bot won't use it.",
   link: "That path goes through a link to a place Any Bot won't follow.",
 };
+// Why the folder Explorer would draw can't be shown (explorerProblem).
+const SHOWN = {
+  pointer: "That folder has a shortcut or desktop.ini that points to a network location, so Any Bot won't show it. Right-click to copy the path.",
+  crowded: "That folder holds too many items for Any Bot to check, so it won't show it. Right-click to copy the path.",
+  unknown: "That drive isn't responding right now. Try again in a few minutes.",
+};
 
 // Why `action` (open, reveal, or preview) can't run on this inspected ref,
 // as an owner-facing message; `record` marks refusals for the diagnostics log.
+// The same links show in chat, attachments, and the Files panel, so the
+// wording doesn't say where the click came from.
 function actionProblem(ref, action, raw) {
   if (ref.state === "missing") return { message: `That file isn't there any more: ${shownName(raw)}` };
   if (ref.state === "unknown") return { message: "That drive isn't responding right now. Try again in a few minutes." };
@@ -415,20 +560,28 @@ function actionProblem(ref, action, raw) {
     };
   const ext = safeExtension(ref.name);
   const named = ext ? `${ext} files` : "these files";
+  const folder = ref.state === "folder";
   if (action === "open" && !ref.open) {
     const message =
-      ref.reason === "runs-programs"
-        ? `Any Bot doesn't open ${named} from chat because they can run programs. Use Show in folder.`
-        : ref.reason === "shell-pointer"
-          ? ref.state === "folder"
-            ? "Special system folders aren't opened from chat. Right-click to copy the path."
-            : "Shortcut files aren't opened from chat. Right-click to copy the path."
-          : `Any Bot doesn't open ${named} from chat. Use Preview or Show in folder.`;
+      ref.reason === "folder-name"
+        ? `Any Bot doesn't open folders named like ${named}. ${ref.reveal ? "Use Show in folder." : "Right-click to copy the path."}`
+        : ref.reason === "runs-programs"
+          ? `Any Bot doesn't open ${named} because they can run programs. Use Show in folder.`
+          : ref.reason === "shell-pointer"
+            ? folder
+              ? "Any Bot doesn't open special system folders. Right-click to copy the path."
+              : "Any Bot doesn't open shortcut files. Right-click to copy the path."
+            : `Any Bot doesn't open ${named}. Use Preview or Show in folder.`;
     return { message, record: true, reason: ref.reason || "not-open", ext };
   }
   if (action === "reveal" && !ref.reveal)
     return {
-      message: "Shortcut files aren't shown in their folder from chat. Right-click to copy the path.",
+      message:
+        ref.reason === "folder-name"
+          ? `Any Bot doesn't show folders named like ${named} in Explorer. Right-click to copy the path.`
+          : folder
+            ? "Any Bot doesn't show special system folders in Explorer. Right-click to copy the path."
+            : "Any Bot doesn't show shortcut files in their folder. Right-click to copy the path.",
       record: true,
       reason: ref.reason || "not-reveal",
       ext,
@@ -439,7 +592,8 @@ function actionProblem(ref, action, raw) {
 
 // files.preview: the first 512 KB of text (binary if the first 8 KB has a
 // NUL), images up to 2 MB as data: URLs, else just the file's details. Reads
-// through one handle whose fstat must be a regular file.
+// through one handle whose fstat must be a regular file, and the same file
+// inspect() checked (a file swapped for a link since then shows no content).
 async function readPreview(ref, { fs = fsp } = {}) {
   const base = { name: ref.name, path: ref.path, size: ref.size, open: Boolean(ref.open), reveal: Boolean(ref.reveal) };
   const ext = path.extname(String(ref.name || "")).toLowerCase();
@@ -448,7 +602,7 @@ async function readPreview(ref, { fs = fsp } = {}) {
   const handle = await fs.open(ref.path, "r");
   try {
     const stat = await handle.stat();
-    if (!stat.isFile()) return { ...base, kind: "file" };
+    if (!stat.isFile() || (ref.identity && ref.identity !== `${stat.dev}:${stat.ino}`)) return { ...base, kind: "file" };
     const size = stat.size;
     if (ref.preview === "image" && size > MAX_IMAGE) return { ...base, size, kind: "file" };
     const want = ref.preview === "image" ? size : Math.min(size, MAX_TEXT);

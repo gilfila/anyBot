@@ -69,11 +69,19 @@ test("file-link code never reaches the shell, folder, or URL bridges", async () 
 test("shell.openPath only opens the app's own folders or a file link main has just inspected", async () => {
   const main = await read("desktop/main.cjs");
   const opened = [...main.matchAll(/shell\.openPath\(([^;]*)\);/g)].map((m) => m[1].trim()).sort();
-  assert.deepEqual(opened, ['app.getPath("userData")', "diagnostics.directory", "ref.path"]);
+  assert.deepEqual(opened, ['app.getPath("userData")', "diagnostics.directory", "target"]);
   const branch = main.match(/if \(method === "files\.open"\) \{[\s\S]*?return \{ opened: true \};/)?.[0] || "";
-  assert.match(branch, /const ref = await fileTarget\(payload, "open"\);[\s\S]*shell\.openPath\(ref\.path\)/);
+  assert.match(branch, /const ref = await fileTarget\(payload, "open"\);[\s\S]*const target = ref\.state === "folder"[^;]*ref\.path[^;]*;[\s\S]*shell\.openPath\(target\)/);
   const shown = [...main.matchAll(/shell\.showItemInFolder\(([^;]*)\);/g)].map((m) => m[1].trim()).sort();
   assert.deepEqual(shown, ["file", "fileAccess.ownerPath(filePath)", "ref.path"]);
+});
+
+// Bot HTML in chat can request file://host (SMB) through CSS or SVG, which
+// the page CSP allows on a file: page; main cancels it for every frame.
+test("main cancels file: requests outside the app before the window opens", async () => {
+  const main = await read("desktop/main.cjs");
+  assert.match(main, /session\.defaultSession\.webRequest\.onBeforeRequest\(\(details, callback\) => \{\s*const blocked = fileRequestBlocked\(details\.url, root\);\s*callback\(\{ cancel: blocked \}\);/);
+  assert.match(main, /guardFileRequests\(\);[\s\S]*showWindow\(\);/);
 });
 
 test("files.context is main-only", async () => {

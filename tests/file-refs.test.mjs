@@ -98,7 +98,11 @@ test("a path links only once main says it exists, as a keyboard-reachable span",
   // Inside code the span sits inside <code>; a line suffix stays in the text.
   assert.match(render("`C:\\x\\a.md`", lookup), /^<code><span class="file-link"[^>]*>C:\\x\\a\.md<\/span><\/code>$/);
   assert.match(render("C:\\x\\a.md:42 here", lookup), /data-file-ref="C:\\x\\a\.md"[^>]*>C:\\x\\a\.md:42<\/span> here$/);
-  assert.match(render("[the plan](C:/x/a.md#L3)", lookupOf(["C:/x/a.md"])), /data-file-ref="C:\/x\/a\.md"[^>]*>the plan<\/span>$/);
+  // A link label that isn't the file's name shows the real name after it.
+  assert.match(render("[the plan](C:/x/a.md#L3)", lookupOf(["C:/x/a.md"])), /data-file-ref="C:\/x\/a\.md"[^>]*>the plan<span class="file-link-name"> · path\.md<\/span><\/span>$/);
+  assert.match(render("[src/path.md](C:/x/a.md)", lookupOf(["C:/x/a.md"])), /data-file-ref="C:\/x\/a\.md"[^>]*>src\/path\.md<\/span>$/);
+  const docx = () => found("file", { name: "payload.docx", kind: "document", action: "reveal", open: false, preview: null });
+  assert.match(render("[Q3 notes.txt](C:\\Users\\Tony\\ws\\payload.docx)", docx), />Q3 notes\.txt<span class="file-link-name"> · payload\.docx<\/span><\/span>$/);
   assert.match(render("**C:\\x\\a.md**", lookup), /^<strong><span class="file-link"[^>]*>C:\\x\\a\.md<\/span><\/strong>$/);
   // A file that can't be opened says so on the element.
   const reveal = () => found("file", { open: false, action: "reveal", reason: "runs-programs", name: "setup.exe" });
@@ -182,8 +186,14 @@ test("tooltips say what a click does", () => {
     fileTooltip({ state: "file", path: "C:\\d\\setup.exe", name: "setup.exe", kind: "other", size: 10, action: "reveal", reason: "runs-programs", reveal: true }),
     /This \.exe file can run programs, so Any Bot won't open it\. Click to show it in its folder\.$/,
   );
-  assert.match(fileTooltip({ state: "file", path: "C:\\x.lnk", name: "x.lnk", action: "menu" }), /Shortcut files aren't opened from chat/);
+  assert.match(fileTooltip({ state: "file", path: "C:\\x.lnk", name: "x.lnk", action: "menu" }), /Any Bot doesn't open shortcut files\. Right-click to copy the path\.$/);
   assert.match(fileTooltip({ state: "folder", path: "C:\\x", name: "x", action: "open", reveal: true }), /^C:\\x\nFolder\nClick to open the folder/);
+  assert.match(
+    fileTooltip({ state: "folder", path: "C:\\setup.exe", name: "setup.exe", action: "reveal", reason: "folder-name", reveal: true }),
+    /Any Bot doesn't open folders named like \.exe files\. Click to show it in its folder\.$/,
+  );
+  assert.match(fileTooltip({ state: "folder", path: "C:\\g", name: "g", action: "menu", reason: "shell-pointer" }), /Any Bot doesn't open special folders\./);
+  assert.match(fileTooltip({ state: "file", path: "C:\\a.docx", name: "a.docx", action: "reveal", reason: "not-supported", reveal: true }), /Any Bot doesn't open \.docx files\. Click/);
 });
 
 // Terminal output (RunTerminal.jsx): links only, no markdown.

@@ -1,7 +1,7 @@
 import React, { useContext, useState, useMemo } from "react";
 import { Check, Code, Copy, FileText, ExternalLink, ChevronDown, ChevronUp, Eye, Workflow } from "lucide-react";
 import { TABLE_ROW, TABLE_RULE, fileCandidates, renderMarkdownInline, tableCells } from "../lib/markdown.js";
-import { botNamed, delegationBlock, manifestPaths } from "../lib/chat.js";
+import { botNamed, delegationBlock, manifestPaths, replyRun } from "../lib/chat.js";
 import { FILE_PLATFORM, FileLinkContext, useFileLinkEvents, useFileRefs } from "./FileLinks.jsx";
 import { useCopy } from "./hooks.js";
 import { ChatContext } from "./chat/ChatContext.js";
@@ -63,10 +63,10 @@ function CodeBlock({ language, code, onPreview }) {
             {copied ? <Check size={12} /> : <Copy size={12} />}
             {copied ? "Copied" : "Copy"}
           </button>
-          {isHtmlLike && (
+          {isHtmlLike && onPreview && (
             <button 
               className="code-action" 
-              onClick={() => onPreview?.(code, 'html')}
+              onClick={() => onPreview(code, 'html')}
               title="Preview HTML"
             >
               <Eye size={12} />
@@ -103,10 +103,12 @@ function HtmlPreviewCard({ html, onPreview }) {
         <strong>{preview.title}</strong>
         <small>{Math.ceil(preview.size / 1024)} KB HTML document</small>
       </div>
-      <button className="secondary html-preview-button" onClick={() => onPreview?.(html, 'html')}>
-        <Eye size={14} />
-        Open Preview
-      </button>
+      {onPreview && (
+        <button className="secondary html-preview-button" onClick={() => onPreview(html, 'html')}>
+          <Eye size={14} />
+          Open Preview
+        </button>
+      )}
     </div>
   );
 }
@@ -228,13 +230,17 @@ function MarkdownText({ text, people, files = null, handlers, boxRef, botLinks =
   );
 }
 
-// A delegating reply's ```anybot block, read as what it asks for.
-function DelegationCard({ bot, objective, onOpen }) {
+// A delegating reply's ```anybot block, read as what it asks for. `state`:
+// "handed" once the delegate's run is queued, "pending" while the reply is
+// still streaming, "failed" when the coordinator refused the handoff (its
+// notice below says why).
+const HANDOFF_LABELS = { handed: "Handed to", pending: "Handing to", failed: "Couldn't hand to" };
+function DelegationCard({ bot, objective, onOpen, state }) {
   return (
-    <div className="delegation-card">
+    <div className={state === "failed" ? "delegation-card is-failed" : "delegation-card"}>
       <span className="delegation-card-head">
         <Workflow size={13} aria-hidden="true" />
-        Handed to
+        {HANDOFF_LABELS[state]}
         <button type="button" className="delegation-to" title={`Message ${bot.name} directly`} onClick={() => onOpen(bot)}>
           {bot.name}
         </button>
@@ -323,16 +329,19 @@ export function MessageContent({ body, messageId, onOpenPreview, onOpenBrowser, 
     if (block.language === "anybot" && chat) {
       const request = delegationBlock(block.code);
       const bot = request && chat.employees.find((e) => e.id === request.employeeId);
-      if (bot) return <DelegationCard key={`handoff-${block.index}`} bot={bot} objective={request.objective} onOpen={chat.onOpenBot} />;
+      if (bot) {
+        const reply = messageId ? replyRun({ id: messageId }, chat.runs) : null;
+        const state = !messageId ? "pending" : reply && chat.runs.some((r) => r.parent === reply.id && r.employee === bot.id) ? "handed" : "failed";
+        return <DelegationCard key={`handoff-${block.index}`} bot={bot} objective={request.objective} onOpen={chat.onOpenBot} state={state} />;
+      }
     }
     return null;
   };
 
   // Previews always go through the sandboxed srcdoc modal. A same-origin blob:
-  // URL would give employee HTML access to window.anybot.
-  const handlePreview = (html, type) => {
-    onOpenPreview?.(html, type);
-  };
+  // URL would give employee HTML access to window.anybot. Without a handler
+  // (a reply still streaming), there are no preview buttons.
+  const handlePreview = onOpenPreview ? (html, type) => onOpenPreview(html, type) : null;
 
   if (content.type === 'html-preview') {
     return <HtmlPreviewCard html={content.content} onPreview={handlePreview} />;
@@ -344,10 +353,12 @@ export function MessageContent({ body, messageId, onOpenPreview, onOpenBrowser, 
         <div className="html-preview-header">
           <FileText size={14} />
           <span>HTML Content</span>
-          <button className="code-action" onClick={() => handlePreview(content.content, 'html')}>
-            <ExternalLink size={12} />
-            Open in Browser
-          </button>
+          {handlePreview && (
+            <button className="code-action" onClick={() => handlePreview(content.content, 'html')}>
+              <ExternalLink size={12} />
+              Open in Browser
+            </button>
+          )}
         </div>
         <div 
           className="html-sandboxed"
@@ -414,11 +425,19 @@ export function MessageContent({ body, messageId, onOpenPreview, onOpenBrowser, 
 
 // Elements that can run code, load remote documents, restyle the whole app,
 // or submit data. Rendered inline inside the app's own document, so this is
-// an allowlist-by-exclusion backed by the page CSP (no inline script).
+// an allowlist-by-exclusion backed by the page CSP (no inline script) and by
+// main, which cancels every file: request outside the app (window-shell.cjs):
+// on a file: page the CSP's 'self' lets file://host through.
 const BLOCKED_ELEMENTS =
   'script, style, link, meta, base, iframe, frame, frameset, object, embed, applet, form, input, button, textarea, select, template, portal';
+// SVG animation can set any attribute, a URL included (<set to="file://…">).
+const BLOCKED_SVG = new Set(['set', 'animate', 'animatemotion', 'animatetransform', 'discard']);
 const URL_ATTRIBUTES = new Set(['href', 'src', 'xlink:href', 'action', 'formaction', 'poster', 'background', 'cite', 'srcset']);
 const SAFE_URL_PATTERN = /^(https?:|mailto:|#|data:image\/(png|gif|jpe?g|webp);)/i;
+// SVG presentation attributes are CSS, so url() there can load a file. Only
+// same-document references (url(#gradient)) stay; CSS escapes never do.
+const CSS_URL_ATTRIBUTES = new Set(['fill', 'stroke', 'filter', 'mask', 'clip-path', 'marker-start', 'marker-mid', 'marker-end', 'cursor']);
+const REMOTE_CSS_URL = /\\|url\((?!['"]?#)/i;
 
 function sanitizeHtml(html) {
   const parser = new DOMParser();
@@ -427,18 +446,25 @@ function sanitizeHtml(html) {
   doc.querySelectorAll(BLOCKED_ELEMENTS).forEach((el) => el.remove());
 
   doc.querySelectorAll('*').forEach((el) => {
+    if (BLOCKED_SVG.has(el.localName.toLowerCase())) {
+      el.remove();
+      return;
+    }
     for (const attr of [...el.attributes]) {
       const name = attr.name.toLowerCase();
       // Browsers ignore whitespace and control characters inside URL schemes.
       const value = attr.value.replace(/[\u0000- ]/g, '');
       // data-*, role and tabindex go too, so bot HTML can't forge a file link.
+      // style goes because CSS can load files (url(), image-set(), escapes).
       if (
         name.startsWith('on') ||
         name.startsWith('data-') ||
         name === 'role' ||
         name === 'tabindex' ||
         name === 'srcdoc' ||
-        (URL_ATTRIBUTES.has(name) && value && !SAFE_URL_PATTERN.test(value))
+        name === 'style' ||
+        (URL_ATTRIBUTES.has(name) && value && !SAFE_URL_PATTERN.test(value)) ||
+        (CSS_URL_ATTRIBUTES.has(name) && REMOTE_CSS_URL.test(value))
       ) {
         el.removeAttribute(attr.name);
       }

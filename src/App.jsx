@@ -265,7 +265,9 @@ export function App() {
     return () => clearTimeout(timer);
   }, [notice]);
   // File links in messages (components/FileLinks.jsx): errors use the banner,
-  // Preview opens the file modal.
+  // Preview opens the file modal. onOwnerReveal is only for paths the owner
+  // chose (attachments, the Files panel) that main won't link, such as a
+  // network share: they show in their folder as they always did.
   const fileLinks = useMemo(
     () => ({
       onFileAction: (action, target) =>
@@ -274,6 +276,11 @@ export function App() {
           setNotice,
           openPreview: (preview, from) => setModal({ type: "file", preview, target: from }),
         }),
+      onOwnerReveal: (path) => {
+        setError("");
+        setNotice("");
+        return revealOwnerPath(path);
+      },
     }),
     [],
   );
@@ -502,12 +509,14 @@ export function App() {
   const channel = isProject ? messages.filter((m) => !m.thread) : messages;
   const channelRuns = isProject ? activeRuns.filter((r) => !r.thread) : activeRuns;
   const thread = openThread && isProject ? messages.find((m) => m.id === openThread) : null;
+  // A jump into the conversation already open (Ctrl+Shift+A, a notification)
+  // keeps what you were typing.
   function openConversation(c) {
     setConversationId(c.id);
-    if (c.id !== conversationId) setOpenThread(null);
     setView("chat");
     // Each conversation keeps its own unsent text (drafts).
     if (c.id !== conversationId) {
+      setOpenThread(null);
       setProjectTab("chat");
       setSelectedTask(null);
     }
@@ -764,17 +773,19 @@ export function App() {
   // it's open) and mark it for a moment.
   useEffect(() => {
     if (!focusMessage || view !== "chat") return undefined;
-    let clear;
+    let clear, node;
     const timer = setTimeout(() => {
-      const node = [...document.querySelectorAll(`[data-message="${CSS.escape(focusMessage.id)}"]`)].at(-1);
+      node = [...document.querySelectorAll(`[data-message="${CSS.escape(focusMessage.id)}"]`)].at(-1);
       if (!node) return;
       node.scrollIntoView({ behavior: "smooth", block: "center" });
       node.classList.add("is-target");
       clear = setTimeout(() => node.classList.remove("is-target"), 2000);
     }, 150);
+    // A second jump within the 2 s unmarks this message first.
     return () => {
       clearTimeout(timer);
       clearTimeout(clear);
+      node?.classList.remove("is-target");
     };
   }, [focusMessage, view]);
   useEffect(() => {

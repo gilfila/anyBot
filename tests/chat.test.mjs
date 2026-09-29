@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   botNamed,
+  closeOpenFence,
   copyText,
   delegationBlock,
   elapsed,
@@ -59,6 +60,12 @@ test("listed paths pair with collected artifacts by file name, each used once", 
     ],
   );
   assert.equal(matchArtifacts(["x.md"]).at(0).artifact, null);
+});
+
+test("a reply still streaming shows an unclosed code fence as code", () => {
+  assert.equal(closeOpenFence("Here:\n```python\n# setup\nx = 1"), "Here:\n```python\n# setup\nx = 1\n```");
+  assert.equal(closeOpenFence("```js\na()\n```\nthen ```"), "```js\na()\n```\nthen ```\n```");
+  for (const done of ["No code yet", "```js\na()\n```", "", undefined]) assert.equal(closeOpenFence(done), String(done ?? ""));
 });
 
 test("a delegation block reads only a well-formed delegate request", () => {

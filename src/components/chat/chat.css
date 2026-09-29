@@ -315,17 +315,30 @@ button.attachment-chip:hover {
   font-size: 11px;
 }
 
-/* Copy / Reply in thread / Terminal: take no room until the message is
-   hovered or holds focus. They stay in the tab order, and focusing one
-   shows them. */
+/* Copy / Reply in thread / Terminal: out of the meta line's flow, so showing
+   them moves nothing and the line keeps its height. Hidden until the message
+   is hovered or holds focus; they stay in the tab order, and focusing one
+   shows them. Bot messages have them at the line's right end, yours to the
+   left of the time (your meta line is only as wide as the time). */
+.message-meta {
+  position: relative;
+}
 .message-actions {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  z-index: 1;
+  translate: 0 -50%;
   display: inline-flex;
   gap: 2px;
-  margin-left: auto;
   max-width: 0;
   overflow: hidden;
   opacity: 0;
   transition: opacity 0.12s ease;
+}
+.message.from-you .message-actions {
+  right: 100%;
+  margin-right: 6px;
 }
 .message:hover .message-actions,
 .message:focus-within .message-actions {
@@ -367,6 +380,10 @@ button.attachment-chip:hover {
 .message-body .bot-link[data-bot]:focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 1px;
+}
+/* Your own messages sit on an ink bubble (themes.css has the hologram one). */
+.message.from-you .message-body .bot-link[data-bot]:focus-visible {
+  outline-color: var(--paper);
 }
 
 /* Who a handoff went to, and how it's going. */
@@ -410,6 +427,10 @@ button.attachment-chip:hover {
 .delegation-card p {
   margin: 6px 0 0;
   white-space: pre-wrap;
+}
+/* A handoff the coordinator refused (its notice follows). */
+.delegation-card.is-failed {
+  border-style: dashed;
 }
 
 /* The files a reply returned (its anybot-artifacts manifest). */
