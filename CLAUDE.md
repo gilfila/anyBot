@@ -25,7 +25,7 @@ Electron 44 main process (`desktop/main.cjs`) + sandboxed React 19 renderer (`sr
   - Adds a user-facing CHANGELOG entry for that version.
   - Updates README.md when a feature is added or changed.
   - Updates this file's "Last turn / Pending", plus any doc the change touches (`docs/*`, `design.md`).
-  - Before merging, check that the PR's version is still above `main`'s; if another PR merged first, bump it and move its CHANGELOG entry. Stacked PRs merge lowest version first.
+  - Before merging, check that the PR's version is still above `main`'s; if another PR merged first, bump it and move its CHANGELOG entry. Stacked PRs merge lowest version first, and without `--delete-branch` on the lower one: deleting a PR's base branch makes GitHub close that PR for good (it happened to #59, reopened as #60). Retarget the upper PR to `main` first (`gh pr edit N --base main`), then delete the old branch.
   - Tony approved merging on 2026-09-28 ("merge everything"); still confirm each merge in the session that asks for it, because merging publishes to every install.
 - Do not change updater install behavior (`quitAndInstall(true, true)`, NSIS oneClick/perMachine=false) without testing a real update from the previous release.
 
