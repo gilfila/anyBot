@@ -20,11 +20,16 @@ const until = async (check, what) => {
 
 // A pretend Slack: Web API calls are recorded and answered, and each Socket
 // Mode connection is a fake socket the test pushes envelopes through.
-function fakeSlack({ fail = {} } = {}) {
+function fakeSlack({ fail = {}, drop = {} } = {}) {
   const calls = [];
   const sockets = [];
   const fetchImpl = async (url, init) => {
     const method = url.replace("https://slack.com/api/", "");
+    // `drop[method]` connections time out before reaching Slack, as fetch does.
+    if (drop[method] > 0) {
+      drop[method]--;
+      throw Object.assign(new TypeError("fetch failed"), { cause: { code: "UND_ERR_CONNECT_TIMEOUT" } });
+    }
     const args = Object.fromEntries(new URLSearchParams(init.body));
     calls.push({ method, token: init.headers.authorization.replace("Bearer ", ""), args });
     const answer = fail[method]
@@ -65,10 +70,10 @@ const dm = (user, text, ts = "100.1") => ({
   payload: { event: { type: "message", channel_type: "im", channel: "D1", user, text, ts } },
 });
 
-async function bridgeFixture(t, { updates, fail } = {}) {
+async function bridgeFixture(t, { updates, fail, drop, clock = Date.now, onDiagnostic } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "anybot-slack-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  const slack = fakeSlack({ fail });
+  const slack = fakeSlack({ fail, drop });
   const requests = [];
   const bridge = createSlackBridge({
     statePath: join(directory, "slack.json"),
@@ -83,6 +88,8 @@ async function bridgeFixture(t, { updates, fail } = {}) {
     fetchImpl: slack.fetchImpl,
     WebSocketImpl: slack.WebSocketImpl,
     retryMs: [5],
+    clock,
+    onDiagnostic,
     pollMs: 60_000,
   });
   t.after(() => bridge.stop());
@@ -159,6 +166,65 @@ test("only paired people reach the bot; a stranger is told once, the code pairs 
   assert.match(slack.posts()[1].args.text, /You're paired/);
   bridge.removeUser("e1", "U1");
   assert.deepEqual(bridge.status("e1").users, []);
+});
+
+test("a pasted code pairs even when Slack keeps its bold", async (t) => {
+  const { bridge, slack } = await bridgeFixture(t);
+  const { pairing } = await bridge.connect("e1", { botToken: BOT, appToken: APP });
+  await until(() => slack.sockets.length === 1, "socket");
+  // Copied from Any Bot's panel, where the code is <strong>123 456</strong>.
+  slack.sockets[0].push(dm("U1", `*${pairing.code.slice(0, 3)} ${pairing.code.slice(3)}*`, "1.1"));
+  await until(() => bridge.status("e1").users.length === 1, "pairing");
+});
+
+test("a wrong or expired code is always answered, and five wrong guesses cancel the code", async (t) => {
+  let now = Date.now();
+  const { bridge, slack } = await bridgeFixture(t, { clock: () => now });
+  const { pairing } = await bridge.connect("e1", { botToken: BOT, appToken: APP });
+  await until(() => slack.sockets.length === 1, "socket");
+  const socket = slack.sockets[0];
+  const wrong = String((Number(pairing.code) + 1) % 1_000_000).padStart(6, "0");
+  socket.push(dm("U9", "hello", "1.0"));
+  await until(() => slack.posts().length === 1, "the refusal");
+  // Right after the refusal, which mutes plain messages for an hour.
+  socket.push(dm("U1", wrong, "1.1"));
+  await until(() => slack.posts().length === 2, "the wrong-code answer");
+  assert.match(slack.posts()[1].args.text, /isn't the pairing code/);
+  for (let i = 2; i <= 5; i++) socket.push(dm("U1", wrong, `1.${i}`));
+  await until(() => slack.posts().length === 6, "every guess answered");
+  assert.equal(bridge.status("e1").pairing, null, "cancelled after five misses");
+  assert.match(slack.posts()[5].args.text, /expired or was already used/);
+  socket.push(dm("U1", pairing.code, "2.0"));
+  await until(() => slack.posts().length === 7, "the old code refused");
+  assert.equal(bridge.status("e1").users.length, 0);
+
+  const fresh = bridge.pair("e1").pairing;
+  now += 11 * 60_000;
+  socket.push(dm("U1", fresh.code, "3.0"));
+  await until(() => slack.posts().length === 8, "the expired-code answer");
+  assert.match(slack.posts()[7].args.text, /expired or was already used/);
+  assert.equal(bridge.status("e1").users.length, 0);
+});
+
+test("a Slack call that times out before connecting is retried, and a lost refusal doesn't mute the hour", async (t) => {
+  const drop = { "chat.postMessage": 3 };
+  const diagnostics = [];
+  const { bridge, slack } = await bridgeFixture(t, { drop, onDiagnostic: (entry) => diagnostics.push(entry) });
+  const { pairing } = await bridge.connect("e1", { botToken: BOT, appToken: APP });
+  await until(() => slack.sockets.length === 1, "socket");
+  const socket = slack.sockets[0];
+  // Three timeouts in a row outlast the retries: this refusal is lost...
+  socket.push(dm("U9", "hello", "1.0"));
+  await until(() => drop["chat.postMessage"] === 0, "every attempt");
+  await flush();
+  assert.equal(slack.posts().length, 0);
+  assert.equal(diagnostics.at(-1).message, "fetch failed (UND_ERR_CONNECT_TIMEOUT)", "the log says why");
+  // ...so the next message is answered instead of met with silence.
+  drop["chat.postMessage"] = 1;
+  socket.push(dm("U9", "hello?", "1.1"));
+  await until(() => slack.posts().length === 1, "the refusal, after one retry");
+  socket.push(dm("U1", pairing.code, "2.0"));
+  await until(() => bridge.status("e1").users.length === 1, "pairing");
 });
 
 test("a paired DM becomes work for the bot, and its reply comes back to the DM", async (t) => {
