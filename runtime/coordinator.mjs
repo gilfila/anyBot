@@ -441,6 +441,12 @@ export class Coordinator extends EventEmitter {
         return previewAttachment(this.attachmentRecord(payload));
       case "attachments.savePasted":
         return savePasted(this.directory, payload);
+      case "routines.update":
+        this.routines.update(payload);
+        break;
+      case "routines.delete":
+        this.routines.remove(payload);
+        break;
       case "routines.setEnabled":
         this.routines.setEnabled(payload);
         break;

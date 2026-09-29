@@ -604,6 +604,8 @@ const methods = new Set([
   "attachments.preview",
   "attachments.savePasted",
   "routines.setEnabled",
+  "routines.update",
+  "routines.delete",
   "routines.runNow",
   "runtime.pause",
   "runtime.resume",

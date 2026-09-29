@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.29] - 2026-09-28
+
+### Added
+- **Edit and delete routines.** Each routine on the Routines page now has **Edit** and a delete button.
+  - Edit changes its name, assignment, bot, conversation or how often it repeats.
+  - Changing how often it repeats, or who does it, starts the clock again from now.
+  - Delete asks first. Work the routine already started still finishes, and its past messages stay in the conversation.
+- **Set how often a routine repeats in minutes, hours or days** instead of only minutes, so "every day" is just 1 day.
+- **Each routine shows which bot runs it and where** its results go.
+- **More colors for your bots.** Twelve new robot colors: Tangerine, Crimson, Magenta, Blush, Marigold, Emerald, Seafoam, Teal, Azure, Indigo, Graphite and Pearl. There are also four new chat bubble tints: Lime, Teal, Indigo and Orchid. Every one stays readable in every theme.
+
+### Changed
+- **Minimize your bots to a compact list.** The minimize button on the **Bots** heading shrinks every bot to a small avatar and its name, so about twice as many fit. A bot that's working or needs you still shows that line. Click it again for full size; Any Bot remembers your choice.
+- **The sidebar scrolls as one piece, and its sections fold away.** Click **Workspace**, **Bots** or **Projects** to fold that section; Any Bot remembers it. The headings stay in view as you scroll, so a long list of bots no longer squeezes your projects out of sight. Searching opens every section.
+
 ## [0.3.28] - 2026-09-28
 
 ### Added

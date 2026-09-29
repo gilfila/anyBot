@@ -7,6 +7,8 @@ import {
   Bot,
   Check,
   ChevronDown,
+  Minimize2,
+  Maximize2,
   ChevronRight,
   CirclePause,
   CircleHelp,
@@ -176,6 +178,7 @@ import { ProjectDoc } from "./components/doc/ProjectDoc.jsx";
 const OrgPage = React.lazy(() => import("./components/org/OrgPage.jsx").then((m) => ({ default: m.OrgPage })));
 import { DiagnosticsPanel } from "./components/DiagnosticsPanel.jsx";
 import { FloatingMenu } from "./components/FloatingMenu.jsx";
+import { SectionToggle } from "./components/SectionToggle.jsx";
 import { AppearancePanel } from "./components/theme/AppearancePanel.jsx";
 import { PhoneLinkPanel } from "./components/PhoneLinkPanel.jsx";
 import { SlackPanel } from "./components/SlackPanel.jsx";
@@ -253,8 +256,37 @@ export function App() {
   const [harnessDetail, setHarnessDetail] = useState(null);
   const botMenuAnchor = useRef(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [deleteRoutineConfirm, setDeleteRoutineConfirm] = useState(null);
   const [deleteProjectConfirm, setDeleteProjectConfirm] = useState(null);
   const [showArchivedProjects, setShowArchivedProjects] = useState(false);
+  // Sidebar sections the owner folded away (Workspace, Bots, Projects);
+  // remembered in this window only.
+  const [foldedSections, setFoldedSections] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("anybot-sidebar-folded") || "{}") || {};
+    } catch {
+      return {};
+    }
+  });
+  // Compact bot list: small avatars, one line per bot (remembered here).
+  const [compactBots, setCompactBots] = useState(() => {
+    try {
+      return localStorage.getItem("anybot-compact-bots") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const toggleCompactBots = () =>
+    setCompactBots((current) => {
+      try { localStorage.setItem("anybot-compact-bots", String(!current)); } catch {}
+      return !current;
+    });
+  const toggleSection = (name) =>
+    setFoldedSections((current) => {
+      const next = { ...current, [name]: !current[name] };
+      try { localStorage.setItem("anybot-sidebar-folded", JSON.stringify(next)); } catch {}
+      return next;
+    });
   const [openTerminal, setOpenTerminal] = useState(null);
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(() => {
     try {
@@ -543,6 +575,8 @@ export function App() {
     }
   }
   const sidebarTerm = sidebarSearch.trim().toLowerCase();
+  // Searching opens every folded section so matches are never hidden.
+  const folded = (name) => !sidebarTerm && Boolean(foldedSections[name]);
   const sidebarEmployees = data.employees
     .filter((employee) => !employee.archived)
     .filter((employee) => !sidebarTerm || `${employee.name} ${employee.role}`.toLowerCase().includes(sidebarTerm));
@@ -618,8 +652,11 @@ export function App() {
             onChange={(event) => setSidebarSearch(event.target.value)}
           />
         </label>
-        <div className="nav-label">WORKSPACE</div>
-        <nav>
+        <div className="sidebar-scroll">
+        <div className="nav-label section-heading-row">
+          <SectionToggle name="workspace" label="WORKSPACE" folded={folded("workspace")} onToggle={toggleSection} />
+        </div>
+        <nav hidden={folded("workspace")}>
           <button
             className={view === "work" ? "selected" : ""}
             onClick={() => setView("work")}
@@ -648,9 +685,17 @@ export function App() {
             )}
           </button>
         </nav>
-        <div className="nav-label conversation-label">
-          BOTS
-          <span>{sidebarEmployees.length}</span>
+        <div className="nav-label conversation-label section-heading-row">
+          <SectionToggle name="bots" label="BOTS" count={sidebarEmployees.length} folded={folded("bots")} onToggle={toggleSection} />
+          <button
+            className="compact-toggle"
+            title={compactBots ? "Show bots full size" : "Minimize bots to a compact list"}
+            aria-label={compactBots ? "Show bots full size" : "Minimize bots"}
+            aria-pressed={compactBots}
+            onClick={toggleCompactBots}
+          >
+            {compactBots ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
+          </button>
           <button
             title="New bot"
             aria-label="New bot"
@@ -659,7 +704,7 @@ export function App() {
             <Plus size={16} />
           </button>
         </div>
-        <div className="conversation-list bot-list">
+        <div className={`conversation-list bot-list${compactBots ? " compact" : ""}`} hidden={folded("bots")}>
           {sidebarEmployees.map((employee) => {
             const botConv = getConversationForEmployee(employee.id);
             const unread = botConv && hasUnreadMessages(botConv.id);
@@ -677,21 +722,24 @@ export function App() {
                   className="bot-row-main"
                   onClick={() => directChat(employee)}
                 >
-                  <RobotAvatar size={60} employee={employee} working={run?.status === "running"} />
+                  <RobotAvatar size={compactBots ? 28 : 60} employee={employee} working={run?.status === "running"} />
                   <span className="bot-row-text">
                     <span className="bot-row-name">
                       {employee.name}
                       <AttentionIcon attention={attention} />
                     </span>
-                    <small className={attention || run?.status === "running" ? "live" : ""}>
-                      {attention && attention.kind !== "done"
-                        ? attention.short
-                        : run
-                          ? run.status === "running"
-                            ? "Working…"
-                            : "Queued"
-                          : employee.role}
-                    </small>
+                    {/* Compact rows drop the role line but keep live status. */}
+                    {(!compactBots || (attention && attention.kind !== "done") || run) && (
+                      <small className={attention || run?.status === "running" ? "live" : ""}>
+                        {attention && attention.kind !== "done"
+                          ? attention.short
+                          : run
+                            ? run.status === "running"
+                              ? "Working…"
+                              : "Queued"
+                            : employee.role}
+                      </small>
+                    )}
                   </span>
                   {unread && <i className="unread-dot" aria-label="Unread messages" />}
                 </button>
@@ -760,8 +808,8 @@ export function App() {
             </p>
           )}
         </div>
-        <div className="nav-label conversation-label">
-          PROJECTS
+        <div className="nav-label conversation-label section-heading-row">
+          <SectionToggle name="projects" label="PROJECTS" count={groupConversations.length} folded={folded("projects")} onToggle={toggleSection} />
           <button
             title="New project"
             aria-label="New project"
@@ -770,7 +818,7 @@ export function App() {
             <Plus size={16} />
           </button>
         </div>
-        <div className="conversation-list">
+        <div className="conversation-list project-list" hidden={folded("projects")}>
           {groupConversations.length === 0 ? (
             <p className="side-empty">Your projects will live here.</p>
           ) : (
@@ -869,6 +917,7 @@ export function App() {
                 </button>
               </div>
             ))}
+        </div>
         </div>
         <div className="sidebar-bottom">
           <div className="runtime-indicator">
@@ -2090,6 +2139,8 @@ export function App() {
                       <strong>{r.name}</strong>
                       <p>{r.prompt}</p>
                       <small>
+                        {data.employees.find((e) => e.id === r.employee)?.name || "A former bot"} in{" "}
+                        {data.conversations.find((c) => c.id === r.conversation)?.title || "a deleted conversation"} ·{" "}
                         {every(r.minutes)} ·{" "}
                         {r.enabled
                           ? `Next: ${new Date(r.nextRun).toLocaleString()}`
@@ -2119,6 +2170,23 @@ export function App() {
                     >
                       {r.enabled ? <Pause size={14} /> : <Play size={14} />}{" "}
                       {r.enabled ? "Pause" : "Resume"}
+                    </button>
+                    <button
+                      className="secondary"
+                      disabled={busy}
+                      onClick={() => setModal({ type: "routine", routine: r })}
+                    >
+                      <Pencil size={14} />
+                      Edit
+                    </button>
+                    <button
+                      className="secondary routine-delete"
+                      disabled={busy}
+                      aria-label={`Delete ${r.name}`}
+                      title="Delete routine"
+                      onClick={() => setDeleteRoutineConfirm(r)}
+                    >
+                      <Trash2 size={14} />
                     </button>
                   </article>
                 ))}
@@ -2150,7 +2218,9 @@ export function App() {
               : modal.type === "artifact"
                 ? modal.artifact.name
                 : modal.type === "routine"
-                  ? "Create a routine"
+                  ? modal.routine
+                    ? "Edit routine"
+                    : "Create a routine"
                   : modal.type === "conversation-members"
                     ? "Manage conversation bots"
                     : modal.type === "project-settings"
@@ -2224,8 +2294,12 @@ export function App() {
             <RoutineForm
               data={data}
               busy={busy}
+              routine={modal.routine || null}
               onSave={async (p) => {
-                if (await act("routines.create", p)) setModal(null);
+                const saved = modal.routine
+                  ? await act("routines.update", { ...p, id: modal.routine.id })
+                  : await act("routines.create", p);
+                if (saved) setModal(null);
               }}
             />
           ) : modal.type === "conversation-members" ? (
@@ -2308,6 +2382,34 @@ export function App() {
                     archived: true,
                   });
                   if (result) setDeleteConfirm(null);
+                }}
+              >
+                <Trash2 size={14} />
+                Delete
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      {deleteRoutineConfirm && (
+        <Modal title="Delete routine" onClose={() => setDeleteRoutineConfirm(null)}>
+          <div className="delete-confirm-content">
+            <p>
+              Delete the routine <strong>{deleteRoutineConfirm.name}</strong>?
+            </p>
+            <p className="delete-confirm-note">
+              It stops repeating and its schedule history is removed. Work it already started finishes, and its past
+              messages stay in the conversation. To stop it for a while instead, pause it.
+            </p>
+            <div className="delete-confirm-actions">
+              <button className="secondary" onClick={() => setDeleteRoutineConfirm(null)}>
+                Cancel
+              </button>
+              <button
+                className="danger"
+                disabled={busy}
+                onClick={async () => {
+                  if (await act("routines.delete", { id: deleteRoutineConfirm.id })) setDeleteRoutineConfirm(null);
                 }}
               >
                 <Trash2 size={14} />

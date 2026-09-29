@@ -26,6 +26,10 @@
   :is(.sidebar, .context-rail, .chat-heading, .project-tabs, .org-heading, .kg-main, .thread-panel) {
   background: var(--paper);
 }
+/* The sidebar's sticky section headings match its paper. */
+:root:is([data-backdrop="rain"], [data-backdrop="meadow"], [data-backdrop="grid"]) .section-heading-row {
+  background: var(--paper);
+}
 /* A message's name, time, and status sit in a pill above its bubble. */
 :root:is([data-backdrop="rain"], [data-backdrop="meadow"], [data-backdrop="grid"])
   :is(.message-meta, .composer-note, .org-hint, .message.from-system .message-content, .message.notice .message-body) {

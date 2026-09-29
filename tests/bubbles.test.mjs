@@ -2,10 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { BUBBLE_SHADES, bubbleBackground, bubbleColors, bubbleStyle } from "../src/lib/bubbles.js";
-import { parseAvatarConfig, stringifyAvatarConfig } from "../src/lib/avatar-config.js";
+import { avatarColors, parseAvatarConfig, stringifyAvatarConfig } from "../src/lib/avatar-config.js";
 import { THEMES, contrast } from "../src/themes/themes.js";
 
-const robots = ["cobalt", "coral", "citron", "violet"];
+const robots = avatarColors.map((c) => c.id);
 
 test("every bubble tint keeps bot text readable in every theme", () => {
   for (const theme of THEMES)
@@ -45,4 +45,17 @@ test("a bot's bubble choice survives the avatar round trip", () => {
   assert.deepEqual(bubbleStyle("auto", "cobalt"), { "--bubble-h": 265, "--bubble-k": 1 });
   assert.deepEqual(bubbleStyle("mint", "cobalt"), { "--bubble-h": 170, "--bubble-k": 1 });
   assert.deepEqual(bubbleStyle("plain", "coral"), { "--bubble-h": 90, "--bubble-k": 0 });
+});
+
+test("every robot color has a CSS token and its own matching bubble hue", async () => {
+  const css = await readFile(new URL("../src/components/robot-avatar.css", import.meta.url), "utf8");
+  assert.equal(avatarColors.length, 16);
+  assert.deepEqual(avatarColors.slice(0, 4).map((c) => c.id), ["cobalt", "coral", "citron", "violet"], "the fallback four stay first");
+  for (const color of avatarColors) {
+    assert.ok(css.includes(`--bot-${color.id}: oklch(`), color.id);
+    assert.match(color.fill, /^#[0-9A-F]{6}$/i, color.id);
+    // Chosen colors survive the round trip (no legacy alias swallows them).
+    assert.equal(parseAvatarConfig(JSON.stringify({ color: color.id }), "Bot").color, color.id);
+    assert.equal(bubbleStyle("auto", color.id)["--bubble-k"], 1, `${color.id} has a bubble hue`);
+  }
 });

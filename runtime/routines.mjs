@@ -67,6 +67,53 @@ export class Routines {
     );
     this.store.event("routine.created", { routineId, actor: "local-owner" });
   }
+  // Edits a routine in place. Its history stays; a new interval (or a new
+  // bot or conversation) starts counting from now.
+  update(payload) {
+    const routine = this.store.one(
+      "SELECT * FROM routines WHERE id=?",
+      required(payload.id, 100, "Routine ID"),
+    );
+    if (!routine) throw new Error("Routine not found");
+    const name = required(payload.name, 100, "Routine name");
+    const prompt = required(payload.prompt, 12000, "Routine instructions");
+    const minutes = Number(payload.minutes);
+    if (!Number.isInteger(minutes) || minutes < 5 || minutes > 10080)
+      throw new Error("Interval must be 5–10080 whole minutes");
+    const conversation = payload.conversation ?? routine.conversation;
+    const employee = payload.employee ?? routine.employee;
+    // A paused routine may point at a bot or project that is gone; it must
+    // be valid again before it can run.
+    if (routine.enabled || conversation !== routine.conversation || employee !== routine.employee)
+      this.validateTarget(conversation, employee);
+    const restart =
+      minutes !== routine.minutes || conversation !== routine.conversation || employee !== routine.employee;
+    this.store.run(
+      "UPDATE routines SET name=?,prompt=?,minutes=?,conversation=?,employee=?,nextRun=? WHERE id=?",
+      name,
+      prompt,
+      minutes,
+      conversation,
+      employee,
+      restart ? this.clock() + minutes * 60000 : routine.nextRun,
+      routine.id,
+    );
+    this.store.event("routine.updated", { routineId: routine.id, edited: true });
+  }
+  // Deletes a routine and its schedule history. Work it already started
+  // finishes normally, and its messages stay in the conversation.
+  remove(payload) {
+    const routine = this.store.one(
+      "SELECT id FROM routines WHERE id=?",
+      required(payload.id, 100, "Routine ID"),
+    );
+    if (!routine) throw new Error("Routine not found");
+    this.store.transaction(() => {
+      this.store.run("DELETE FROM routine_occurrences WHERE routine=?", routine.id);
+      this.store.run("DELETE FROM routines WHERE id=?", routine.id);
+      this.store.event("routine.deleted", { routineId: routine.id, actor: "local-owner" });
+    });
+  }
   setEnabled(payload) {
     const routine = this.store.one(
       "SELECT * FROM routines WHERE id=?",

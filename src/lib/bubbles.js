@@ -12,11 +12,18 @@ export const bubbleColors = [
   { id: "peach", name: "Peach", hue: 50 },
   { id: "rose", name: "Rose", hue: 10 },
   { id: "lilac", name: "Lilac", hue: 305 },
+  { id: "lime", name: "Lime", hue: 120 },
+  { id: "teal", name: "Teal", hue: 200 },
+  { id: "indigo", name: "Indigo", hue: 280 },
+  { id: "orchid", name: "Orchid", hue: 330 },
   { id: "slate", name: "Slate", hue: 255, strength: 0.45 },
 ];
 
 // "Match robot" follows the robot's pulse color.
-const robotHues = { cobalt: 265, coral: 35, citron: 115, violet: 295 };
+const robotHues = {
+  cobalt: 265, coral: 35, citron: 115, violet: 295,
+  tangerine: 59, crimson: 20, magenta: 344, blush: 356, marigold: 87, emerald: 155, seafoam: 169, teal: 192, azure: 240, indigo: 275, graphite: 266, pearl: 88,
+};
 
 // Shade per color scheme; style.css mirrors these as --bubble-* on :root.
 export const BUBBLE_SHADES = {

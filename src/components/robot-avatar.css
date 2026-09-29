@@ -3,6 +3,18 @@
   --bot-coral: oklch(0.69 0.177 34.9);
   --bot-citron: oklch(0.882 0.176 117.4);
   --bot-violet: oklch(0.68 0.153 294.8);
+  --bot-tangerine: oklch(0.735 0.161 58.8);
+  --bot-crimson: oklch(0.586 0.192 20);
+  --bot-magenta: oklch(0.631 0.208 343.8);
+  --bot-blush: oklch(0.768 0.124 356.1);
+  --bot-marigold: oklch(0.8 0.153 86.9);
+  --bot-emerald: oklch(0.664 0.147 155.5);
+  --bot-seafoam: oklch(0.822 0.116 169.1);
+  --bot-teal: oklch(0.65 0.105 192.4);
+  --bot-azure: oklch(0.694 0.136 240.4);
+  --bot-indigo: oklch(0.505 0.196 275.5);
+  --bot-graphite: oklch(0.434 0.026 265.5);
+  --bot-pearl: oklch(0.904 0.017 88);
 }
 .robot-avatar.robot-avatar-3d {
   position: relative;
