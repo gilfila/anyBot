@@ -22,6 +22,7 @@ import {
   FolderOpen,
   FileText,
   Hash,
+  Hexagon,
   Keyboard,
   Loader,
   Mic,
@@ -208,6 +209,7 @@ import { SectionToggle } from "./components/SectionToggle.jsx";
 import { AppearancePanel } from "./components/theme/AppearancePanel.jsx";
 import { PhoneLinkPanel } from "./components/PhoneLinkPanel.jsx";
 import { SlackPanel } from "./components/SlackPanel.jsx";
+import { BuzzPanel } from "./components/BuzzPanel.jsx";
 import { AttentionIcon } from "./components/AttentionIcon.jsx";
 import { botAttention } from "./lib/attention.js";
 import { attentionTarget, resolveTarget } from "./lib/navigation.js";
@@ -1099,6 +1101,16 @@ export function App() {
                     >
                       <Hash size={14} />
                       Connect to Slack
+                    </button>
+                    <button
+                      role="menuitem"
+                      onClick={() => {
+                        setOpenBotMenu(null);
+                        setModal({ type: "buzz", employee });
+                      }}
+                    >
+                      <Hexagon size={14} />
+                      Connect to Buzz
                     </button>
                     <button
                       role="menuitem"
@@ -2702,6 +2714,8 @@ export function App() {
                       ? "Edit project"
                       : modal.type === "slack"
                         ? `${modal.employee.name} on Slack`
+                        : modal.type === "buzz"
+                          ? `${modal.employee.name} on Buzz`
                         : "Create a project"
           }
           onClose={() => setModal(null)}
@@ -2718,6 +2732,8 @@ export function App() {
           )}
           {modal.type === "slack" ? (
             <SlackPanel employee={modal.employee} />
+          ) : modal.type === "buzz" ? (
+            <BuzzPanel employee={modal.employee} />
           ) : modal.type === "employee" ? (
             <EmployeeForm
               harnesses={data.harnesses}

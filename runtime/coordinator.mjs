@@ -25,6 +25,7 @@ import { Memory } from "./memory.mjs";
 import { Knowledge } from "./knowledge.mjs";
 import { classifyRunError } from "./diagnostics.mjs";
 import { Approvals } from "./approvals.mjs";
+import { BuzzBridge } from "./buzz-bridge.mjs";
 import { TerminalLog } from "./terminal.mjs";
 import { actionsFrom, withoutActions } from "./actions.mjs";
 import { buildContext, stripMachineBlocks } from "./context.mjs";
@@ -166,6 +167,7 @@ export class Coordinator extends EventEmitter {
       onSettled: (approval) => this.approvalSettled(approval),
     });
     this.approvalsReady = this.approvals.start().catch(() => {});
+    this.buzz = new BuzzBridge(this, directory);
     this.lastAutopilot = 0;
     this.autopilotFailures = new Map(); // task id -> { revision, message, at }
     this.reportedFolders = new Set(); // "conversation:count" of missing project folders reported
@@ -336,6 +338,7 @@ export class Coordinator extends EventEmitter {
   }
   async initialize() {
     for (const entry of this.startupDiagnostics.splice(0)) this.diagnostic(entry);
+    await this.buzz.sync();
     this.installations = await this.probe();
     this.notify();
     this.dispatch();
@@ -429,6 +432,17 @@ export class Coordinator extends EventEmitter {
       }
       case "bridge.updates":
         return this.bridgeUpdates(payload);
+      // Buzz (runtime/buzz-bridge.mjs). Each returns the setup status for the
+      // bot in `employee`, not a snapshot.
+      case "buzz.status":
+        return this.buzz.status(payload.employee);
+      case "buzz.set":
+        await this.buzz.setEnabled(payload.enabled === true);
+        this.notify();
+        return this.buzz.status(payload.employee);
+      case "buzz.install":
+        this.buzz.install({ version: packageMetadata.version });
+        return this.buzz.status(payload.employee);
       // For desktop/main.cjs only (not in the renderer allowlist): what is
       // still working before an update installs, and holding new work while
       // it waits ("install when idle"). Holding lives in memory, so the
@@ -2485,6 +2499,7 @@ export class Coordinator extends EventEmitter {
     clearInterval(this.timer);
     for (const state of this.active.values()) state.controller.abort();
     await this.approvals.close();
+    await this.buzz.stop();
     await Promise.allSettled([...this.active.values()].map((a) => a.promise));
     this.store.close();
   }

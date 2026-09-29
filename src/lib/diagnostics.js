@@ -41,6 +41,11 @@ const tool = (context) => context?.harness || "its harness";
 export function describeIssue(issue) {
   const c = issue.context || {};
   const table = {
+    "buzz.start": {
+      title: "The Buzz connection couldn't start",
+      hint: "Buzz agents that run on Any Bot will say it isn't reachable. Turn it off and on again from a bot's menu → Connect to Buzz, or restart Any Bot.",
+      bug: true,
+    },
     "harness.usage_limit": {
       title: `${who(c)} hit a usage limit on ${tool(c)}`,
       hint: "Switch this bot to another model or harness, or add usage to that account.",
