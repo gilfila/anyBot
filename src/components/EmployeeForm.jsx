@@ -1,4 +1,5 @@
 import { EFFORTS } from "../../runtime/effort.mjs";
+import { permissionChoices } from "../../runtime/permission-modes.mjs";
 import React, { useEffect, useState, useMemo } from "react";
 import { Check, Folder, Plus } from "lucide-react";
 import { names, customModelValue, avatarColors, avatarHeadStyles, avatarEyeStyles } from "../constants.js";
@@ -64,6 +65,8 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [], em
   const set = (key, value) =>
     setForm((current) => ({ ...current, [key]: value }));
   const modelChoices = optionsFor(form.harness);
+  // What each permission mode does for this harness (they differ a lot).
+  const permissions = permissionChoices(form.harness);
   // Refresh the model lists every time the editor opens.
   const [models, setModels] = useState("checking");
   useEffect(() => {
@@ -342,15 +345,13 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [], em
           value={form.permissionMode}
           onChange={(e) => set("permissionMode", e.target.value)}
         >
-          <option value="auto">Auto: safe actions run, risky ones ask you</option>
-          <option value="dontAsk">Edits run, everything else asks you</option>
-          <option value="ask">Ask before every action</option>
+          {permissions.options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
         </select>
-        <span className="field-hint">
-          Claude Code sends approval requests to the chat and waits for your answer. Codex, Antigravity, and Cursor
-          can't ask: in Auto they edit files in their workspace and skip commands that need approval. Antigravity and
-          Cursor run commands freely under "Edits run".
-        </span>
+        <span className="field-hint">{permissions.hint}</span>
       </label>
       <label className="checkbox trust">
         <input

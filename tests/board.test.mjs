@@ -109,7 +109,15 @@ test("starting a task runs every assignee with lead and collaborator roles, then
 test("a task with a reviewer stops at Review until the reviewer or owner approves", async (t) => {
   const { c, conversation, names, task } = await fixture(t, (options, who) =>
     who === "Lead"
-      ? actions([{ type: "task.update", task: c.snapshot().tasks[0].id.slice(0, 8), status: "done" }])
+      ? actions([
+          {
+            type: "task.update",
+            task: c.snapshot().tasks[0].id.slice(0, 8),
+            status: "done",
+            comment: "All finished, shipping",
+            checklist: [{ index: 0, done: true }],
+          },
+        ])
       : "ok",
   );
   await c.command("tasks.create", {
@@ -117,13 +125,19 @@ test("a task with a reviewer stops at Review until the reviewer or owner approve
     title: "Reviewed",
     assignees: [names.Lead.id],
     reviewer: names.Boss.id,
+    checklist: [{ text: "Ship" }],
   });
   await c.command("tasks.start", { id: task("Reviewed").id });
   await settled(c);
   // The lead tried to jump to Done; the reviewer gate rejected it, and the
   // round settled into Review instead.
   assert.equal(task("Reviewed").status, "review");
-  assert.ok(c.snapshot().messages.some((m) => m.kind === "notice" && /rejected task.update: You cannot move/.test(m.body)));
+  const ref = task("Reviewed").id.slice(0, 8);
+  assert.ok(c.snapshot().messages.some((m) => m.kind === "notice" && m.body.includes(`rejected task.update "${ref}": You cannot move`)));
+  // A rejected update changed nothing: no progress note, no ticked item.
+  assert.deepEqual(task("Reviewed").checklist, [{ text: "Ship", done: false }]);
+  const detail = await c.command("tasks.get", { id: task("Reviewed").id });
+  assert.ok(!detail.activity.some((entry) => entry.kind === "progress"));
   await assert.rejects(c.command("tasks.review", { id: task("Reviewed").id, decision: "maybe" }), /approve or changes/);
   await c.command("tasks.review", { id: task("Reviewed").id, decision: "changes", comment: "Tighten copy" });
   assert.equal(task("Reviewed").status, "in_progress");
@@ -252,4 +266,68 @@ test("tasks with active work cannot be deleted and delegation inherits the task"
   const runs = c.snapshot().runs.filter((r) => r.task === task("Ship").id);
   assert.ok(runs.some((r) => r.employee === names.Helper.id), "delegated run is linked to the task");
   assert.equal(task("Ship").status, "done");
+});
+
+const tick = (c) => {
+  c.lastAutopilot = 0;
+  c.autopilot();
+};
+
+test("autopilot notes a task it can't start once, backs off, and moves on to the next", async (t) => {
+  const { c, conversation, names, task } = await fixture(t);
+  const diagnostics = [];
+  c.on("diagnostic", (entry) => diagnostics.push(entry));
+  await c.command("tasks.create", { conversation: conversation.id, title: "Stuck", priority: "urgent", assignees: [names.Lead.id, names.Helper.id] });
+  await c.command("tasks.create", { conversation: conversation.id, title: "Next", priority: "low", assignees: [names.Lead.id] });
+  const helper = c.snapshot().employees.find((e) => e.id === names.Helper.id);
+  await c.command("employees.setArchived", { id: helper.id, revision: helper.revision, archived: true });
+  await c.command("conversations.setAutopilot", { conversation: conversation.id, enabled: true });
+  for (let i = 0; i < 6; i++) tick(c);
+  await settled(c);
+  for (let i = 0; i < 6; i++) tick(c);
+  const detail = await c.command("tasks.get", { id: task("Stuck").id });
+  assert.equal(detail.activity.filter((entry) => /Autopilot could not start/.test(entry.body)).length, 1);
+  assert.equal(diagnostics.filter((d) => d.code === "autopilot.start_failed").length, 1);
+  assert.equal(task("Stuck").status, "backlog");
+  assert.equal(task("Next").status, "done", "the next task still ran");
+  // A restart forgets the back-off, but not the note.
+  c.autopilotFailures.clear();
+  tick(c);
+  const again = await c.command("tasks.get", { id: task("Stuck").id });
+  assert.equal(again.activity.filter((entry) => /Autopilot could not start/.test(entry.body)).length, 1);
+});
+
+test("the chat's Stop all also turns autopilot off for that project", async (t) => {
+  const { c, conversation, names, task } = await fixture(t, (options) =>
+    new Promise((resolve, reject) => options.signal.addEventListener("abort", () => reject(new Error("Run cancelled")))),
+  );
+  await c.command("tasks.create", { conversation: conversation.id, title: "One", priority: "high", assignees: [names.Lead.id] });
+  await c.command("tasks.create", { conversation: conversation.id, title: "Two", assignees: [names.Lead.id] });
+  await c.command("conversations.setAutopilot", { conversation: conversation.id, enabled: true });
+  tick(c);
+  assert.equal(task("One").status, "in_progress");
+  await c.command("runs.stopConversation", { conversation: conversation.id });
+  await settled(c);
+  assert.equal(c.snapshot().conversations[0].autopilot, 0);
+  assert.ok(c.snapshot().messages.some((m) => m.kind === "notice" && /Autopilot is off/.test(m.body)));
+  tick(c);
+  assert.equal(task("Two").status, "backlog");
+});
+
+test("autopilot turns itself off once bots have started too many of their own tasks in a day", async (t) => {
+  let made = 0;
+  const { c, conversation, names } = await fixture(t, (options, who) =>
+    who === "Lead" ? actions([{ type: "task.create", title: `Follow-up ${++made}`, assignees: [names.Lead.id] }]) : "ok",
+  );
+  c.autopilotBotTasksPerDay = 2;
+  await c.command("tasks.create", { conversation: conversation.id, title: "Seed", assignees: [names.Lead.id] });
+  await c.command("conversations.setAutopilot", { conversation: conversation.id, enabled: true });
+  for (let i = 0; i < 8 && c.snapshot().conversations[0].autopilot; i++) {
+    tick(c);
+    await settled(c);
+  }
+  const started = c.snapshot().tasks.filter((x) => x.status !== "backlog").map((x) => x.title);
+  assert.deepEqual(started.sort(), ["Follow-up 1", "Follow-up 2", "Seed"]);
+  assert.equal(c.snapshot().conversations[0].autopilot, 0);
+  assert.ok(c.snapshot().messages.some((m) => m.kind === "notice" && /Autopilot turned itself off/.test(m.body)));
 });

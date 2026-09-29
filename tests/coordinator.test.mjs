@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Coordinator } from "../runtime/coordinator.mjs";
+import { Store } from "../runtime/store.mjs";
 import {
   childEnvironment,
   extractEvent,
@@ -224,6 +225,8 @@ test("queued turns include preceding results and exclude later human messages", 
   await send("First assignment");
   await send("Second assignment");
   await send("Third assignment");
+  // The first run prepares its inbox before its harness starts.
+  while (!prompts.length) await new Promise((r) => setTimeout(r, 5));
   assert.equal(prompts.length, 1);
   releases[0]("First completed result");
   await new Promise((r) => setTimeout(r, 20));
@@ -357,4 +360,113 @@ test("a workspace paused before 0.3.18 resumes once on update; a pause set after
   c = open();
   assert.equal(c.snapshot().runtime.paused, true, "a pause set now survives restarts");
   await c.close();
+});
+
+test("a run cut off by quitting is recorded as interrupted, and the next start tells the chat and the delegator", async (t) => {
+  let reviewer;
+  const { c, directory, employees, send } = await fixture(t, async ({ harness, signal }) => {
+    if (harness === "codex")
+      return `Assigning review.\n\`\`\`anybot\n${JSON.stringify({ type: "delegate", employeeId: reviewer, objective: "Review the implementation" })}\n\`\`\``;
+    // The reviewer is mid-work when Any Bot quits.
+    return new Promise((resolve, reject) => signal.addEventListener("abort", () => reject(new Error("Run cancelled"))));
+  });
+  reviewer = employees[1].id;
+  await send("Build and review");
+  const deadline = Date.now() + 30000;
+  while (!c.snapshot().runs.some((r) => r.employee === reviewer && r.status === "running")) {
+    if (Date.now() > deadline) throw new Error("the reviewer never started");
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  await c.close();
+  const prompts = [];
+  const reopened = new Coordinator({
+    directory,
+    probe: async () => [],
+    runner: async ({ prompt }) => {
+      prompts.push(prompt);
+      return "Re-planned the review";
+    },
+  });
+  await reopened.initialize();
+  await settled(reopened);
+  const snap = reopened.snapshot();
+  const cut = snap.runs.find((r) => r.employee === reviewer);
+  assert.equal(cut.status, "interrupted", "a quit is not the owner pressing Stop");
+  assert.match(cut.error, /Any Bot stopped during this run/);
+  const notice = snap.messages.find((m) => m.kind === "notice" && /Reviewer's run was cut off/.test(m.body));
+  assert.ok(notice, "the chat says the work stopped");
+  assert.equal(notice.thread, cut.thread);
+  // The delegator hears about it and goes on.
+  assert.equal(prompts.length, 1);
+  assert.match(prompts[0], /Interrupted: Any Bot stopped before this work finished/);
+  assert.equal(snap.runs.at(-1).employee, employees[0].id);
+  assert.equal(snap.runs.at(-1).status, "succeeded");
+  // Reconciling happens once.
+  await reopened.close();
+  const again = new Coordinator({ directory, probe: async () => [], runner: async () => "ok" });
+  await again.initialize();
+  assert.equal(again.snapshot().messages.filter((m) => /was cut off/.test(m.body)).length, 1);
+  await again.close();
+});
+
+test("runs left running by a crash are reconciled at the next start; one the owner was stopping stays stopped", async (t) => {
+  const { c, directory, conversation, employees, send } = await fixture(t);
+  await c.command("runtime.pause");
+  await c.command("tasks.create", { conversation: conversation.id, title: "Edit the video", assignees: [employees[0].id] });
+  const taskId = c.snapshot().tasks[0].id;
+  await c.command("tasks.start", { id: taskId });
+  await send("Something the owner then stopped");
+  await c.close();
+  // What a hard kill leaves behind: rows still marked running or cancelling.
+  const store = new Store(directory);
+  const [taskRun, stoppedRun] = store.all("SELECT id FROM runs ORDER BY rowid").map((r) => r.id);
+  store.run("UPDATE runs SET status='running' WHERE id=?", taskRun);
+  store.run("UPDATE runs SET status='cancelling' WHERE id=?", stoppedRun);
+  store.close();
+  const diagnostics = [];
+  const reopened = new Coordinator({ directory, probe: async () => [], runner: async () => "ok" });
+  reopened.on("diagnostic", (entry) => diagnostics.push(entry));
+  try {
+    await reopened.initialize();
+    const status = Object.fromEntries(reopened.snapshot().runs.map((r) => [r.id, r.status]));
+    assert.deepEqual([status[taskRun], status[stoppedRun]], ["interrupted", "cancelled"]);
+    const notices = reopened.snapshot().messages.filter((m) => m.kind === "notice").map((m) => m.body);
+    assert.equal(notices.filter((body) => /was cut off/.test(body)).length, 1, "only the interrupted run gets a notice");
+    const detail = await reopened.command("tasks.get", { id: taskId });
+    assert.ok(detail.activity.some((entry) => entry.kind === "notice" && /cut off when Any Bot stopped/.test(entry.body)));
+    assert.ok(detail.activity.some((entry) => /did not finish/.test(entry.body)));
+    assert.deepEqual(diagnostics.map((d) => [d.code, d.message]), [["run.interrupted", "1 run was cut off when Any Bot stopped"]]);
+  } finally {
+    await reopened.close();
+  }
+});
+
+test("if following up cut-off work fails, the runs are still marked and the runtime still starts", async (t) => {
+  const { c, directory, conversation, employees } = await fixture(t);
+  await c.command("runtime.pause");
+  await c.command("tasks.create", { conversation: conversation.id, title: "Edit", assignees: [employees[0].id] });
+  await c.command("tasks.start", { id: c.snapshot().tasks[0].id });
+  await c.close();
+  const store = new Store(directory);
+  store.run("UPDATE runs SET status='running'");
+  store.close();
+  const settle = Coordinator.prototype.settleTask;
+  Coordinator.prototype.settleTask = () => {
+    throw new Error("settle broke");
+  };
+  let reopened;
+  try {
+    reopened = new Coordinator({ directory, probe: async () => [], runner: async () => "ok" });
+  } finally {
+    Coordinator.prototype.settleTask = settle;
+  }
+  const diagnostics = [];
+  reopened.on("diagnostic", (entry) => diagnostics.push(entry));
+  try {
+    await reopened.initialize();
+    assert.deepEqual(reopened.snapshot().runs.map((r) => r.status), ["interrupted"]);
+    assert.deepEqual(diagnostics.map((d) => d.code), ["run.reconcile_failed"]);
+  } finally {
+    await reopened.close();
+  }
 });

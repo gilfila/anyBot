@@ -329,7 +329,7 @@ export function createSlackBridge({
           await announceApproval(employee, entry, approval).catch((error) => report(error, { employee, step: "approval" }));
         }
       const expired = clock() - entry.at > PENDING_MS;
-      if (!["succeeded", "failed", "cancelled", "unknown"].includes(item.status) && !expired) continue;
+      if (!["succeeded", "failed", "cancelled", "interrupted", "unknown"].includes(item.status) && !expired) continue;
       bot.pending = bot.pending.filter((p) => p !== entry);
       changed = true;
       const text =
@@ -339,9 +339,11 @@ export function createSlackBridge({
             ? `I couldn't finish that: ${toSlackText(firstLine(item.error))}`
             : item.status === "cancelled"
               ? "That was stopped in Any Bot."
-              : expired
-                ? "I lost track of that request. Check Any Bot for my reply."
-                : null;
+              : item.status === "interrupted"
+                ? "Any Bot stopped before I finished (it quit, updated, or restarted), so this may be partly done. Ask again to pick it up."
+                : expired
+                  ? "I lost track of that request. Check Any Bot for my reply."
+                  : null;
       if (text) await post(employee, entry, text).catch((error) => report(error, { employee, step: "reply" }));
       react(employee, entry, "eyes", false);
     }

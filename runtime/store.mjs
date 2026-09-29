@@ -519,6 +519,20 @@ export class Store {
       throw error;
     }
   }
+  // All of fn's writes or none of them, inside or outside a transaction:
+  // a failure rolls back only what fn wrote.
+  savepoint(fn) {
+    this.db.exec("SAVEPOINT step");
+    try {
+      const value = fn();
+      this.db.exec("RELEASE step");
+      return value;
+    } catch (error) {
+      this.db.exec("ROLLBACK TO step");
+      this.db.exec("RELEASE step");
+      throw error;
+    }
+  }
   event(type, payload) {
     this.run(
       "INSERT INTO events(type,payload,created) VALUES (?,?,?)",

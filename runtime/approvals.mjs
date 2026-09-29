@@ -40,6 +40,9 @@ export class Approvals {
     this.onSettled = onSettled;
     this.tokens = new Map(); // token -> run
     this.waiting = new Map(); // approval id -> { resolve, timer, run }
+    // run id -> { pending, since, total }: how long each run has had a
+    // request waiting on the owner (runHarness leaves it out of the limit).
+    this.clocks = new Map();
     this.server = null;
     this.url = "";
     // Requests left over from a previous session can no longer be answered.
@@ -84,7 +87,27 @@ export class Approvals {
   release(runId) {
     for (const [token, run] of this.tokens) if (run.id === runId) this.tokens.delete(token);
     for (const [approvalId, wait] of this.waiting) if (wait.run.id === runId) this.settle(approvalId, "cancelled", "The run ended before the owner answered.");
+    this.clocks.delete(runId);
     rmSync(join(this.directory, `${runId}.json`), { force: true });
+  }
+  // Milliseconds this run has spent with at least one request waiting on
+  // the owner, including a wait still going on.
+  waitedMs(runId) {
+    const clock = this.clocks.get(runId);
+    if (!clock) return 0;
+    return clock.total + (clock.pending ? Date.now() - clock.since : 0);
+  }
+  startWait(runId) {
+    const clock = this.clocks.get(runId) || { pending: 0, since: 0, total: 0 };
+    if (!clock.pending) clock.since = Date.now();
+    clock.pending += 1;
+    this.clocks.set(runId, clock);
+  }
+  endWait(runId) {
+    const clock = this.clocks.get(runId);
+    if (!clock?.pending) return;
+    clock.pending -= 1;
+    if (!clock.pending) clock.total += Date.now() - clock.since;
   }
   handle(req, res) {
     const reply = (status, body) => {
@@ -122,6 +145,7 @@ export class Approvals {
         timer,
         resolve: (answer) => reply(200, answer),
       });
+      this.startWait(run.id);
       res.on("close", () => {
         // The harness went away (cancelled, crashed): nothing to answer.
         if (this.waiting.has(approvalId) && !res.writableEnded) this.settle(approvalId, "cancelled", "The run stopped waiting.");
@@ -162,6 +186,7 @@ export class Approvals {
     if (wait) {
       clearTimeout(wait.timer);
       this.waiting.delete(approvalId);
+      this.endWait(wait.run.id);
       wait.resolve(status === "approved" ? { behavior: "allow" } : { behavior: "deny", message });
     }
     this.onSettled(this.get(approvalId));

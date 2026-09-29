@@ -44,10 +44,30 @@ export function withoutActions(output) {
   return String(output).replace(BLOCK, "").trimEnd();
 }
 
-export const ACTION_GUIDE = `Project actions: to update the board or the canvas (this conversation's shared page), end your reply with one fenced anybot-actions block containing a JSON array, for example
+// The action guide in every prompt. Tasks live on project boards, so a
+// direct chat (one bot) gets the guide without task actions, and board.mjs
+// refuses them there with NO_BOARD.
+export const NO_BOARD =
+  "This direct chat has no task board, so task actions are refused here: to hand work to another bot, delegate it (to your reports), or ask the owner to set up a project with those bots.";
+const DOC_TYPES = `doc.append (markdown added to the end of the canvas), doc.section (heading plus markdown that replaces the content under that heading, or adds the section; don't repeat the heading in the markdown; markdown tables become canvas tables and a line that is only a link becomes a link card)`;
+const TASK_TYPES = `task.create (lands in Backlog; optional description, priority none|low|medium|high|urgent, labels, assignees (ids of project members only), checklist as strings, parent task), task.update (task id plus any of status backlog|in_progress|review|done, comment, checklist [{item or index, done}], addChecklist [strings]), task.claim (take an unassigned Backlog task). Only assignees move their own tasks; when a task has a reviewer, stop at review.`;
+const MEMORY_TYPES = `memory.save (body, scope private|team|project, optional tags: durable facts worth recalling next time, not a work log), memory.forget (id of one of your memories), report (summary for your manager; task work is summarised automatically if you skip this)`;
+const REVIEW_TYPE = `review (only as a task's reviewer: task id, decision approve|changes, comment)`;
+const KG_TYPE = `kg.fact (add to the shared knowledge graph: subject, relation, object, optional note; subject and object are names, or {"type":"decision","label":"..."}; names of bots, projects, and tasks link to those nodes, e.g. {"type":"kg.fact","subject":"Checkout redesign","relation":"depends on","object":"Stripe API v3"})`;
+
+export function actionGuide({ board = true } = {}) {
+  if (!board)
+    return `Actions: to update the canvas (this chat's shared page), your memory, or the knowledge graph, end your reply with one fenced anybot-actions block containing a JSON array, for example
+\`\`\`anybot-actions
+[{"type":"doc.section","heading":"Decisions","markdown":"- Launch at $12/seat"}]
+\`\`\`
+Types: ${DOC_TYPES}, ${MEMORY_TYPES}, ${KG_TYPE}. ${NO_BOARD} Use actions only for real changes.`;
+  return `Project actions: to update the board or the canvas (this conversation's shared page), end your reply with one fenced anybot-actions block containing a JSON array, for example
 \`\`\`anybot-actions
 [{"type":"task.update","task":"1a2b3c4d","status":"review","comment":"Built the page; tests pass","checklist":[{"item":"Write copy","done":true}]},
  {"type":"task.create","title":"Add pricing FAQ","description":"...","priority":"medium","assignees":["<employee id>"]},
  {"type":"doc.section","heading":"Decisions","markdown":"- Launch at $12/seat"}]
 \`\`\`
-Types: doc.append (markdown added to the end of the canvas), doc.section (heading plus markdown that replaces the content under that heading, or adds the section; markdown tables become canvas tables and a line that is only a link becomes a link card), task.create (lands in Backlog; optional description, priority none|low|medium|high|urgent, labels, assignees from the project, checklist as strings, parent task), task.update (task id plus any of status backlog|in_progress|review|done, comment, checklist [{item or index, done}], addChecklist [strings]), task.claim (take an unassigned Backlog task). Only assignees move their own tasks; when a task has a reviewer, stop at review. memory.save (body, scope private|team|project, optional tags: durable facts worth recalling next time, not a work log), memory.forget (id of one of your memories), report (summary for your manager; task work is summarised automatically if you skip this), review (only as a task's reviewer: task id, decision approve|changes, comment), kg.fact (add to the shared knowledge graph: subject, relation, object, optional note; subject and object are names, or {"type":"decision","label":"..."}; names of bots, projects, and tasks link to those nodes, e.g. {"type":"kg.fact","subject":"Checkout redesign","relation":"depends on","object":"Stripe API v3","note":"needs webhooks"}). Use actions only for real changes.`;
+Types: ${DOC_TYPES}, ${TASK_TYPES} ${MEMORY_TYPES}, ${REVIEW_TYPE}, ${KG_TYPE}. Use actions only for real changes.`;
+}
+export const ACTION_GUIDE = actionGuide();

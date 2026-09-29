@@ -70,7 +70,8 @@ test("a stopped run whose harness never exits is released after the grace period
     }
   };
   await send("Start");
-  await until(() => c.snapshot().runs[0]?.status === "running", "the run to start");
+  // The harness itself has started (the run is marked running a little before).
+  await until(() => calls === 1 && c.snapshot().runs[0]?.status === "running", "the run to start");
   await c.command("runs.cancel", { id: c.snapshot().runs[0].id });
   assert.equal(c.snapshot().runs[0].status, "cancelling");
   await until(() => c.snapshot().runs[0].status === "cancelled", "the stuck run to be released");

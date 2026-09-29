@@ -124,5 +124,54 @@ test("employees append and replace sections through actions, and see the doc in 
   assert.ok(!projectDoc.blocks.some((b) => b.text === "sneaky"));
   next = [{ type: "doc.section", markdown: "no heading" }];
   await ask(writer, "bad");
-  assert.ok(c.snapshot().messages.some((m) => /rejected doc.section: doc.section needs a heading/.test(m.body)));
+  assert.ok(c.snapshot().messages.some((m) => /rejected doc.section "no heading": doc.section needs a heading/.test(m.body)));
+});
+
+test("doc.section replaces its section when the bot's markdown repeats the heading", async (t) => {
+  let next = [];
+  const { c, writer, project, ask } = await fixture(t, () => actions(next));
+  const shape = async () => (await c.command("docs.get", { conversation: project.id })).blocks.map((b) => `${b.type}:${b.text}`);
+  for (const version of ["draft", "revised", "final"]) {
+    next = [{ type: "doc.section", heading: "Status", markdown: `## Status\n${version}` }];
+    await ask(writer, `Status: ${version}`);
+  }
+  assert.deepEqual(await shape(), ["h2:Status", "p:final"]);
+  // A new section keeps the level the bot wrote.
+  next = [{ type: "doc.section", heading: "Decisions", markdown: "# Decisions\n- Ship Friday" }];
+  await ask(writer, "Decisions");
+  next = [{ type: "doc.section", heading: "decisions", markdown: "# Decisions\n- Ship Monday" }];
+  await ask(writer, "Decisions again");
+  assert.deepEqual(await shape(), ["h2:Status", "p:final", "h1:Decisions", "bullet:Ship Monday"]);
+  // Sub-headings stay inside the section, so the next update replaces them too.
+  next = [{ type: "doc.section", heading: "Status", markdown: "Shipping.\n## Details\nAll green" }];
+  await ask(writer, "Details");
+  assert.deepEqual((await shape()).slice(0, 4), ["h2:Status", "p:Shipping.", "h3:Details", "p:All green"]);
+  next = [{ type: "doc.section", heading: "Status", markdown: "Shipped." }];
+  await ask(writer, "Shipped");
+  assert.deepEqual(await shape(), ["h2:Status", "p:Shipped.", "h1:Decisions", "bullet:Ship Monday"]);
+});
+
+test("doc.section repairs a canvas that already repeats the heading", async (t) => {
+  let next = [];
+  const { c, writer, project, ask } = await fixture(t, () => actions(next));
+  // What earlier versions left behind: every update under a fresh copy of the heading.
+  await c.command("docs.save", {
+    conversation: project.id,
+    revision: 0,
+    blocks: [
+      { type: "h2", text: "Status" },
+      { type: "h2", text: "Status" },
+      { type: "p", text: "final" },
+      { type: "h2", text: "Status" },
+      { type: "p", text: "revised" },
+      { type: "h1", text: "status" },
+      { type: "p", text: "draft" },
+      { type: "h2", text: "Risks" },
+      { type: "p", text: "Keep me" },
+    ],
+  });
+  next = [{ type: "doc.section", heading: "Status", markdown: "## Status\nCurrent" }];
+  await ask(writer, "Status");
+  const doc = await c.command("docs.get", { conversation: project.id });
+  assert.deepEqual(doc.blocks.map((b) => `${b.type}:${b.text}`), ["h2:Status", "p:Current", "h2:Risks", "p:Keep me"]);
 });

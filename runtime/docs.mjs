@@ -290,14 +290,38 @@ export class Docs {
     } else {
       const heading = typeof action.heading === "string" ? action.heading.trim() : "";
       if (!heading || heading.length > 200) throw new Error("doc.section needs a heading");
-      const start = blocks.findIndex((b) => HEADING[b.type] && b.text.trim().toLowerCase() === heading.toLowerCase());
+      const same = (b) => HEADING[b.type] && b.text.trim().toLowerCase() === heading.toLowerCase();
+      const start = blocks.findIndex(same);
+      // Bots often start the markdown with the heading itself: drop that
+      // copy (a new section keeps its level).
+      let body = added;
+      let level = start >= 0 ? HEADING[blocks[start].type] : 2;
+      if (body[0] && same(body[0])) {
+        if (start < 0) level = HEADING[body[0].type];
+        body = body.slice(1);
+      }
+      // Headings inside the markdown sit below the section's own, so they
+      // can't end the section early and leave stale content on the next update.
+      body = body.map((b) =>
+        HEADING[b.type] && HEADING[b.type] <= level
+          ? level < 3
+            ? { ...b, type: `h${level + 1}` }
+            : { ...b, type: "p", text: `**${b.text}**` }
+          : b,
+      );
       if (start < 0) {
-        next = [...blocks, { id: randomUUID(), type: "h2", text: heading, author: run.employee, at: now() }, ...added];
+        next = [...blocks, { id: randomUUID(), type: `h${level}`, text: heading, author: run.employee, at: now() }, ...body];
       } else {
-        const level = HEADING[blocks[start].type];
+        // The section runs to the next heading at its level or above. Copies
+        // of this heading right after it (left by earlier updates that
+        // repeated it) belong to the section and are replaced too.
         let end = start + 1;
-        while (end < blocks.length && !(HEADING[blocks[end].type] && HEADING[blocks[end].type] <= level)) end += 1;
-        next = [...blocks.slice(0, start + 1), ...added, ...blocks.slice(end)];
+        for (;;) {
+          while (end < blocks.length && !(HEADING[blocks[end].type] && HEADING[blocks[end].type] <= level)) end += 1;
+          if (end < blocks.length && same(blocks[end])) end += 1;
+          else break;
+        }
+        next = [...blocks.slice(0, start + 1), ...body, ...blocks.slice(end)];
       }
     }
     this.write(run.conversation, normalizeBlocks(next), run.employee, run.id);

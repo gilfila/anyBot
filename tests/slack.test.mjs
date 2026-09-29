@@ -240,6 +240,22 @@ test("a channel @mention is answered in its thread; failures and approvals are p
   assert.equal(failure.args.thread_ts, "7.7");
 });
 
+test("work cut off when Any Bot stopped gets an answer instead of a 24-hour wait", async (t) => {
+  let result = { status: "running", approvals: [] };
+  const { bridge, slack } = await bridgeFixture(t, { updates: () => result });
+  const { pairing } = await bridge.connect("e1", { botToken: BOT, appToken: APP });
+  await until(() => slack.sockets.length === 1, "socket");
+  const socket = slack.sockets[0];
+  socket.push(dm("U1", pairing.code, "1.0"));
+  await until(() => bridge.status("e1").users.length === 1, "pairing");
+  socket.push(dm("U1", "<@UBOT> render the video", "6.6"));
+  await until(() => bridge.status("e1").waiting === 1, "the request");
+  result = { status: "interrupted", error: "Any Bot stopped during this run (it quit, updated, or crashed).", approvals: [] };
+  await bridge.refresh();
+  assert.match(slack.posts().at(-1).args.text, /Any Bot stopped before I finished/);
+  assert.equal(bridge.status("e1").waiting, 0);
+});
+
 test("a dropped connection reconnects; a revoked token stops retrying and says why", async (t) => {
   const fail = {};
   const { bridge, slack } = await bridgeFixture(t, { fail });

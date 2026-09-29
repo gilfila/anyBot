@@ -1,5 +1,8 @@
 import { id, now } from "./store.mjs";
+import { NO_BOARD } from "./actions.mjs";
 
+// Tasks bots may add in one piece of work (a run and its hand-offs).
+export const MAX_AGENT_TASKS_PER_ROOT = 20;
 export const STATUSES = ["backlog", "in_progress", "review", "done"];
 export const PRIORITIES = ["none", "low", "medium", "high", "urgent"];
 const PRIORITY_RANK = { urgent: 0, high: 1, medium: 2, low: 3, none: 4 };
@@ -51,6 +54,7 @@ export class Board {
     this.store = store;
     this.org = org;
     this.onMove = null;
+    this.maxAgentTasksPerRoot = MAX_AGENT_TASKS_PER_ROOT;
   }
   validReviewer(conversation, reviewer, assignees) {
     if (!reviewer) return "";
@@ -282,12 +286,13 @@ export class Board {
   activeRuns(taskId) {
     return this.store.all(`SELECT id FROM runs WHERE task=? AND status IN ${ACTIVE_RUN}`, taskId);
   }
-  // The coordinator starts at most one piece of autopilot work per idle agent.
-  nextBacklogFor(conversation, employee) {
+  // The coordinator starts at most one piece of autopilot work per idle
+  // agent. `skip` holds tasks autopilot couldn't start and is backing off.
+  nextBacklogFor(conversation, employee, skip = new Set()) {
     const candidates = this.store
       .all("SELECT * FROM tasks WHERE conversation=? AND status='backlog' ORDER BY sortKey", conversation)
       .map(parse)
-      .filter((task) => task.assignees.includes(employee))
+      .filter((task) => task.assignees.includes(employee) && !skip.has(task.id))
       .filter((task) => !this.activeRuns(task.id).length);
     candidates.sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || a.sortKey - b.sortKey);
     return candidates[0] || null;
@@ -297,14 +302,24 @@ export class Board {
   applyAgentAction(action, run) {
     const agent = run.employee;
     const members = this.members(run.conversation);
+    // Boards belong to projects (two or more bots): a direct chat has none.
     // Creating and claiming need project membership; updates need to be an
     // assignee or the reviewer (who may sit outside the project, above the lead).
+    if ((action.type === "task.create" || action.type === "task.claim") && members.length < 2) throw new Error(NO_BOARD);
     if ((action.type === "task.create" || action.type === "task.claim") && !members.includes(agent))
       throw new Error("Only project members can change this board");
     switch (action.type) {
       case "task.create": {
         const status = action.status ?? "backlog";
         if (status !== "backlog") throw new Error("Agents can only add tasks to Backlog");
+        // A brake on bots filling the board for each other: one piece of
+        // work (a run and its hand-offs) adds at most this many tasks.
+        const made = this.store.one(
+          "SELECT count(*) AS n FROM task_activity a JOIN runs r ON r.id=a.run WHERE a.kind='created' AND r.root=?",
+          run.root || run.id,
+        ).n;
+        if (made >= this.maxAgentTasksPerRoot)
+          throw new Error(`This piece of work already added ${this.maxAgentTasksPerRoot} tasks; ask the owner before adding more`);
         const taskId = this.create(
           {
             conversation: run.conversation,

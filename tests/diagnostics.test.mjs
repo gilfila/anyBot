@@ -104,6 +104,7 @@ test("harness errors are classified by cause", () => {
     "Error: 429 Too Many Requests": "usage_limit",
     "codex is not installed or its launcher is unsupported. Open Harnesses for setup instructions.": "not_installed",
     "Run exceeded its configured 10-minute time limit": "timeout",
+    "Harness output passed Any Bot's 256 MB safety limit for one run, so the run was stopped.": "output_limit",
     "Not logged in. Please run /login": "auth",
     "Invalid API key provided": "auth",
     "Error: model 'gpt-9' not found": "model",

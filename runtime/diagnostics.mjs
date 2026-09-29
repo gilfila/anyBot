@@ -5,6 +5,7 @@ export function classifyRunError(message) {
   const text = String(message);
   if (/is not installed or its launcher is unsupported/i.test(text)) return "not_installed";
   if (/exceeded its configured .*time limit/i.test(text)) return "timeout";
+  if (/safety limit for one run/i.test(text)) return "output_limit";
   if (
     /usage credits|usage limit|rate.?limit|quota|limit reached|too many requests|\b429\b|out of credits|insufficient (credits|balance|funds)|billing/i.test(
       text,

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Coordinator } from "../runtime/coordinator.mjs";
@@ -114,3 +114,55 @@ test("work queued in an archived project never starts", async (t) => {
   await waitFor((s) => s.runs.length === 1 && s.runs[0].status === "cancelled");
 });
 
+
+test("a project's folders are granted to Claude Code and Codex, and only listed for other harnesses", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "anybot-folders-"));
+  const calls = [];
+  const diagnostics = [];
+  const c = new Coordinator({
+    directory,
+    probe: async () => [],
+    concurrency: 1,
+    runner: async (options) => {
+      calls.push(options);
+      return "Done";
+    },
+  });
+  c.on("diagnostic", (entry) => diagnostics.push(entry));
+  t.after(async () => {
+    await c.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  await c.initialize();
+  const site = join(directory, "site");
+  const out = join(directory, "out");
+  await mkdir(site);
+  await mkdir(out);
+  await c.command("employees.create", { name: "Reel", role: "Editor", harness: "codex", trusted: true });
+  await c.command("employees.create", { name: "Nova", role: "Producer", harness: "antigravity", trusted: true });
+  const [reel, nova] = c.snapshot().employees;
+  await c.command("conversations.create", {
+    title: "Studio",
+    members: [reel.id, nova.id],
+    allowedFolders: [site, process.platform === "win32" ? site.toUpperCase() : site, join(directory, "gone"), "relative/path"],
+    artifactsFolder: out,
+  });
+  const studio = c.snapshot().conversations[0];
+  await c.command("messages.send", { conversation: studio.id, body: "@Reel @Nova render it", requestId: crypto.randomUUID() });
+  const deadline = Date.now() + 30000;
+  while (c.snapshot().runs.some((r) => ["queued", "running"].includes(r.status))) {
+    if (Date.now() > deadline) throw new Error("Queue did not settle");
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  const codex = calls.find((o) => o.harness === "codex");
+  const agy = calls.find((o) => o.harness === "antigravity");
+  // Existing folders only, once each, including the Artifacts folder.
+  assert.deepEqual(codex.addDirs, [site, out]);
+  assert.match(codex.prompt, /you can read and write them/);
+  assert.match(agy.prompt, /listed for context/);
+  // Folders that don't exist are reported once, without their paths.
+  const missing = diagnostics.filter((d) => d.code === "project.folder_missing");
+  assert.equal(missing.length, 1);
+  assert.equal(missing[0].message, "2 of this project's allowed folders don't exist or aren't absolute paths");
+  assert.ok(!JSON.stringify(missing).includes(directory));
+});

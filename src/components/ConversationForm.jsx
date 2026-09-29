@@ -73,7 +73,7 @@ export function ConversationForm({ employees, busy, onSave }) {
       <div className="project-folders-section">
         <label>
           Allowed folders
-          <small>Folders this project's agents may access</small>
+          <small>Claude Code and Codex bots can read and write these; other harnesses only see them listed</small>
         </label>
         <div className="folder-list">
           {allowedFolders.map((folder, index) => (
@@ -103,7 +103,7 @@ export function ConversationForm({ employees, busy, onSave }) {
       <div className="project-folders-section">
         <label>
           Artifacts folder
-          <small>Default folder for project artifacts</small>
+          <small>Files bots return are copied here; a file with the same name gets a new name, never replaced</small>
         </label>
         <div className="folder-picker">
           <input

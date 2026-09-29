@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { mkdirSync, realpathSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { stat } from "node:fs/promises";
+import { isAbsolute, join, resolve } from "node:path";
 import { Store, id, now, promptHash } from "./store.mjs";
 import { KEEP_PROMPTS, EVENT_DAYS, prunePrompts, pruneEvents } from "./retention.mjs";
 import { parseUsage } from "./usage.mjs";
@@ -9,6 +10,12 @@ import { mentionedIds } from "./mentions.mjs";
 
 // Bot-to-bot @mentions a thread allows before the owner has to reply.
 const MENTION_HOPS = 6;
+// Autopilot brakes: how long a task it couldn't start is skipped, and how
+// many tasks that bots created it starts per project in 24 hours.
+const AUTOPILOT_RETRY_MS = 10 * 60_000;
+const AUTOPILOT_BOT_TASKS_PER_DAY = 20;
+const INTERRUPTED =
+  "Any Bot stopped during this run (it quit, updated, or crashed). It may be partly done: review possible side effects before sending it again.";
 import { Routines } from "./routines.mjs";
 import { Artifacts } from "./artifacts.mjs";
 import { Board } from "./board.mjs";
@@ -71,6 +78,20 @@ const permissionMode = (value) => {
     throw new Error("Permission mode must be auto, dontAsk, or ask");
   return mode;
 };
+
+// A few words naming what a rejected action was for (its title, task,
+// heading, or fact), since the action block itself is hidden from the chat.
+export function actionLabel(action) {
+  const words = (value) =>
+    typeof value === "string" ? value : typeof value?.label === "string" ? value.label : "";
+  const fact = [words(action.subject), words(action.relation), words(action.object)].filter(Boolean).join(" ");
+  const label = [action.title, action.heading, fact, action.task, words(action.markdown).trim().split("\n")[0], action.body, action.summary, action.id]
+    .map(words)
+    .map((value) => value.replace(/\s+/g, " ").trim())
+    .find(Boolean);
+  if (!label) return "";
+  return label.length > 80 ? `${label.slice(0, 79)}…` : label;
+}
 
 export function delegationFrom(output) {
   const blocks = [...output.matchAll(/```anybot\s*\n([\s\S]*?)\n```/g)];
@@ -138,6 +159,9 @@ export class Coordinator extends EventEmitter {
     });
     this.approvalsReady = this.approvals.start().catch(() => {});
     this.lastAutopilot = 0;
+    this.autopilotFailures = new Map(); // task id -> { revision, message, at }
+    this.reportedFolders = new Set(); // "conversation:count" of missing project folders reported
+    this.autopilotBotTasksPerDay = AUTOPILOT_BOT_TASKS_PER_DAY;
     this.modelCatalog = loadModelCatalog(directory);
     this.custom = loadCustomHarnesses(directory);
     this.harnesses = [...harnesses, ...this.custom.adapters];
@@ -161,10 +185,8 @@ export class Coordinator extends EventEmitter {
     this.active = new Map();
     this.installations = [];
     this.closed = false;
-    this.store.run(
-      "UPDATE runs SET status='interrupted', error='Runtime stopped during execution. Review possible side effects before sending a new task.', ended=? WHERE status IN ('running','cancelling')",
-      now(),
-    );
+    this.startupDiagnostics = [];
+    this.reconcileInterrupted();
     this.paused =
       this.store.one("SELECT value FROM metadata WHERE key='paused'").value ===
       "true";
@@ -190,6 +212,88 @@ export class Coordinator extends EventEmitter {
   }
   notify() {
     this.emit("changed");
+  }
+  // Runs cut off when Any Bot last stopped: ones still marked running (a
+  // crash, or an update that didn't wait for the coordinator) and ones the
+  // last shutdown recorded as interrupted. Each gets a notice where it
+  // worked, its delegator hears about it (so the chain goes on instead of
+  // silently ending), and its task gets a note. Runs the owner was already
+  // stopping are just cancelled. Runs at startup, before anything dispatches.
+  reconcileInterrupted() {
+    const stamp = now();
+    const ids = [...new Set([...this.store.all("SELECT id FROM runs WHERE status='running'").map((r) => r.id), ...this.recordedInterrupted()])];
+    const stopped = this.store.all("SELECT task FROM runs WHERE status='cancelling' AND task IS NOT NULL").map((r) => r.task);
+    let count = 0;
+    const mark = () => {
+      this.store.run("UPDATE runs SET status='cancelled', ended=? WHERE status='cancelling'", stamp);
+      this.store.run("UPDATE runs SET status='interrupted', error=?, ended=? WHERE status='running'", INTERRUPTED, stamp);
+      this.store.run("DELETE FROM metadata WHERE key='interruptedRuns'");
+    };
+    try {
+      this.store.transaction(() => {
+        mark();
+        const tasks = new Set(stopped);
+        for (const runId of ids) {
+          const run = this.store.one("SELECT * FROM runs WHERE id=? AND status='interrupted'", runId);
+          if (!run) continue;
+          count += 1;
+          const name = this.store.one("SELECT name FROM employees WHERE id=?", run.employee)?.name || "A bot";
+          this.addMessage(
+            run.conversation,
+            "system",
+            "notice",
+            `${name}'s run was cut off when Any Bot stopped (it quit, updated, or crashed). The work may be partly done: check for half-finished changes before starting it again.`,
+            run.thread,
+          );
+          if (run.parent)
+            this.returnToParent(
+              run,
+              `Interrupted: Any Bot stopped before this work finished, so ${name} may have left it partly done. Check what was done, then re-plan or hand it off again.`,
+            );
+          if (run.task) {
+            this.board.activity(run.task, "system", "notice", `${name}'s run was cut off when Any Bot stopped.`, run.id);
+            tasks.add(run.task);
+          }
+        }
+        for (const task of tasks) this.settleTask(task);
+      });
+    } catch (error) {
+      // Never block startup: the runs are still marked, just not followed up.
+      count = 0;
+      mark();
+      this.startupDiagnostics.push({
+        level: "error",
+        source: "runtime",
+        code: "run.reconcile_failed",
+        message: String(error.message).slice(0, 600),
+        detail: error.stack,
+      });
+    }
+    // Reported from initialize(), once the host listens for diagnostics.
+    if (count)
+      this.startupDiagnostics.push({
+        level: "warn",
+        source: "runtime",
+        code: "run.interrupted",
+        message: `${count} run${count === 1 ? " was" : "s were"} cut off when Any Bot stopped`,
+        context: { count },
+      });
+  }
+  // Runs the last shutdown cut off (metadata `interruptedRuns`), for the
+  // next start to reconcile.
+  recordedInterrupted() {
+    try {
+      const list = JSON.parse(this.store.one("SELECT value FROM metadata WHERE key='interruptedRuns'")?.value || "[]");
+      return Array.isArray(list) ? list.filter((value) => typeof value === "string") : [];
+    } catch {
+      return [];
+    }
+  }
+  rememberInterrupted(runId) {
+    this.store.run(
+      "INSERT OR REPLACE INTO metadata(key,value) VALUES ('interruptedRuns', ?)",
+      JSON.stringify([...this.recordedInterrupted(), runId]),
+    );
   }
   // The bot editor asks for fresh model lists each time it opens: the
   // harnesses' own caches move as providers ship models.
@@ -221,6 +325,7 @@ export class Coordinator extends EventEmitter {
     };
   }
   async initialize() {
+    for (const entry of this.startupDiagnostics.splice(0)) this.diagnostic(entry);
     this.installations = await this.probe();
     this.notify();
     this.dispatch();
@@ -325,6 +430,8 @@ export class Coordinator extends EventEmitter {
       }
       // Stop one conversation's work. Unlike runtime.stopAll, this doesn't
       // pause the workspace, so other bots and new messages keep running.
+      // Autopilot would start the next Backlog task within seconds, so it
+      // is turned off for this project (and the chat says so).
       case "runs.stopConversation": {
         const conversationId = text(payload.conversation, "Conversation ID", 100);
         for (const { id: runId } of this.store.all(
@@ -333,6 +440,16 @@ export class Coordinator extends EventEmitter {
         ))
           if (["queued", "running"].includes(this.store.one("SELECT status FROM runs WHERE id=?", runId)?.status))
             await this.cancel(runId);
+        if (this.store.one("SELECT autopilot FROM conversations WHERE id=?", conversationId)?.autopilot)
+          this.store.transaction(() => {
+            this.store.run("UPDATE conversations SET autopilot=0 WHERE id=?", conversationId);
+            this.addMessage(
+              conversationId,
+              "system",
+              "notice",
+              "Autopilot is off for this project because you stopped its work. Turn it back on from the Board when it should pick up tasks again.",
+            );
+          });
         break;
       }
       case "tasks.get":
@@ -908,6 +1025,9 @@ export class Coordinator extends EventEmitter {
     );
   }
   // Starts an idle assignee's top Backlog task in projects with autopilot on.
+  // Brakes: a task that can't start is noted once and skipped for a while
+  // (so the bot's other tasks still run), and a project whose bots keep
+  // starting tasks they created themselves turns autopilot off.
   autopilot() {
     if (this.closed || this.paused || Date.now() - this.lastAutopilot < 5000) return;
     this.lastAutopilot = Date.now();
@@ -916,34 +1036,101 @@ export class Coordinator extends EventEmitter {
         .all("SELECT DISTINCT employee FROM runs WHERE status IN ('queued','running','cancelling')")
         .map((r) => r.employee),
     );
-    let started = false;
+    const blocked = this.autopilotBlocked();
+    let changed = false;
     for (const conversation of this.store.all(
-      "SELECT id,members FROM conversations WHERE autopilot=1 AND archived=0",
+      "SELECT id,title,members FROM conversations WHERE autopilot=1 AND archived=0",
     )) {
-      for (const employee of JSON.parse(conversation.members)) {
+      let open = true;
+      for (const { id: employee } of this.memberBots(conversation)) {
+        if (!open) break;
         if (busy.has(employee)) continue;
-        const task = this.board.nextBacklogFor(conversation.id, employee);
-        if (!task) continue;
-        try {
-          this.startTask(task.id, "system");
-          task.assignees.forEach((person) => busy.add(person));
-          started = true;
-        } catch (error) {
-          this.board.activity(task.id, "system", "notice", `Autopilot could not start: ${error.message}`);
-          this.diagnostic({
-            level: "warn",
-            source: "board",
-            code: "autopilot.start_failed",
-            message: error.message,
-            context: { task: task.id, conversation: conversation.id },
-          });
+        for (let task; (task = this.board.nextBacklogFor(conversation.id, employee, blocked)); ) {
+          if (!["human", "system"].includes(task.createdBy) && !this.autopilotMayStartBotTask(conversation)) {
+            open = false;
+            changed = true;
+            break;
+          }
+          try {
+            this.startTask(task.id, "system");
+            this.autopilotFailures.delete(task.id);
+            task.assignees.forEach((person) => busy.add(person));
+            changed = true;
+            break;
+          } catch (error) {
+            // Try the bot's next task; this one waits until it changes.
+            blocked.add(task.id);
+            this.autopilotFailed(task, conversation, error);
+          }
         }
       }
     }
-    if (started) {
+    if (changed) {
       this.notify();
       this.dispatch();
     }
+  }
+  // Tasks autopilot couldn't start, skipped until they change or
+  // AUTOPILOT_RETRY_MS passes.
+  autopilotBlocked() {
+    const blocked = new Set();
+    for (const [taskId, failure] of this.autopilotFailures) {
+      const task = this.store.one("SELECT revision FROM tasks WHERE id=?", taskId);
+      if (!task) this.autopilotFailures.delete(taskId);
+      else if (task.revision === failure.revision && Date.now() - failure.at < AUTOPILOT_RETRY_MS) blocked.add(taskId);
+    }
+    return blocked;
+  }
+  // One note on the task (and one diagnostic) per reason, however often the
+  // start is retried, including after a restart.
+  autopilotFailed(task, conversation, error) {
+    const body = `Autopilot could not start: ${error.message}`;
+    const previous = this.autopilotFailures.get(task.id);
+    this.autopilotFailures.set(task.id, { revision: task.revision, message: error.message, at: Date.now() });
+    if (previous?.message === error.message && previous.revision === task.revision) return;
+    const last = this.store.one(
+      "SELECT kind,body FROM task_activity WHERE task=? ORDER BY created DESC, rowid DESC LIMIT 1",
+      task.id,
+    );
+    if (last?.kind === "notice" && last.body === body) return;
+    this.board.activity(task.id, "system", "notice", body);
+    this.diagnostic({
+      level: "warn",
+      source: "board",
+      code: "autopilot.start_failed",
+      message: error.message,
+      context: { task: task.id, conversation: conversation.id },
+    });
+  }
+  // Bots can keep a board busy by adding tasks for each other. Past
+  // `autopilotBotTasksPerDay` such starts in 24 hours, autopilot turns
+  // itself off in that project and says so in its chat.
+  autopilotMayStartBotTask(conversation) {
+    const since = new Date(Date.now() - 24 * 3600_000).toISOString();
+    const started = this.store.one(
+      `SELECT count(*) AS n FROM task_activity a JOIN tasks t ON t.id=a.task
+       WHERE t.conversation=? AND a.kind='started' AND a.author='system' AND a.created>=? AND t.createdBy NOT IN ('human','system')`,
+      conversation.id,
+      since,
+    ).n;
+    if (started < this.autopilotBotTasksPerDay) return true;
+    this.store.transaction(() => {
+      this.store.run("UPDATE conversations SET autopilot=0 WHERE id=?", conversation.id);
+      this.addMessage(
+        conversation.id,
+        "system",
+        "notice",
+        `Autopilot turned itself off: the bots started ${started} tasks they created themselves in the last 24 hours. Check the board, then turn Autopilot back on if the work should go on.`,
+      );
+    });
+    this.diagnostic({
+      level: "warn",
+      source: "board",
+      code: "autopilot.limit_reached",
+      message: `Autopilot stopped after ${started} bot-created tasks in 24 hours`,
+      context: { conversation: conversation.id },
+    });
+    return false;
   }
   applyAction(action, run) {
     if (action.type.startsWith("doc.")) return this.docs.applyAgentAction(action, run);
@@ -1165,6 +1352,73 @@ export class Coordinator extends EventEmitter {
       return list.map((a) => ({ name: a.name, kind: a.kind, path: a.path, missing: true, note: `not delivered: ${error.message}` }));
     }
   }
+  // The conversation's latest artifacts, copied into the bot's inbox. Like
+  // attachments, one that can't be staged is noted (in the prompt and the
+  // diagnostics log) and the run goes on.
+  async stageArtifacts(run, employee) {
+    let files;
+    try {
+      files = await this.artifacts.materialize(run, employee);
+    } catch (error) {
+      this.diagnostic({
+        level: "error",
+        source: "artifacts",
+        code: "artifact.stage_failed",
+        // The code only: file-system messages carry the workspace path.
+        message: `The artifact inbox couldn't be prepared${error.code ? ` (${error.code})` : ""}`,
+        context: this.runContext(run, employee),
+      });
+      return [];
+    }
+    const missing = files.filter((f) => f.missing);
+    if (missing.length)
+      this.diagnostic({
+        level: "warn",
+        source: "artifacts",
+        code: "artifact.stage_failed",
+        message: `${missing.length} artifact(s) could not be staged`,
+        context: this.runContext(run, employee),
+      });
+    return files;
+  }
+  // The project's Allowed folders and Artifacts folder that exist, for the
+  // harness to be given (Claude Code and Codex take them as --add-dir; the
+  // prompt lists them for every harness). Allowed folders that are missing
+  // or not absolute are left out and reported once per session.
+  async projectFolders(run, employee) {
+    const conversation = this.store.one("SELECT allowedFolders,artifactsFolder FROM conversations WHERE id=?", run.conversation);
+    if (!conversation) return [];
+    const exists = async (folder) => {
+      try {
+        return isAbsolute(folder) && (await stat(folder)).isDirectory();
+      } catch {
+        return false;
+      }
+    };
+    const found = [];
+    let missing = 0;
+    for (const folder of JSON.parse(conversation.allowedFolders || "[]"))
+      if (await exists(folder)) found.push(folder);
+      else missing += 1;
+    // The Artifacts folder is created when files are first copied there.
+    if (conversation.artifactsFolder && (await exists(conversation.artifactsFolder))) found.push(conversation.artifactsFolder);
+    const key = `${run.conversation}:${missing}`;
+    if (missing && !this.reportedFolders.has(key)) {
+      this.reportedFolders.add(key);
+      this.diagnostic({
+        level: "warn",
+        source: "runtime",
+        code: "project.folder_missing",
+        message: `${missing} of this project's allowed folders don't exist or aren't absolute paths`,
+        context: this.runContext(run, employee),
+      });
+    }
+    return found;
+  }
+  // Whether a bot's harness is given the project's folders (--add-dir).
+  grantsFolders(employee) {
+    return ["claude", "codex"].includes(employee.harness) && !this.custom.adapters.some((a) => a.id === employee.harness);
+  }
   // A stored attachment, addressed by message and position; the renderer
   // never asks for arbitrary paths.
   attachmentRecord(payload) {
@@ -1341,6 +1595,10 @@ export class Coordinator extends EventEmitter {
       run,
       project: this.isProject(conversation),
       allowedFolders: JSON.parse(conversation.allowedFolders || "[]"),
+      artifactsFolder: conversation.artifactsFolder || "",
+      foldersGranted: this.grantsFolders(employee),
+      // Only built-in Claude Code runs can pause for the owner's approval.
+      approvals: employee.harness === "claude" && !this.custom.adapters.some((a) => a.id === "claude"),
       peers,
       teammates: peers.filter((p) => p.id !== employee.id),
       directReports: this.org.directReports(employee.id),
@@ -1488,8 +1746,9 @@ export class Coordinator extends EventEmitter {
     const harnessName = this.harnesses.find((h) => h.id === employee.harness)?.name || employee.harness;
     term(`── ${employee.name} · ${harnessName}${employee.model ? ` · ${employee.model}` : ""} · started ${new Date().toLocaleTimeString()} ──\n${employee.workspace}\n`);
     try {
-      const files = await this.artifacts.materialize(run, employee);
+      const files = await this.stageArtifacts(run, employee);
       const attachments = await this.deliverAttachments(run, employee);
+      const folders = await this.projectFolders(run, employee);
       if (controller.signal.aborted) throw new Error("Run cancelled");
       const { text: prompt, sections, deliveredReports } = this.promptParts(run, employee, files, attachments);
       // Built-in Claude runs route risky actions to the owner (runtime/approvals.mjs).
@@ -1522,7 +1781,9 @@ export class Coordinator extends EventEmitter {
           signal: controller.signal,
           permissionMode: employee.permissionMode || "auto",
           approvals: approval ? { configPath: approval.configPath } : undefined,
-          ...harnessInputs(attachments, employee.workspace),
+          // Waiting on the owner's answer doesn't use up the run's time limit.
+          waitedMs: approval ? () => this.approvals.waitedMs(run.id) : undefined,
+          ...harnessInputs(attachments, employee.workspace, folders),
           onTerminal: term,
           onUsage: (value) => {
             usage = value;
@@ -1564,6 +1825,17 @@ export class Coordinator extends EventEmitter {
       if (controller.signal.aborted) throw new Error("Run cancelled");
       this.store.transaction(() => {
         this.artifacts.save(artifacts);
+        const renamed = artifacts.filter((a) => a.copiedAs && a.copiedAs !== a.name);
+        if (renamed.length)
+          this.addMessage(
+            run.conversation,
+            "system",
+            "notice",
+            `Saved in the project's Artifacts folder under new names, so the files already there were kept: ${renamed
+              .map((a) => `${a.name} → ${a.copiedAs}`)
+              .join("; ")}`.slice(0, 4000),
+            run.thread,
+          );
         if (artifactError) {
           this.addMessage(
             run.conversation,
@@ -1619,10 +1891,12 @@ export class Coordinator extends EventEmitter {
         let reported = false;
         for (const action of actions || []) {
           try {
-            actionNotes.push(this.applyAction(action, run));
+            // A rejected action changes nothing, even when it failed partway.
+            actionNotes.push(this.store.savepoint(() => this.applyAction(action, run)));
             if (action.type === "report") reported = true;
           } catch (error) {
-            actionNotes.push(`rejected ${String(action.type).slice(0, 40)}: ${error.message}`);
+            const label = actionLabel(action);
+            actionNotes.push(`rejected ${String(action.type).slice(0, 40)}${label ? ` "${label}"` : ""}: ${error.message}`);
             this.diagnostic({
               level: "warn",
               source: "actions",
@@ -1682,15 +1956,27 @@ export class Coordinator extends EventEmitter {
         this.store.event("run.completed", { run: run.id });
       });
     } catch (error) {
-      const status = controller.signal.aborted ? "cancelled" : "failed";
+      // Quitting (or updating) cuts runs off; that isn't the owner pressing
+      // Stop. The next start reconciles them (reconcileInterrupted), since
+      // the store is about to close.
+      const interrupted =
+        this.closed && this.store.one("SELECT status FROM runs WHERE id=?", run.id)?.status !== "cancelling";
+      const status = interrupted ? "interrupted" : controller.signal.aborted ? "cancelled" : "failed";
       this.store.run(
         "UPDATE runs SET status=?,error=?,ended=? WHERE id=?",
         status,
-        String(error.message).slice(0, 8000),
+        interrupted ? INTERRUPTED : String(error.message).slice(0, 8000),
         now(),
         run.id,
       );
-      term(status === "cancelled" ? `── stopped ${new Date().toLocaleTimeString()} ──\n` : `── failed: ${String(error.message).slice(0, 600)} ──\n`);
+      if (interrupted) this.rememberInterrupted(run.id);
+      term(
+        status === "cancelled"
+          ? `── stopped ${new Date().toLocaleTimeString()} ──\n`
+          : interrupted
+            ? `── interrupted: Any Bot stopped ${new Date().toLocaleTimeString()} ──\n`
+            : `── failed: ${String(error.message).slice(0, 600)} ──\n`,
+      );
       this.store.event("run.failed", { run: run.id, status });
       if (status === "failed")
         this.diagnostic({
@@ -1700,7 +1986,7 @@ export class Coordinator extends EventEmitter {
           message: String(error.message).slice(0, 600),
           context: this.runContext(run, employee),
         });
-      if (run.parent && status !== "cancelled")
+      if (run.parent && status === "failed")
         this.store.transaction(() =>
           this.returnToParent(
             run,
@@ -1966,7 +2252,12 @@ export class Coordinator extends EventEmitter {
       expired: `${name}'s request expired without an answer and was declined (${what}).`,
       cancelled: `${name}'s request was withdrawn when the run ended (${what}).`,
     }[approval.status];
-    if (!this.closed && text) this.addMessage(approval.conversation, "system", "notice", text);
+    // In the run's thread, where the request came from and the bot's later
+    // turns in that thread can see it.
+    if (!this.closed && text) {
+      const thread = this.store.one("SELECT thread FROM runs WHERE id=?", approval.run)?.thread ?? null;
+      this.addMessage(approval.conversation, "system", "notice", text, thread);
+    }
     this.notify();
   }
   async close() {
