@@ -438,23 +438,27 @@ export function App() {
     };
   }, [openBotMenu]);
   // @mentions in the text decide who works (runtime/mentions.mjs).
-  async function send() {
-    if (busy || !draft.trim()) return;
+  // Attachments are paths the composer collected (dropped, pasted, picked).
+  async function send(attachments = []) {
+    if (busy || (!draft.trim() && !attachments.length)) return false;
     const result = await act("messages.send", {
       conversation: conversationId,
       body: draft,
+      attachments,
       requestId: crypto.randomUUID(),
     });
-    if (!result) return;
+    if (!result) return false;
     setDraft("");
     // Open the thread where the mentioned bots just started.
     const sent = result.messages.filter((m) => m.conversation === conversationId && m.author === "human" && !m.thread).at(-1);
     if (isProject && sent && result.runs.some((r) => r.thread === sent.id)) setOpenThread(sent.id);
+    return true;
   }
-  async function sendInThread(body) {
+  async function sendInThread(body, attachments = []) {
     const result = await act("messages.send", {
       conversation: conversationId,
       body,
+      attachments,
       thread: openThread,
       requestId: crypto.randomUUID(),
     });
@@ -1456,6 +1460,7 @@ export function App() {
                 </div>
               ) : (
               <Composer
+                key={conversationId}
                 bots={bots}
                 draft={draft}
                 setDraft={setDraft}

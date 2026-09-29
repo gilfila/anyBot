@@ -21,6 +21,14 @@ import { Approvals } from "./approvals.mjs";
 import { TerminalLog } from "./terminal.mjs";
 import { actionsFrom, withoutActions } from "./actions.mjs";
 import { buildContext } from "./context.mjs";
+import {
+  harnessInputs,
+  materialize as materializeAttachments,
+  parse as parseAttachments,
+  preview as previewAttachment,
+  savePasted,
+  validate as validateAttachments,
+} from "./attachments.mjs";
 import packageMetadata from "../package.json" with { type: "json" };
 import {
   loadCustomHarnesses,
@@ -429,6 +437,10 @@ export class Coordinator extends EventEmitter {
       case "routines.create":
         this.routines.create(payload);
         break;
+      case "attachments.preview":
+        return previewAttachment(this.attachmentRecord(payload));
+      case "attachments.savePasted":
+        return savePasted(this.directory, payload);
       case "routines.setEnabled":
         this.routines.setEnabled(payload);
         break;
@@ -760,10 +772,10 @@ export class Coordinator extends EventEmitter {
     if (conversation?.archived)
       throw new Error("This project is archived. Restore it before sending work.");
   }
-  addMessage(conversation, author, kind, body, thread = null) {
+  addMessage(conversation, author, kind, body, thread = null, attachments = []) {
     const messageId = id();
     this.store.run(
-      "INSERT INTO messages(id,conversation,author,kind,body,created,thread) VALUES (?,?,?,?,?,?,?)",
+      "INSERT INTO messages(id,conversation,author,kind,body,created,thread,attachments) VALUES (?,?,?,?,?,?,?,?)",
       messageId,
       conversation,
       author,
@@ -771,6 +783,7 @@ export class Coordinator extends EventEmitter {
       body,
       now(),
       thread,
+      JSON.stringify(attachments),
     );
     return messageId;
   }
@@ -1021,7 +1034,13 @@ export class Coordinator extends EventEmitter {
   }
   send(payload) {
     const key = text(payload.requestId, "Request ID", 100);
-    const body = text(payload.body, "Message", 24000);
+    // Attached files and folders (runtime/attachments.mjs). With some
+    // attached, the text may be empty.
+    const attachments = validateAttachments(payload.attachments);
+    const body =
+      attachments.length && (typeof payload.body !== "string" || !payload.body.trim())
+        ? ""
+        : text(payload.body, "Message", 24000);
     const conversation = requireRow(
       this.store.one(
         "SELECT * FROM conversations WHERE id=?",
@@ -1075,6 +1094,8 @@ export class Coordinator extends EventEmitter {
       if (
         message.conversation !== conversation.id ||
         message.body !== body ||
+        JSON.stringify(parseAttachments(message.attachments).map((a) => a.path)) !==
+          JSON.stringify(attachments.map((a) => a.path)) ||
         JSON.stringify(targets) !== JSON.stringify(requested)
       )
         throw new Error("Request ID was already used for a different message");
@@ -1082,7 +1103,7 @@ export class Coordinator extends EventEmitter {
     }
     for (const employee of recipients) this.activeEmployee(employee);
     this.store.transaction(() => {
-      const messageId = this.addMessage(conversation.id, "human", "user", body, thread);
+      const messageId = this.addMessage(conversation.id, "human", "user", body, thread, attachments);
       // In a project, each bot answers in a thread under the message that
       // activated it; a direct chat stays one conversation.
       const runThread = group ? thread || messageId : null;
@@ -1095,6 +1116,47 @@ export class Coordinator extends EventEmitter {
         actor: "local-owner",
       });
     });
+  }
+  // The owner's attachments on the message that started this run, copied
+  // into the bot's inbox. Anything that couldn't be delivered is noted in
+  // the prompt and in the diagnostics log, and the run goes on.
+  async deliverAttachments(run, employee) {
+    const message = this.store.one("SELECT id,author,attachments FROM messages WHERE id=?", run.message);
+    const list = message?.author === "human" ? parseAttachments(message.attachments) : [];
+    if (!list.length) return [];
+    try {
+      const delivered = await materializeAttachments(message.id, list, employee.workspace);
+      const missing = delivered.filter((a) => a.missing);
+      if (missing.length)
+        this.diagnostic({
+          level: "warn",
+          source: "runtime",
+          code: "attachment.missing",
+          message: `${missing.length} attachment(s) could not be delivered`,
+          context: this.runContext(run, employee),
+        });
+      return delivered;
+    } catch (error) {
+      this.diagnostic({
+        level: "error",
+        source: "runtime",
+        code: "attachment.copy_failed",
+        message: error.message,
+        context: this.runContext(run, employee),
+      });
+      return list.map((a) => ({ name: a.name, kind: a.kind, path: a.path, missing: true, note: `not delivered: ${error.message}` }));
+    }
+  }
+  // A stored attachment, addressed by message and position; the renderer
+  // never asks for arbitrary paths.
+  attachmentRecord(payload) {
+    const message = requireRow(
+      this.store.one("SELECT attachments FROM messages WHERE id=?", text(payload.message, "Message ID", 100)),
+      "Message",
+    );
+    const record = parseAttachments(message.attachments)[Number(payload.index)];
+    if (!record || record.kind !== "file") throw new Error("Attachment not found");
+    return record;
   }
   // The owner's one-to-one chat with a bot, created on first use.
   directConversation(employee) {
@@ -1180,14 +1242,14 @@ export class Coordinator extends EventEmitter {
       // Keep going; the next run tries again.
     }
   }
-  prompt(run, employee, files = []) {
-    return this.promptParts(run, employee, files).text;
+  prompt(run, employee, files = [], attachments = []) {
+    return this.promptParts(run, employee, files, attachments).text;
   }
   // The prompt as named sections, in order (runtime/context.mjs). Their sizes
   // (never their text) are stored per run for the usage metrics
   // (docs/architecture/metrics.md). Building it has no side effects: reports
   // it delivers are marked read only when the run succeeds.
-  promptParts(run, employee, files = []) {
+  promptParts(run, employee, files = [], attachments = []) {
     const conversation = this.store.one(
       "SELECT * FROM conversations WHERE id=?",
       run.conversation,
@@ -1265,6 +1327,7 @@ export class Coordinator extends EventEmitter {
       teammates: peers.filter((p) => p.id !== employee.id),
       directReports: this.org.directReports(employee.id),
       files,
+      attachments,
       messages,
       channel,
       assignment,
@@ -1408,8 +1471,9 @@ export class Coordinator extends EventEmitter {
     term(`── ${employee.name} · ${harnessName}${employee.model ? ` · ${employee.model}` : ""} · started ${new Date().toLocaleTimeString()} ──\n${employee.workspace}\n`);
     try {
       const files = await this.artifacts.materialize(run, employee);
+      const attachments = await this.deliverAttachments(run, employee);
       if (controller.signal.aborted) throw new Error("Run cancelled");
-      const { text: prompt, sections, deliveredReports } = this.promptParts(run, employee, files);
+      const { text: prompt, sections, deliveredReports } = this.promptParts(run, employee, files, attachments);
       // Built-in Claude runs route risky actions to the owner (runtime/approvals.mjs).
       let approval = null;
       if (employee.harness === "claude" && !this.custom.adapters.some((a) => a.id === "claude")) {
@@ -1439,6 +1503,7 @@ export class Coordinator extends EventEmitter {
           signal: controller.signal,
           permissionMode: employee.permissionMode || "auto",
           approvals: approval ? { configPath: approval.configPath } : undefined,
+          ...harnessInputs(attachments, employee.workspace),
           onTerminal: term,
           onUsage: (value) => {
             usage = value;

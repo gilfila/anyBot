@@ -135,6 +135,14 @@ export function describeIssue(issue) {
       title: "The 3D bots stopped drawing",
       hint: "They showed as icons for a moment and redraw by themselves. If they stay icons, restart Any Bot.",
     },
+    "attachment.missing": {
+      title: "An attachment couldn't be delivered",
+      hint: "A file or folder you attached was moved or deleted before the bot started. The bot was told which one; attach it again if it still needs it.",
+    },
+    "attachment.copy_failed": {
+      title: "Attachments couldn't be copied to a bot",
+      hint: "Any Bot couldn't write into the bot's workspace inbox (.anybot-inbox). Check the bot's workspace folder exists and isn't read-only.",
+    },
     "renderer.gone": { title: "The window's renderer stopped", hint: "Any Bot reloaded the window.", bug: true },
     "renderer.load_failed": { title: "The window failed to load", hint: "This is a bug in Any Bot.", bug: true },
     "main.exception": { title: "Any Bot hit an internal error", hint: "This is a bug in Any Bot.", bug: true },

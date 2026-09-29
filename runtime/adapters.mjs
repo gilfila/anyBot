@@ -429,8 +429,13 @@ export function childEnvironment(env = process.env) {
   );
 }
 
-export function invocation(harness, model = "", permissionMode = "auto", approvals = undefined) {
-  if (model) return [...invocation(harness, "", permissionMode, approvals), "--model", model];
+// `inputs` carries a message's attachments in the forms a CLI takes
+// natively (runtime/attachments.mjs): folders to allow, images to attach.
+// Every harness also gets them listed in the prompt.
+export function invocation(harness, model = "", permissionMode = "auto", approvals = undefined, inputs = {}) {
+  if (model) return [...invocation(harness, "", permissionMode, approvals, inputs), "--model", model];
+  const addDirs = inputs.addDirs || [];
+  const images = inputs.images || [];
   switch (harness) {
     case "claude": {
       // anyBot modes → Claude Code permission modes:
@@ -453,13 +458,19 @@ export function invocation(harness, model = "", permissionMode = "auto", approva
           "--mcp-config",
           approvals.configPath,
         );
+      // Claude Code reads images by path; folders need --add-dir.
+      for (const dir of addDirs) args.push("--add-dir", dir);
       return args;
     }
     case "codex":
+      // --image takes several values, so a plain flag must follow it before
+      // the "-" that reads the prompt from stdin.
       return [
         "exec",
         "--json",
         "--skip-git-repo-check",
+        ...images.flatMap((image) => ["--image", image]),
+        ...addDirs.flatMap((dir) => ["--add-dir", dir]),
         "--sandbox",
         "workspace-write",
         "-",
@@ -735,7 +746,7 @@ export async function probeAll(modelCatalog = {}) {
 }
 
 export async function runHarness(
-  { harness, model, workspace, prompt, signal, onText, onTerminal, onUsage, timeoutMs = 600000, permissionMode = "auto", approvals },
+  { harness, model, workspace, prompt, signal, onText, onTerminal, onUsage, timeoutMs = 600000, permissionMode = "auto", approvals, addDirs, images },
   { resolve = resolveExecutable, args, outputFormat, pipeGraceMs = 2000 } = {},
 ) {
   // The raw CLI view for the Activity terminal: redacted, never parsed for results.
@@ -748,7 +759,7 @@ export async function runHarness(
       `${harness} is not installed or its launcher is unsupported. Open Harnesses for setup instructions.`,
     );
   if (signal.aborted) throw new Error("Run cancelled");
-  const argv = [...executable.prefix, ...(args ?? invocation(harness, model, permissionMode, approvals))];
+  const argv = [...executable.prefix, ...(args ?? invocation(harness, model, permissionMode, approvals, { addDirs, images }))];
   const quote = (part) => (/[\s"]/.test(part) ? `"${String(part).replace(/"/g, '\\"')}"` : part);
   term(`$ ${[executable.file, ...argv].map(quote).join(" ")}  < prompt (${prompt.length.toLocaleString("en-US")} chars)\n`);
   const child = spawn(

@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 // Allowed update methods - restrict to safe operations only
 const ALLOWED_UPDATE_METHODS = new Set([
@@ -13,6 +13,11 @@ contextBridge.exposeInMainWorld("anybot", {
   request: (method, payload) =>
     ipcRenderer.invoke("anybot:request", method, payload),
   chooseDirectory: () => ipcRenderer.invoke("anybot:directory"),
+  // Chat attachments: the sandboxed renderer can't read File.path, so a
+  // dropped file's path comes from webUtils; the picker is a native dialog
+  // ("files" or "folders", since Windows can't mix them in one dialog).
+  getPathForFile: (file) => webUtils.getPathForFile(file),
+  chooseAttachments: (kind) => ipcRenderer.invoke("anybot:attachments", kind),
   onChanged: (callback) => {
     const listener = () => callback();
     ipcRenderer.on("anybot:changed", listener);

@@ -601,6 +601,8 @@ const methods = new Set([
   "memory.update",
   "memory.delete",
   "routines.create",
+  "attachments.preview",
+  "attachments.savePasted",
   "routines.setEnabled",
   "routines.runNow",
   "runtime.pause",
@@ -775,6 +777,14 @@ else {
         properties: ["openDirectory"],
       });
       return result.canceled ? null : result.filePaths[0];
+    });
+    ipcMain.handle("anybot:attachments", async (event, kind) => {
+      validateSender(event);
+      const result = await dialog.showOpenDialog(window, {
+        title: kind === "folders" ? "Attach folders" : "Attach files",
+        properties: [kind === "folders" ? "openDirectory" : "openFile", "multiSelections"],
+      });
+      return result.canceled ? [] : result.filePaths.slice(0, 20);
     });
     ipcMain.handle("anybot:listDirectory", async (event, dirPath) => {
       validateSender(event);
