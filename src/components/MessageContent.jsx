@@ -1,9 +1,16 @@
-import React, { useState, useMemo } from "react";
-import { Code, FileText, ExternalLink, ChevronDown, ChevronUp, Eye } from "lucide-react";
-import { TABLE_ROW, TABLE_RULE, renderMarkdownInline, tableCells } from "../lib/markdown.js";
+import React, { useContext, useState, useMemo } from "react";
+import { Check, Code, Copy, FileText, ExternalLink, ChevronDown, ChevronUp, Eye, Workflow } from "lucide-react";
+import { TABLE_ROW, TABLE_RULE, fileCandidates, renderMarkdownInline, tableCells } from "../lib/markdown.js";
+import { botNamed, delegationBlock, manifestPaths, replyRun } from "../lib/chat.js";
+import { FILE_PLATFORM, FileLinkContext, useFileLinkEvents, useFileRefs } from "./FileLinks.jsx";
+import { useCopy } from "./hooks.js";
+import { ChatContext } from "./chat/ChatContext.js";
+import { ArtifactCards } from "./chat/ArtifactCards.jsx";
 
 const HTML_PATTERN = /^\s*<!doctype\s+html|^\s*<html[\s>]/i;
-const CODE_BLOCK_PATTERN = /```(\w*)\n([\s\S]*?)```/g;
+// Info strings may be hyphenated (anybot-artifacts, objective-c) or carry
+// trailing spaces.
+const CODE_BLOCK_PATTERN = /```([\w+-]*)[^\S\n]*\n([\s\S]*?)```/g;
 const HTML_TAG_PATTERN = /<[a-z][\s\S]*?>/i;
 const HEADING_PATTERN = /^(#{1,6})\s+(.+)$/gm;
 const LIST_ITEM_PATTERN = /^(\s*)[-*]\s+(.+)$/gm;
@@ -35,8 +42,11 @@ function extractCodeBlocks(text) {
   return blocks;
 }
 
+// A fenced code block. Copy takes the whole block, even when it's collapsed.
+// Nothing here runs code: bot output never reaches a shell.
 function CodeBlock({ language, code, onPreview }) {
   const [collapsed, setCollapsed] = useState(code.length > MAX_INLINE_CODE_LENGTH);
+  const [copied, copy] = useCopy();
   const displayCode = collapsed ? code.slice(0, 500) + '\n... (truncated)' : code;
   const isHtmlLike = language === 'html' || language === 'htm' || 
     (language === 'plaintext' && isFullHtmlDocument(code));
@@ -49,10 +59,14 @@ function CodeBlock({ language, code, onPreview }) {
           {language}
         </span>
         <div className="code-block-actions">
-          {isHtmlLike && (
+          <button type="button" className="code-action" aria-label={copied ? "Copied" : "Copy code"} onClick={() => copy(code)}>
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+            {copied ? "Copied" : "Copy"}
+          </button>
+          {isHtmlLike && onPreview && (
             <button 
               className="code-action" 
-              onClick={() => onPreview?.(code, 'html')}
+              onClick={() => onPreview(code, 'html')}
               title="Preview HTML"
             >
               <Eye size={12} />
@@ -89,21 +103,25 @@ function HtmlPreviewCard({ html, onPreview }) {
         <strong>{preview.title}</strong>
         <small>{Math.ceil(preview.size / 1024)} KB HTML document</small>
       </div>
-      <button className="secondary html-preview-button" onClick={() => onPreview?.(html, 'html')}>
-        <Eye size={14} />
-        Open Preview
-      </button>
+      {onPreview && (
+        <button className="secondary html-preview-button" onClick={() => onPreview(html, 'html')}>
+          <Eye size={14} />
+          Open Preview
+        </button>
+      )}
     </div>
   );
 }
 
-function MarkdownText({ text, people }) {
+// `files` (file links, src/lib/file-refs.js) and `handlers` (their clicks)
+// come from MessageContent; `boxRef` is the element watched for visibility.
+function MarkdownText({ text, people, files = null, handlers, boxRef, botLinks = false }) {
   const lines = text.split('\n');
   const elements = [];
   let list = null;
   let quote = [];
 
-  const inline = (value) => ({ __html: renderMarkdownInline(value, { people }) });
+  const inline = (value) => ({ __html: renderMarkdownInline(value, { people, files, botLinks }) });
   const flushList = () => {
     if (!list) return;
     const Tag = list.ordered ? "ol" : "ul";
@@ -205,11 +223,40 @@ function MarkdownText({ text, people }) {
   }
 
   flush();
-  return <div className="markdown-content">{elements}</div>;
+  return (
+    <div className="markdown-content" ref={boxRef} {...handlers}>
+      {elements}
+    </div>
+  );
 }
 
+// A delegating reply's ```anybot block, read as what it asks for. `state`:
+// "handed" once the delegate's run is queued, "pending" while the reply is
+// still streaming, "failed" when the coordinator refused the handoff (its
+// notice below says why).
+const HANDOFF_LABELS = { handed: "Handed to", pending: "Handing to", failed: "Couldn't hand to" };
+function DelegationCard({ bot, objective, onOpen, state }) {
+  return (
+    <div className={state === "failed" ? "delegation-card is-failed" : "delegation-card"}>
+      <span className="delegation-card-head">
+        <Workflow size={13} aria-hidden="true" />
+        {HANDOFF_LABELS[state]}
+        <button type="button" className="delegation-to" title={`Message ${bot.name} directly`} onClick={() => onOpen(bot)}>
+          {bot.name}
+        </button>
+      </span>
+      <p>{objective}</p>
+    </div>
+  );
+}
+
+const NO_FILES = [];
+
 // `people`: bot names to highlight where the message @mentions them.
-export function MessageContent({ body, onOpenPreview, onOpenBrowser, people = [] }) {
+// `messageId`: the message's id, which file links in it are checked against.
+// `artifacts`: the files the reply's run returned; with them, the reply's
+// ```anybot-artifacts block shows as file cards (left out while streaming).
+export function MessageContent({ body, messageId, onOpenPreview, onOpenBrowser, people = [], artifacts }) {
   const content = useMemo(() => {
     if (!body || typeof body !== 'string') {
       return { type: 'text', content: String(body || '') };
@@ -236,11 +283,65 @@ export function MessageContent({ body, onOpenPreview, onOpenBrowser, people = []
     return { type: 'markdown', content: trimmed };
   }, [body]);
 
-  // Previews always go through the sandboxed srcdoc modal. A same-origin blob:
-  // URL would give employee HTML access to window.anybot.
-  const handlePreview = (html, type) => {
-    onOpenPreview?.(html, type);
+  // File links, only in markdown text: never in fenced code or bot HTML.
+  const fileLinks = useContext(FileLinkContext);
+  const candidates = useMemo(() => {
+    if (!fileLinks || !messageId || (content.type !== 'markdown' && content.type !== 'mixed')) return NO_FILES;
+    const text = content.type === 'mixed' ? content.content.replace(CODE_BLOCK_PATTERN, '\n') : content.content;
+    return fileCandidates(text.split('\n'), FILE_PLATFORM);
+  }, [content, messageId, fileLinks]);
+  const { box, lookup } = useFileRefs(messageId, candidates);
+  const { handlers: fileHandlers, menu } = useFileLinkEvents(messageId, lookup);
+  const files = candidates.length ? { platform: FILE_PLATFORM, lookup } : null;
+
+  // @mentions open the bot's direct chat (markdown.js botLinks). Only spans
+  // markdown.js rendered carry data-bot: sanitizeHtml strips it from bot HTML.
+  const chat = useContext(ChatContext);
+  const openBot = (event) => {
+    const el = event.target?.closest?.(".bot-link[data-bot]");
+    if (!chat || !el || !event.currentTarget.contains(el)) return false;
+    const bot = botNamed(el.getAttribute("data-bot"), chat.employees);
+    if (!bot) return false;
+    event.preventDefault();
+    chat.onOpenBot(bot);
+    return true;
   };
+  const handlers = chat
+    ? {
+        ...fileHandlers,
+        onClick(event) {
+          if (!openBot(event)) fileHandlers.onClick?.(event);
+        },
+        onKeyDown(event) {
+          if (!(event.key === "Enter" && openBot(event))) fileHandlers.onKeyDown?.(event);
+        },
+      }
+    : fileHandlers;
+  const botLinks = Boolean(chat);
+
+  // Machine blocks a person can read: the files a reply returned, and a
+  // delegation. Anything that doesn't parse stays a code block.
+  const special = (block) => {
+    if (block.language === "anybot-artifacts" && artifacts) {
+      const paths = manifestPaths(block.code);
+      if (paths) return <ArtifactCards key={`files-${block.index}`} paths={paths} artifacts={artifacts} />;
+    }
+    if (block.language === "anybot" && chat) {
+      const request = delegationBlock(block.code);
+      const bot = request && chat.employees.find((e) => e.id === request.employeeId);
+      if (bot) {
+        const reply = messageId ? replyRun({ id: messageId }, chat.runs) : null;
+        const state = !messageId ? "pending" : reply && chat.runs.some((r) => r.parent === reply.id && r.employee === bot.id) ? "handed" : "failed";
+        return <DelegationCard key={`handoff-${block.index}`} bot={bot} objective={request.objective} onOpen={chat.onOpenBot} state={state} />;
+      }
+    }
+    return null;
+  };
+
+  // Previews always go through the sandboxed srcdoc modal. A same-origin blob:
+  // URL would give employee HTML access to window.anybot. Without a handler
+  // (a reply still streaming), there are no preview buttons.
+  const handlePreview = onOpenPreview ? (html, type) => onOpenPreview(html, type) : null;
 
   if (content.type === 'html-preview') {
     return <HtmlPreviewCard html={content.content} onPreview={handlePreview} />;
@@ -252,10 +353,12 @@ export function MessageContent({ body, onOpenPreview, onOpenBrowser, people = []
         <div className="html-preview-header">
           <FileText size={14} />
           <span>HTML Content</span>
-          <button className="code-action" onClick={() => handlePreview(content.content, 'html')}>
-            <ExternalLink size={12} />
-            Open in Browser
-          </button>
+          {handlePreview && (
+            <button className="code-action" onClick={() => handlePreview(content.content, 'html')}>
+              <ExternalLink size={12} />
+              Open in Browser
+            </button>
+          )}
         </div>
         <div 
           className="html-sandboxed"
@@ -274,17 +377,19 @@ export function MessageContent({ body, onOpenPreview, onOpenBrowser, people = []
         const textBefore = content.content.slice(lastIndex, block.index);
         if (textBefore.trim()) {
           parts.push(
-            <MarkdownText key={`text-${lastIndex}`} text={textBefore} people={people} />
+            <MarkdownText key={`text-${lastIndex}`} text={textBefore} people={people} files={files} handlers={handlers} botLinks={botLinks} />
           );
         }
       }
       parts.push(
-        <CodeBlock 
-          key={`code-${block.index}`}
-          language={block.language}
-          code={block.code}
-          onPreview={handlePreview}
-        />
+        special(block) || (
+          <CodeBlock
+            key={`code-${block.index}`}
+            language={block.language}
+            code={block.code}
+            onPreview={handlePreview}
+          />
+        ),
       );
       lastIndex = block.index + block.full.length;
     }
@@ -293,16 +398,26 @@ export function MessageContent({ body, onOpenPreview, onOpenBrowser, people = []
       const textAfter = content.content.slice(lastIndex);
       if (textAfter.trim()) {
         parts.push(
-          <MarkdownText key={`text-${lastIndex}`} text={textAfter} people={people} />
+          <MarkdownText key={`text-${lastIndex}`} text={textAfter} people={people} files={files} handlers={handlers} botLinks={botLinks} />
         );
       }
     }
 
-    return <div className="mixed-content">{parts}</div>;
+    return (
+      <div className="mixed-content" ref={box}>
+        {parts}
+        {menu}
+      </div>
+    );
   }
 
   if (content.type === 'markdown') {
-    return <MarkdownText text={content.content} people={people} />;
+    return (
+      <>
+        <MarkdownText text={content.content} people={people} files={files} handlers={handlers} boxRef={box} botLinks={botLinks} />
+        {menu}
+      </>
+    );
   }
 
   return <span>{content.content}</span>;
@@ -310,11 +425,19 @@ export function MessageContent({ body, onOpenPreview, onOpenBrowser, people = []
 
 // Elements that can run code, load remote documents, restyle the whole app,
 // or submit data. Rendered inline inside the app's own document, so this is
-// an allowlist-by-exclusion backed by the page CSP (no inline script).
+// an allowlist-by-exclusion backed by the page CSP (no inline script) and by
+// main, which cancels every file: request outside the app (window-shell.cjs):
+// on a file: page the CSP's 'self' lets file://host through.
 const BLOCKED_ELEMENTS =
   'script, style, link, meta, base, iframe, frame, frameset, object, embed, applet, form, input, button, textarea, select, template, portal';
+// SVG animation can set any attribute, a URL included (<set to="file://…">).
+const BLOCKED_SVG = new Set(['set', 'animate', 'animatemotion', 'animatetransform', 'discard']);
 const URL_ATTRIBUTES = new Set(['href', 'src', 'xlink:href', 'action', 'formaction', 'poster', 'background', 'cite', 'srcset']);
 const SAFE_URL_PATTERN = /^(https?:|mailto:|#|data:image\/(png|gif|jpe?g|webp);)/i;
+// SVG presentation attributes are CSS, so url() there can load a file. Only
+// same-document references (url(#gradient)) stay; CSS escapes never do.
+const CSS_URL_ATTRIBUTES = new Set(['fill', 'stroke', 'filter', 'mask', 'clip-path', 'marker-start', 'marker-mid', 'marker-end', 'cursor']);
+const REMOTE_CSS_URL = /\\|url\((?!['"]?#)/i;
 
 function sanitizeHtml(html) {
   const parser = new DOMParser();
@@ -323,14 +446,25 @@ function sanitizeHtml(html) {
   doc.querySelectorAll(BLOCKED_ELEMENTS).forEach((el) => el.remove());
 
   doc.querySelectorAll('*').forEach((el) => {
+    if (BLOCKED_SVG.has(el.localName.toLowerCase())) {
+      el.remove();
+      return;
+    }
     for (const attr of [...el.attributes]) {
       const name = attr.name.toLowerCase();
       // Browsers ignore whitespace and control characters inside URL schemes.
       const value = attr.value.replace(/[\u0000- ]/g, '');
+      // data-*, role and tabindex go too, so bot HTML can't forge a file link.
+      // style goes because CSS can load files (url(), image-set(), escapes).
       if (
         name.startsWith('on') ||
+        name.startsWith('data-') ||
+        name === 'role' ||
+        name === 'tabindex' ||
         name === 'srcdoc' ||
-        (URL_ATTRIBUTES.has(name) && value && !SAFE_URL_PATTERN.test(value))
+        name === 'style' ||
+        (URL_ATTRIBUTES.has(name) && value && !SAFE_URL_PATTERN.test(value)) ||
+        (CSS_URL_ATTRIBUTES.has(name) && REMOTE_CSS_URL.test(value))
       ) {
         el.removeAttribute(attr.name);
       }

@@ -232,6 +232,47 @@ test("non-assignees cannot move a task and failed work leaves the card in progre
   assert.ok(detail.activity.some((entry) => /did not finish/.test(entry.body)));
 });
 
+test("retrying a task's failed run counts in its place, so the card can finish", async (t) => {
+  let attempts = 0;
+  const { c, conversation, names, task } = await fixture(t, (options, who) => {
+    if (who === "Helper" && ++attempts === 1) return new Error("harness crashed");
+    return "Finished";
+  });
+  await c.command("tasks.create", { conversation: conversation.id, title: "Pair", assignees: [names.Lead.id, names.Helper.id] });
+  await c.command("tasks.start", { id: task("Pair").id });
+  await settled(c);
+  assert.equal(task("Pair").status, "in_progress");
+  const failed = c.snapshot().runs.find((r) => r.status === "failed");
+  await c.command("runs.retry", { id: failed.id });
+  await settled(c);
+  const retry = c.snapshot().runs.at(-1);
+  assert.equal(retry.task, task("Pair").id);
+  assert.equal(retry.status, "succeeded");
+  assert.equal(task("Pair").status, "done");
+});
+
+test("a failed run from an earlier round can't be retried once the task is started again", async (t) => {
+  let attempts = 0;
+  const { c, conversation, names, task } = await fixture(t, (options, who) => (who === "Lead" && ++attempts === 1 ? new Error("harness crashed") : "Finished"));
+  await c.command("tasks.create", { conversation: conversation.id, title: "Solo", assignees: [names.Lead.id] });
+  await c.command("tasks.start", { id: task("Solo").id });
+  await settled(c);
+  const failed = c.snapshot().runs.find((r) => r.status === "failed");
+  assert.equal(task("Solo").status, "in_progress");
+  // "Run again" from the board while the old notice (and its Retry) is still up.
+  await c.command("runtime.pause");
+  await c.command("tasks.start", { id: task("Solo").id });
+  // The new round takes the old failure's notice away...
+  assert.equal(c.snapshot().runs.find((r) => r.id === failed.id).dismissed, true);
+  // ...and its Retry, even called directly, doesn't run the task twice.
+  await assert.rejects(c.command("runs.retry", { id: failed.id }), /already being worked on/);
+  await c.command("runtime.resume");
+  await settled(c);
+  assert.equal(task("Solo").status, "done");
+  await assert.rejects(c.command("runs.retry", { id: failed.id }), /started again after this run/);
+  assert.equal(c.snapshot().runs.filter((r) => r.task === task("Solo").id).length, 2);
+});
+
 test("autopilot starts an idle assignee's highest priority backlog task", async (t) => {
   const { c, conversation, names, task } = await fixture(t);
   await c.command("tasks.create", { conversation: conversation.id, title: "Low", priority: "low", assignees: [names.Lead.id] });

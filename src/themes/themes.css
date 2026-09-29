@@ -288,6 +288,10 @@
     var(--card);
   box-shadow: 0 0 24px -10px var(--neon-2), inset 0 0 22px -14px var(--neon-2);
 }
+/* Your bubble is a card here, not ink, so @mention focus rings stay ink. */
+:root[data-bubbles="hologram"] .message.from-you .message-body .bot-link[data-bot]:focus-visible {
+  outline-color: var(--ink);
+}
 /* Corner brackets, like a projected panel. */
 :root[data-bubbles="hologram"] .message .message-body::before,
 :root[data-bubbles="hologram"] .message .message-body::after {

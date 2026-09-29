@@ -198,6 +198,18 @@ export function describeIssue(issue) {
       title: "Attachments couldn't be copied to a bot",
       hint: "Any Bot couldn't write into the bot's workspace inbox (.anybot-inbox). Check the bot's workspace folder exists and isn't read-only.",
     },
+    "files.refused": {
+      title: "A file link was blocked",
+      hint: "Any Bot refused to open, show, or preview a path from a message (the reason is below). Network paths, devices, files that can run programs, and folders whose shortcuts point to a network location are never opened from a link.",
+    },
+    "files.request_blocked": {
+      title: "The window was stopped from loading a file",
+      hint: "Something shown in the app (usually HTML a bot wrote) tried to load a file from outside Any Bot, or from a network location, which could send your Windows sign-in to another computer. Any Bot blocked it; nothing was loaded.",
+    },
+    "files.open_failed": {
+      title: "A file from chat couldn't be opened",
+      hint: "Windows couldn't open it with its default app. Check that an app is installed for this type of file, or use Show in folder.",
+    },
     "renderer.gone": {
       title: "The window's renderer stopped",
       hint: c.reloaded === false
@@ -221,6 +233,24 @@ const ago = (value) => {
   return `${Math.round(minutes / 1440)}d ago`;
 };
 export { ago as issueAge };
+
+// What an issue's context points at that still exists, for the panel's
+// jump buttons: its run (terminal and conversation), else its conversation,
+// its task, and its bot (a direct chat). Ids come from the log; only rows in
+// the snapshot count.
+export function issueTargets(context = {}, { runs = [], conversations = [], tasks = [], employees = [] } = {}) {
+  const run = context.run && runs.find((r) => r.id === context.run);
+  const conversationId = run?.conversation || context.conversation;
+  const conversation = conversationId && conversations.find((c) => c.id === conversationId);
+  const task = context.task && tasks.find((t) => t.id === context.task);
+  const bot = context.employeeId && employees.find((e) => e.id === context.employeeId && !e.archived);
+  return {
+    run: run?.id || null,
+    conversation: conversation ? { id: conversation.id, title: conversation.title } : null,
+    task: task ? { id: task.id, title: task.title } : null,
+    bot: bot || null,
+  };
+}
 
 // Plain-text report for pasting into a chat with Claude or a bug tracker.
 export function issueReport(groups, { version = "" } = {}) {

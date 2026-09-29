@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { Check, ShieldAlert, X } from "lucide-react";
+import { Check, Copy, MessagesSquare, ShieldAlert, SquareTerminal, X } from "lucide-react";
 import { RobotAvatar } from "./RobotAvatar.jsx";
+import { RunTerminal } from "./RunTerminal.jsx";
+import { useCopy } from "./hooks.js";
 
 const TOOL_LABELS = {
   Bash: "run a command",
@@ -16,10 +18,50 @@ const TOOL_LABELS = {
 export const describeTool = (tool) =>
   TOOL_LABELS[tool] || (tool.startsWith("mcp__") ? `use ${tool.split("__").slice(1).join(" › ")}` : `use ${tool}`);
 
+// What an approval is for, read in full (the summary is one line until
+// clicked), with the bot's terminal for context and a way to its thread.
+function ApprovalDetails({ approval, run, name, paused, openThread, onOpenThread }) {
+  const [full, setFull] = useState(false);
+  const [terminal, setTerminal] = useState(false);
+  const [copied, copy] = useCopy();
+  return (
+    <>
+      <button
+        type="button"
+        className={`approval-summary${full ? " is-full" : ""}`}
+        aria-expanded={full}
+        title={full ? "Show one line" : "Show all of it"}
+        onClick={() => setFull(!full)}
+      >
+        <code>{approval.summary}</code>
+      </button>
+      <span className="approval-links">
+        <button type="button" className="chip-button" onClick={() => copy(approval.summary)}>
+          {copied ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
+          {copied ? "Copied" : "Copy"}
+        </button>
+        {run && (
+          <button type="button" className="chip-button" aria-expanded={terminal} onClick={() => setTerminal(!terminal)}>
+            <SquareTerminal size={12} aria-hidden="true" />
+            {terminal ? "Hide terminal" : "Terminal"}
+          </button>
+        )}
+        {run?.thread && onOpenThread && openThread !== run.thread && (
+          <button type="button" className="chip-button" onClick={() => onOpenThread(run.thread)}>
+            <MessagesSquare size={12} aria-hidden="true" />
+            Open its thread
+          </button>
+        )}
+      </span>
+      {terminal && run && <RunTerminal run={run} paused={paused} name={name} />}
+    </>
+  );
+}
+
 // Requests from bots in this conversation that are waiting on the owner.
 // Headless harnesses can't ask in a terminal, so they ask here; the bot's
 // run is paused on the answer.
-export function ApprovalBar({ approvals, employees, onDecide }) {
+export function ApprovalBar({ approvals, employees, runs = [], paused = false, openThread = null, onOpenThread = null, onDecide }) {
   const [busy, setBusy] = useState(null);
   const pending = approvals.filter((approval) => approval.status === "pending");
   useEffect(() => setBusy(null), [pending.length]);
@@ -42,7 +84,14 @@ export function ApprovalBar({ approvals, employees, onDecide }) {
               <strong>
                 {employee?.name || "A bot"} wants to {describeTool(approval.tool)}
               </strong>
-              <code title={approval.summary}>{approval.summary}</code>
+              <ApprovalDetails
+                approval={approval}
+                run={runs.find((r) => r.id === approval.run)}
+                name={employee?.name || "Bot"}
+                paused={paused}
+                openThread={openThread}
+                onOpenThread={onOpenThread}
+              />
             </div>
             <div className="approval-actions">
               <button type="button" className="secondary" disabled={busy === approval.id} onClick={() => decide("deny")}>

@@ -48,6 +48,50 @@ test("coordinator implements every allowlisted desktop method", async () => {
   assert.deepEqual(missing, []);
 });
 
+// File links come from bot output. Their code only talks to main through
+// files.* requests, which re-check every path (desktop/file-access.cjs).
+test("file-link code never reaches the shell, folder, or URL bridges", async () => {
+  const files = [
+    "src/lib/file-refs.js",
+    "src/lib/markdown.js",
+    "src/components/MessageContent.jsx",
+    "src/components/FileLinks.jsx",
+    "src/components/FilePreview.jsx",
+    "src/components/RunTerminal.jsx",
+  ];
+  for (const file of files) {
+    const source = await read(file);
+    for (const bridge of ["revealPath", "listDirectory", "runCommand", "openUrl", "openExternal"])
+      assert.ok(!source.includes(bridge), `${file} mentions ${bridge}`);
+  }
+});
+
+test("shell.openPath only opens the app's own folders or a file link main has just inspected", async () => {
+  const main = await read("desktop/main.cjs");
+  const opened = [...main.matchAll(/shell\.openPath\(([^;]*)\);/g)].map((m) => m[1].trim()).sort();
+  assert.deepEqual(opened, ['app.getPath("userData")', "diagnostics.directory", "target"]);
+  const branch = main.match(/if \(method === "files\.open"\) \{[\s\S]*?return \{ opened: true \};/)?.[0] || "";
+  assert.match(branch, /const ref = await fileTarget\(payload, "open"\);[\s\S]*const target = ref\.state === "folder"[^;]*ref\.path[^;]*;[\s\S]*shell\.openPath\(target\)/);
+  const shown = [...main.matchAll(/shell\.showItemInFolder\(([^;]*)\);/g)].map((m) => m[1].trim()).sort();
+  assert.deepEqual(shown, ["file", "fileAccess.ownerPath(filePath)", "ref.path"]);
+});
+
+// Bot HTML in chat can request file://host (SMB) through CSS or SVG, which
+// the page CSP allows on a file: page; main cancels it for every frame.
+test("main cancels file: requests outside the app before the window opens", async () => {
+  const main = await read("desktop/main.cjs");
+  assert.match(main, /session\.defaultSession\.webRequest\.onBeforeRequest\(\(details, callback\) => \{\s*const blocked = fileRequestBlocked\(details\.url, root\);\s*callback\(\{ cancel: blocked \}\);/);
+  assert.match(main, /guardFileRequests\(\);[\s\S]*showWindow\(\);/);
+});
+
+test("files.context is main-only", async () => {
+  const main = await read("desktop/main.cjs");
+  const allowlist = main.match(/const methods = new Set\(\[([\s\S]*?)\]\)/)[1];
+  assert.ok(!allowlist.includes('"files.'), "no files.* method is allowlisted");
+  assert.ok(!main.includes('method === "files.context"'), "the renderer can't reach files.context");
+  assert.match(main, /request\("files\.context", \{ message \}\)/);
+});
+
 test("HTML previews never combine allow-scripts with allow-same-origin on local content", async () => {
   for (const file of ["src/components/HtmlPreviewModal.jsx", "src/components/ContextRail.jsx"]) {
     const source = await read(file);

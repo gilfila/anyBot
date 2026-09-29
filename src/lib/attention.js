@@ -6,7 +6,9 @@
 //   pr        its latest reply links a pull request to review
 //   done      it finished and you haven't read the reply yet
 // A question or PR only counts while the bot has the last word in that
-// conversation: once you reply, it's handled.
+// conversation: once you reply, it's handled. Each state also says where it
+// is (conversation, run, approval, message), so the sidebar row can open it
+// (src/lib/navigation.js attentionTarget).
 const PR_URL = /https?:\/\/(?:www\.)?(?:github\.com|gitlab\.com|bitbucket\.org)\/[^\s)>\]]+?\/(?:pull|merge_requests|pull-requests)\/\d+/i;
 const ACTION_BLOCK = /```(?:anybot|anybot-actions|anybot-artifacts)[\s\S]*?```/g;
 const CODE_BLOCK = /```[\s\S]*?```/g;
@@ -37,18 +39,20 @@ const LABELS = {
 
 export function botAttention(employeeId, { approvals = [], runs = [], messages = [] } = {}, { unread = false } = {}) {
   const make = (kind, extra = {}) => ({ kind, label: LABELS[kind][0], short: LABELS[kind][1], ...extra });
-  if (approvals.some((a) => a.status === "pending" && a.employee === employeeId)) return make("approval");
+  const waiting = approvals.find((a) => a.status === "pending" && a.employee === employeeId);
+  if (waiting) return make("approval", { approval: waiting.id, run: waiting.run, conversation: waiting.conversation });
   const latest = (list) => list.reduce((best, item) => (!best || String(item.created) > String(best.created) ? item : best), null);
   const run = latest(runs.filter((r) => r.employee === employeeId));
-  if (run && ["failed", "interrupted"].includes(run.status) && !run.dismissed) return make("error", { detail: run.error || "" });
+  if (run && ["failed", "interrupted"].includes(run.status) && !run.dismissed)
+    return make("error", { detail: run.error || "", run: run.id, conversation: run.conversation });
   if (run && ["queued", "running", "cancelling"].includes(run.status)) return null;
   const reply = latest(messages.filter((m) => m.author === employeeId && (m.kind === "assistant" || !m.kind)));
   if (!reply) return null;
   const answered = messages.some((m) => m.conversation === reply.conversation && m.author === "human" && String(m.created) > String(reply.created));
   if (!answered) {
-    if (asksQuestion(reply.body)) return make("question", { conversation: reply.conversation });
+    if (asksQuestion(reply.body)) return make("question", { conversation: reply.conversation, message: reply.id });
     const url = pullRequestIn(reply.body);
-    if (url) return make("pr", { url, conversation: reply.conversation });
+    if (url) return make("pr", { url, conversation: reply.conversation, message: reply.id });
   }
-  return unread ? make("done", { conversation: reply.conversation }) : null;
+  return unread ? make("done", { conversation: reply.conversation, message: reply.id }) : null;
 }

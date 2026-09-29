@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.32] - 2026-09-29
+
+### Added
+- **Click the files your bots mention.** When a bot (or you) writes a path like `C:\Users\Tony\Videos\final.mp4` or `reports/plan.md`, it becomes a link once Any Bot confirms the file is really there.
+  - Click opens it: videos, music, pictures, PDFs, Word, Excel, PowerPoint and web pages open in their usual app; text and code open in a preview inside Any Bot; folders open in File Explorer.
+  - Shift+click shows it in its folder. Right-click for Open, Preview, Show in folder and Copy path.
+  - Programs, scripts and installers are never opened from a click, only shown in their folder. Network locations are never touched.
+  - Paths in a run's terminal are links too.
+- **Files a bot returns show as cards** under its reply, instead of a block of raw text. Click to preview, or show it in its folder.
+- **Copy buttons:** on code blocks, on any message (hover it), on errors, and on diagnostics issues.
+- **See what a bot is doing:** a working bot shows how long it has been at it and a **Terminal** button with its live output. Finished replies and hand-offs open the run's terminal too.
+- **Retry a failed run** from its notice, next to Terminal, Copy error and Details.
+- **Everything names something you can open:**
+  - @mentions of bots open their chat.
+  - A hand-off shows who got the work and how it's going.
+  - The sidebar opens exactly what a bot needs you for (the approval, the failed run, the question).
+  - Clicking an approval notification opens the waiting conversation.
+  - Activity rows, the board's task work, the org chart, reports, the knowledge graph, the team roster, routines and diagnostics all jump to the work they mention.
+- **Right-click works everywhere:** Cut, Copy, Paste and spelling suggestions in text boxes, Copy on selected text, and Open or Copy for links.
+- **Keyboard shortcuts:** Ctrl+K to search (Enter opens the first match), Ctrl+Shift+A to step through approvals waiting on you, Ctrl+B to hide the sidebar. They're listed in Settings.
+- **Timestamps say the day** when it isn't today, and show the full date when you hover.
+- Settings: **Open folder** for where Any Bot keeps your data; Harnesses: copy a sign-in command, show a program in its folder.
+
+### Changed
+- A bot's reply that hands work off reads "Handed to Nova: …" instead of raw hand-off text.
+- Bot-written web pages shown in chat can no longer load anything from your computer or your network.
+
 ## [0.3.31] - 2026-09-29
 
 ### Fixed

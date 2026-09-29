@@ -32,6 +32,53 @@
   color: var(--block-ok);
   font-weight: 600;
 }
+.run-terminal-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid var(--block-rule);
+  border-radius: 6px;
+  background: none;
+  color: var(--block-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.run-terminal-live + .run-terminal-copy {
+  margin-left: 0;
+}
+.run-terminal-copy:hover:not(:disabled),
+.run-terminal-copy:focus-visible {
+  color: var(--block-text);
+  border-color: var(--block-muted);
+}
+.run-terminal-copy:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* Links in the output: web links and confirmed file paths (FileLinks.jsx),
+   in the line's own color on the dark block. */
+.run-terminal pre a,
+.run-terminal pre .file-link[data-file-ref] {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--block-muted);
+  text-underline-offset: 2px;
+}
+.run-terminal pre .file-link[data-file-ref] {
+  text-decoration-style: dotted;
+}
+.run-terminal pre a:hover,
+.run-terminal pre .file-link[data-file-ref]:hover,
+.run-terminal pre .file-link[data-file-ref]:focus-visible {
+  background: var(--block-2);
+  text-decoration-color: currentColor;
+  text-decoration-style: solid;
+}
+.run-terminal pre .file-link[data-file-ref]:focus-visible {
+  outline: 2px solid var(--block-accent);
+}
 .run-terminal pre {
   margin: 0;
   max-height: 380px;

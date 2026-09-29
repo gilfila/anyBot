@@ -157,6 +157,10 @@ Many problems have a button that takes you to the fix. **Copy report** gives you
 
 Give any bot its own Slack app: open the bot's **⋯** menu and choose **Connect to Slack**. DM it, or @mention it in a channel, and its reply comes back in Slack. When it needs your OK for something risky, it posts **Approve** and **Deny** buttons. Only people you pair with a one-time code can give it work, and it connects out to Slack, so nothing is exposed to the internet. See [docs/slack.md](docs/slack.md).
 
+### Click through everything
+
+Files your bots mention become links once Any Bot confirms they exist: click to open (pictures, video, music, PDFs, Office files, web pages) or preview them in the app (text and code), Shift+click to show them in their folder, right-click for more. Programs and scripts are only ever shown in their folder, and network locations are never touched. Returned files show as cards under the reply. Messages, code and errors have Copy buttons, working bots show a live Terminal, failed runs can be retried, and @mentions, hand-offs, notifications, Activity rows and the org chart all open the work they name. Ctrl+K searches, Ctrl+Shift+A steps through approvals, and Ctrl+B hides the sidebar.
+
 ### Keep working in the background
 
 - **The tray:** closing the window keeps Any Bot running in the tray, so your bots keep working. **Quit and stop active work** in the tray menu stops everything. Work cut off by quitting is marked in its conversation, and the bot that handed it off is told; start it again when you're back.

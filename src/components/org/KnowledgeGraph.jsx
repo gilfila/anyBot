@@ -2,7 +2,10 @@ import React, { memo, useEffect, useMemo, useRef, useState } from "react";
 import { forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY } from "d3-force";
 import {
   ArrowUpRight,
+  Columns3,
   Crosshair,
+  Eye,
+  FolderOpen,
   Maximize2,
   MessageSquare,
   Pin,
@@ -580,7 +583,7 @@ function FactRow({ edge, node, byId, who, act, onSelect, reload }) {
   );
 }
 
-function NodePanel({ node, graph, data, who, act, onSelect, onFocus, onClose, onMessage, reload }) {
+function NodePanel({ node, graph, data, who, act, onSelect, onFocus, onClose, onMessage, onOpenTarget, onOpenArtifact, onRevealArtifact, reload }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [label, setLabel] = useState(node.label);
   const [note, setNote] = useState(node.note || "");
@@ -597,6 +600,11 @@ function NodePanel({ node, graph, data, who, act, onSelect, onFocus, onClose, on
   const employee = node.type === "agent" && data.employees.find((e) => e.id === node.ref);
   const working = employee && data.runs.some((r) => r.employee === employee.id && ["queued", "running", "cancelling"].includes(r.status));
   const project = node.conversation && data.conversations.find((c) => c.id === node.conversation);
+  // Workspace nodes open what they stand for (derived in runtime/knowledge.mjs:
+  // ref is the task, project or artifact id).
+  const task = !written && node.type === "task" && data.tasks.find((t) => t.id === node.ref);
+  const room = !written && node.type === "project" && data.conversations.find((c) => c.id === node.ref);
+  const file = !written && node.type === "artifact" && data.artifacts.find((a) => a.id === node.ref);
   const update = async (payload) => (await act("graph.entityUpdate", { id: node.id, ...payload })) && reload();
   return (
     <aside className="task-peek kg-panel" aria-label={`${node.label} details`}>
@@ -660,6 +668,30 @@ function NodePanel({ node, graph, data, who, act, onSelect, onFocus, onClose, on
               <ArrowUpRight size={14} />
             </button>
           )}
+          {task && onOpenTarget && (
+            <button type="button" className="primary" onClick={() => onOpenTarget({ task: task.id })}>
+              <Columns3 size={14} />
+              Open task
+            </button>
+          )}
+          {room && onOpenTarget && (
+            <button type="button" className="primary" onClick={() => onOpenTarget({ conversation: room.id })}>
+              Open project
+              <ArrowUpRight size={14} />
+            </button>
+          )}
+          {file && onOpenArtifact && (
+            <button type="button" className="primary" onClick={() => onOpenArtifact(file)}>
+              <Eye size={14} />
+              Preview
+            </button>
+          )}
+          {file && onRevealArtifact && (
+            <button type="button" className="secondary" onClick={() => onRevealArtifact(file)}>
+              <FolderOpen size={14} />
+              Show in folder
+            </button>
+          )}
         </div>
         <dl className="task-props">
           {written ? (
@@ -706,7 +738,15 @@ function NodePanel({ node, graph, data, who, act, onSelect, onFocus, onClose, on
               {project && (
                 <>
                   <dt>Project</dt>
-                  <dd>{project.title}</dd>
+                  <dd>
+                    {onOpenTarget ? (
+                      <button type="button" className="text-link" title={`Open ${project.title}`} onClick={() => onOpenTarget({ conversation: project.id })}>
+                        {project.title}
+                      </button>
+                    ) : (
+                      project.title
+                    )}
+                  </dd>
                 </>
               )}
             </>
@@ -864,7 +904,9 @@ function FactsTable({ graph, who, onSelect, selected }) {
   );
 }
 
-export function KnowledgeGraph({ data, act, onMessage }) {
+// onOpenTarget (App's jump), onOpenArtifact and onRevealArtifact let
+// workspace nodes open their task, project, or file.
+export function KnowledgeGraph({ data, act, onMessage, onOpenTarget, onOpenArtifact, onRevealArtifact }) {
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
   const [focus, setFocus] = useState(null);
@@ -1097,6 +1139,9 @@ export function KnowledgeGraph({ data, act, onMessage }) {
           onFocus={focusOn}
           onClose={() => setSelected(null)}
           onMessage={onMessage}
+          onOpenTarget={onOpenTarget}
+          onOpenArtifact={onOpenArtifact}
+          onRevealArtifact={onRevealArtifact}
           reload={reload}
         />
       ) : panel === "add" ? (

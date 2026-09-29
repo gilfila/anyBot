@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import { AlertCircle, ChevronRight, MessagesSquare, X } from "lucide-react";
 import { RobotAvatar } from "../RobotAvatar.jsx";
-import { Status } from "../Status.jsx";
 import { ChatMessage, LiveRun } from "./ChatMessage.jsx";
+import { RunNotice } from "./RunNotice.jsx";
 import { Composer } from "./Composer.jsx";
 import { issueAge } from "../../lib/diagnostics.js";
+import { stamp } from "../../lib/chat.js";
 
 const names = (list) => (list.length > 2 ? `${list.slice(0, -1).join(", ")} and ${list.at(-1)}` : list.join(" and "));
 
@@ -27,7 +28,9 @@ export function ThreadSummary({ entry, employees, open, onOpen }) {
           {names(entry.working.map(nameOf))} {entry.working.length === 1 ? "is" : "are"} working
         </span>
       ) : entry.last ? (
-        <span className="thread-last">Last reply {issueAge(entry.last)}</span>
+        <span className="thread-last" title={stamp(entry.last).title}>
+          Last reply {issueAge(entry.last)}
+        </span>
       ) : null}
       {entry.failed.length > 0 && (
         <span className="thread-failed">
@@ -77,17 +80,7 @@ export function ThreadPanel({ root, entry, runs, employees, bots, bubbles, onClo
           <LiveRun key={r.id} run={r} employees={employees} bubbles={bubbles} onStop={onStop} compact />
         ))}
         {entry.failed.map((r) => (
-          <div className="run-notice" key={r.id}>
-            <div className="run-notice-content">
-              <Status status={r.status} />
-              <span>
-                {employees.find((e) => e.id === r.employee)?.name}: {r.error || "Stopped."}
-              </span>
-            </div>
-            <button className="run-notice-dismiss" aria-label="Dismiss notice" onClick={() => onDismiss(r.id)}>
-              <X size={14} />
-            </button>
-          </div>
+          <RunNotice key={r.id} run={r} employees={employees} onDismiss={onDismiss} />
         ))}
         <div ref={end} />
       </div>

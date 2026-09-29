@@ -311,6 +311,90 @@ test("only failed, interrupted, or cancelled runs can be dismissed", async (t) =
   );
 });
 
+test("a failed run can be retried once; the retry's reply is linked to its run", async (t) => {
+  let calls = 0;
+  const { c, employees, send } = await fixture(t, async () => {
+    calls++;
+    if (calls === 1) throw new Error("Harness crashed");
+    return "Fixed it";
+  });
+  await send("Try this");
+  await settled(c);
+  const failed = c.snapshot().runs[0];
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.response, null);
+  await c.command("runtime.pause");
+  await c.command("runs.retry", { id: failed.id });
+  await assert.rejects(c.command("runs.retry", { id: failed.id }), /already working on this again/);
+  await c.command("runtime.resume");
+  await settled(c);
+  const [old, retry] = c.snapshot().runs;
+  assert.equal(old.dismissed, true);
+  assert.equal(retry.status, "succeeded");
+  for (const key of ["conversation", "employee", "message", "thread", "task", "parent", "depth"]) assert.equal(retry[key], old[key], key);
+  assert.equal(retry.root, retry.id);
+  const reply = c.snapshot().messages.find((m) => m.id === retry.response);
+  assert.equal(reply.body, "Fixed it");
+  await assert.rejects(c.command("runs.retry", { id: retry.id }), /Only failed, interrupted, or stopped/);
+  await assert.rejects(c.command("runs.retry", { id: "missing" }), /Run not found/);
+  // Only the latest attempt can be retried.
+  await assert.rejects(c.command("runs.retry", { id: old.id }), /already retried or dismissed/);
+  assert.equal(c.snapshot().runs.length, 2);
+  const bot = c.snapshot().employees.find((e) => e.id === employees[0].id);
+  await c.command("employees.setArchived", { id: bot.id, revision: bot.revision, archived: true });
+  await assert.rejects(c.command("runs.retry", { id: old.id }), /archived/);
+});
+
+test("retrying a failed delegated run keeps its parent, so the result goes back", async (t) => {
+  let reviewer,
+    reviews = 0;
+  const { c, employees, send } = await fixture(t, async ({ harness }) => {
+    if (harness === "claude") {
+      reviews++;
+      if (reviews === 1) throw new Error("Reviewer crashed");
+      return "Review complete";
+    }
+    return c.snapshot().runs.length === 1
+      ? '```anybot\n{"type":"delegate","employeeId":"' + reviewer + '","objective":"Review it"}\n```'
+      : "Summary";
+  });
+  reviewer = employees[1].id;
+  await send("Build and review");
+  await settled(c);
+  const child = c.snapshot().runs.find((r) => r.employee === reviewer);
+  assert.equal(child.status, "failed");
+  await c.command("runs.retry", { id: child.id });
+  await settled(c);
+  const retry = c.snapshot().runs.filter((r) => r.employee === reviewer).at(-1);
+  assert.equal(retry.status, "succeeded");
+  assert.equal(retry.parent, child.parent);
+  assert.equal(retry.root, child.root);
+  // The failure came back first; the retry's result says it is the same work again.
+  const returned = c.snapshot().messages.filter((m) => m.kind === "handoff" && /^Delegated work returned/.test(m.body));
+  assert.equal(returned.length, 2);
+  assert.match(returned[0].body, /^Delegated work returned\. [\s\S]*Task failed: Reviewer crashed/);
+  assert.match(returned[1].body, /^Delegated work returned after a retry \(an earlier attempt failed, as reported before\)\.[\s\S]*Review complete/);
+});
+
+test("a retry needs the bot still in the conversation", async (t) => {
+  let calls = 0;
+  const { c, employees, conversation, send } = await fixture(t, async () => {
+    calls++;
+    if (calls === 1) throw new Error("Harness crashed");
+    return "Done";
+  });
+  await send("Try this");
+  await settled(c);
+  const failed = c.snapshot().runs[0];
+  assert.equal(failed.status, "failed");
+  await c.command("conversations.updateMembers", { conversation: conversation.id, members: [employees[1].id] });
+  await assert.rejects(c.command("runs.retry", { id: failed.id }), /isn't in this conversation any more/);
+  await c.command("conversations.updateMembers", { conversation: conversation.id, members: employees.map((e) => e.id) });
+  await c.command("runs.retry", { id: failed.id });
+  await settled(c);
+  assert.equal(c.snapshot().runs.at(-1).status, "succeeded");
+});
+
 test("adapter boundaries preserve structured failures and exclude supervisor secrets", () => {
   assert.deepEqual(
     extractEvent("codex", {
@@ -522,4 +606,33 @@ test("a coordinator started holding starts no queued work until released", async
   } finally {
     await reopened.close();
   }
+});
+
+test("files.context gives a message's folders: its bot's workspace, or every member's, then the project's", async (t) => {
+  const { c, directory, employees, conversation, send } = await fixture(t);
+  const shared = join(directory, "shared");
+  const outputs = join(directory, "outputs");
+  await c.command("conversations.updateSettings", {
+    conversation: conversation.id,
+    allowedFolders: [shared, "relative/folder", shared.toUpperCase()],
+    artifactsFolder: outputs,
+  });
+  await send("Write it up");
+  await settled(c);
+  const messages = c.snapshot().messages;
+  const workspace = (i) => c.snapshot().employees.find((e) => e.id === employees[i].id).workspace;
+  const reply = messages.find((m) => m.author === employees[0].id);
+  const mine = messages.find((m) => m.author === "human");
+  assert.ok(reply && mine, "a bot reply and the owner's message");
+  const sharedOnce = process.platform === "win32" ? [shared] : [shared, shared.toUpperCase()];
+  assert.deepEqual(await c.command("files.context", { message: reply.id }), { bases: [workspace(0), ...sharedOnce, outputs] });
+  assert.deepEqual(await c.command("files.context", { message: mine.id }), {
+    bases: [workspace(0), workspace(1), ...sharedOnce, outputs],
+  });
+  await assert.rejects(c.command("files.context", { message: "missing" }), /Message not found/);
+  await assert.rejects(c.command("files.context", {}), /Message ID/);
+  // A run's terminal (RunTerminal.jsx) asks as "run:<id>": its bot's workspace first.
+  const run = c.snapshot().runs.find((r) => r.employee === employees[0].id);
+  assert.deepEqual(await c.command("files.context", { message: `run:${run.id}` }), { bases: [workspace(0), ...sharedOnce, outputs] });
+  await assert.rejects(c.command("files.context", { message: "run:missing" }), /Run not found/);
 });

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { File, FileImage, Folder, X } from "lucide-react";
 import { formatSize, isImageName, messageAttachments } from "../../lib/attachments.js";
+import { useFileActions } from "../FileLinks.jsx";
 
 const Icon = ({ item }) =>
   item.kind === "folder" ? <Folder size={15} /> : isImageName(item.name) ? <FileImage size={15} /> : <File size={15} />;
@@ -47,15 +48,31 @@ function useThumbnail(message, index, wanted) {
   return url;
 }
 
-function StoredAttachment({ message, index, item }) {
+// A sent attachment acts like a file link to its path (FileLinks.jsx): click
+// opens or previews it (a folder opens), Shift+click shows it in its folder,
+// and right-click or the Menu key has the rest. The thumbnail comes from
+// attachments.preview, which is scoped to the message.
+function StoredAttachment({ message, index, item, actions }) {
   const thumbnail = useThumbnail(message, index, item.kind === "file" && isImageName(item.name));
   return (
     <li>
       <button
         type="button"
         className={thumbnail ? "attachment-chip has-thumb" : "attachment-chip"}
-        title={`Show ${item.name} in its folder`}
-        onClick={() => window.anybot?.revealPath(item.path)}
+        title={`${item.path}\nClick to open · Shift+click to show in folder · Right-click for more`}
+        disabled={!actions}
+        onClick={(event) => actions?.open(item.path, event.currentTarget, event.shiftKey)}
+        onContextMenu={(event) => {
+          if (!actions) return;
+          event.preventDefault();
+          actions.menu(item.path, event.currentTarget);
+        }}
+        onKeyDown={(event) => {
+          if (actions && (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey))) {
+            event.preventDefault();
+            actions.menu(item.path, event.currentTarget);
+          }
+        }}
       >
         {thumbnail ? <img src={thumbnail} alt={item.name} /> : <Icon item={item} />}
         <span className="attachment-name">{item.kind === "folder" ? `${item.name}/` : item.name}</span>
@@ -65,15 +82,18 @@ function StoredAttachment({ message, index, item }) {
   );
 }
 
-// What the owner attached to a sent message.
+// What the owner attached to a sent message. The owner chose these paths,
+// so one main won't link (a network share) still shows in its folder.
 export function MessageAttachments({ message }) {
+  const actions = useFileActions(message.id, { owner: true });
   const items = messageAttachments(message);
   if (!items.length) return null;
   return (
     <ul className="message-attachments" aria-label="Attached">
       {items.map((item, index) => (
-        <StoredAttachment key={`${item.path}:${index}`} message={message.id} index={index} item={item} />
+        <StoredAttachment key={`${item.path}:${index}`} message={message.id} index={index} item={item} actions={actions} />
       ))}
+      {actions?.element}
     </ul>
   );
 }

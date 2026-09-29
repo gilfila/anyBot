@@ -155,7 +155,12 @@ export class Coordinator extends EventEmitter {
     this.approvals = new Approvals(this.store, directory, {
       onRequest: (approval) => {
         const name = this.store.one("SELECT name FROM employees WHERE id=?", approval.employee)?.name || "A bot";
-        this.emit("attention", { title: `${name} needs your approval`, body: `${approval.tool}: ${approval.summary}`.slice(0, 200) });
+        this.emit("attention", {
+          title: `${name} needs your approval`,
+          body: `${approval.tool}: ${approval.summary}`.slice(0, 200),
+          // Where clicking the notification opens (desktop/main.cjs).
+          target: { approval: approval.id, conversation: approval.conversation, run: approval.run },
+        });
         this.notify();
       },
       onSettled: (approval) => this.approvalSettled(approval),
@@ -349,7 +354,9 @@ export class Coordinator extends EventEmitter {
           artifactsFolder: c.artifactsFolder || "",
         })),
       messages: this.store.all("SELECT * FROM messages ORDER BY rowid"),
-      runs: this.store.all("SELECT * FROM runs ORDER BY rowid").map((r) => ({
+      // `response`: the reply message a successful run posted, so the chat
+      // can find a reply's run (its terminal, the files it returned).
+      runs: this.store.all("SELECT r.*, rr.message AS response FROM runs r LEFT JOIN run_responses rr ON rr.run=r.id ORDER BY r.rowid").map((r) => ({
         ...r,
         dismissed: Boolean(r.dismissed),
         usage: parseUsage(r.usage),
@@ -382,6 +389,8 @@ export class Coordinator extends EventEmitter {
         return this.artifacts.preview(payload);
       case "artifacts.resolve":
         return this.artifacts.resolve(payload);
+      case "files.context":
+        return this.fileContext(payload);
       case "harnesses.probe":
         this.installations = await this.probe();
         break;
@@ -436,6 +445,9 @@ export class Coordinator extends EventEmitter {
         break;
       case "runs.dismiss":
         this.dismissRun(payload.id);
+        break;
+      case "runs.retry":
+        this.retryRun(payload.id);
         break;
       // A bot's CLI as a terminal shows it, from a byte offset (Activity).
       case "runs.terminal": {
@@ -1020,6 +1032,9 @@ export class Coordinator extends EventEmitter {
       // runs created at or after this entry.
       const count = task.assignees.length;
       this.board.activity(task.id, author, "started", `Started with ${count} assignee${count === 1 ? "" : "s"}`);
+      // The new round replaces the last one's stopped runs: their notices
+      // (and Retry, which runs.retry would now refuse) go away.
+      this.store.run("UPDATE runs SET dismissed=1 WHERE task=? AND status IN ('failed','interrupted','cancelled')", task.id);
       const message = this.addMessage(task.conversation, author, "task", brief.slice(0, 24000));
       for (const employee of task.assignees)
         this.addRun(task.conversation, employee, message, null, null, 0, task.id);
@@ -1252,11 +1267,16 @@ export class Coordinator extends EventEmitter {
       "SELECT created FROM task_activity WHERE task=? AND kind='started' ORDER BY created DESC, rowid DESC LIMIT 1",
       task.id,
     );
-    const round = this.store.all(
-      "SELECT status FROM runs WHERE task=? AND created>=?",
+    // A retry (runs.retry: same bot, same message) stands in for the run it
+    // replaced; nothing else queues one bot twice for one message.
+    const latest = new Map();
+    for (const r of this.store.all(
+      "SELECT employee,message,status FROM runs WHERE task=? AND created>=? ORDER BY rowid",
       task.id,
       started?.created || "",
-    );
+    ))
+      latest.set(`${r.employee}\u0001${r.message}`, r);
+    const round = [...latest.values()];
     if (!round.length) return;
     const pending = this.store.one(
       "SELECT author,body FROM task_activity WHERE task=? AND kind='pending-status' AND created>=? ORDER BY created DESC, rowid DESC LIMIT 1",
@@ -1462,6 +1482,38 @@ export class Coordinator extends EventEmitter {
   grantsFolders(employee) {
     if (!["claude", "codex"].includes(employee.harness) || this.custom.adapters.some((a) => a.id === employee.harness)) return false;
     return employee.harness === "codex" && employee.permissionMode === "ask" ? "read" : "write";
+  }
+  // The folders a message's relative file links resolve against, in order
+  // (desktop/file-access.cjs): the author bot's workspace (every member's for
+  // your own messages), then the conversation's allowed folders and its
+  // artifacts folder. Main-only, like artifacts.resolve.
+  fileContext(payload) {
+    const key = text(payload.message, "Message ID", 100);
+    // A run's terminal asks as "run:<id>": that run's bot and conversation.
+    const message = key.startsWith("run:")
+      ? requireRow(this.store.one("SELECT conversation,employee AS author FROM runs WHERE id=?", key.slice(4)), "Run")
+      : requireRow(this.store.one("SELECT conversation,author FROM messages WHERE id=?", key), "Message");
+    const conversation = this.store.one(
+      "SELECT members,allowedFolders,artifactsFolder FROM conversations WHERE id=?",
+      message.conversation,
+    );
+    const workspace = (employee) => this.store.one("SELECT workspace FROM employees WHERE id=?", employee)?.workspace;
+    const author = workspace(message.author);
+    const folders = [
+      ...(author ? [author] : JSON.parse(conversation?.members || "[]").map(workspace)),
+      ...JSON.parse(conversation?.allowedFolders || "[]"),
+      conversation?.artifactsFolder,
+    ];
+    const seen = new Set();
+    const bases = [];
+    for (const folder of folders) {
+      if (typeof folder !== "string" || !folder || !isAbsolute(folder)) continue;
+      const key = process.platform === "win32" ? folder.toLowerCase() : folder;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      bases.push(folder);
+    }
+    return { bases: bases.slice(0, 16) };
   }
   // A stored attachment, addressed by message and position; the renderer
   // never asks for arbitrary paths.
@@ -2248,13 +2300,22 @@ export class Coordinator extends EventEmitter {
       );
       return;
     }
+    // A retry (runs.retry) of work whose failure already came back says so,
+    // so the delegator reads this as the same work again, not a second answer.
+    const retried = this.store.one(
+      "SELECT id FROM runs WHERE parent=? AND employee=? AND message=? AND id<>? AND status='failed' LIMIT 1",
+      run.parent,
+      run.employee,
+      run.message,
+      run.id,
+    );
     // The result goes back to where the delegating bot was working, which
     // is not where this run worked when the work moved to a project room.
     const message = this.addMessage(
       parent.conversation,
       "system",
       "handoff",
-      `Delegated work returned. Synthesize the result for the human.\n\n${result.slice(0, 24000)}`,
+      `${retried ? "Delegated work returned after a retry (an earlier attempt failed, as reported before)" : "Delegated work returned"}. Synthesize the result for the human.\n\n${result.slice(0, 24000)}`,
       parent.thread,
     );
     // Continue the delegating employee and retain its own parent for nested returns.
@@ -2280,6 +2341,70 @@ export class Coordinator extends EventEmitter {
     if (!["failed", "interrupted", "cancelled"].includes(run.status))
       throw new Error("Only failed, interrupted, or cancelled runs can be dismissed");
     this.store.run("UPDATE runs SET dismissed=1 WHERE id=?", run.id);
+  }
+  // The same assignment again after a run failed, was interrupted, or was
+  // stopped: same bot, message, thread, task, and delegation parent (so a
+  // delegated result still goes back). The old run's notice goes away, and a
+  // task round counts the retry in its place (settleTask). Only the latest
+  // attempt can be retried, only while the bot may still work there (as
+  // send() and delegate() decide), and a task's run only in the task's
+  // current round.
+  retryRun(runId) {
+    const run = requireRow(
+      this.store.one("SELECT *, rowid AS seq FROM runs WHERE id=?", text(runId, "Run ID", 100)),
+      "Run",
+    );
+    if (!["failed", "interrupted", "cancelled"].includes(run.status))
+      throw new Error("Only failed, interrupted, or stopped runs can be retried");
+    const conversation = this.store.one("SELECT archived,members FROM conversations WHERE id=?", run.conversation);
+    this.requireOpenProject(conversation);
+    this.activeEmployee(run.employee);
+    if (
+      this.store.one(
+        "SELECT id FROM runs WHERE employee=? AND message=? AND status IN ('queued','running','cancelling')",
+        run.employee,
+        run.message,
+      )
+    )
+      throw new Error("That bot is already working on this again");
+    if (run.task) {
+      if (this.board.activeRuns(run.task).length) throw new Error("This task is already being worked on");
+      const started = this.store.one(
+        "SELECT created FROM task_activity WHERE task=? AND kind='started' ORDER BY created DESC, rowid DESC LIMIT 1",
+        run.task,
+      );
+      if (started && run.created < started.created)
+        throw new Error("This task was started again after this run. Start it from the board instead.");
+    }
+    if (run.dismissed || this.store.one("SELECT id FROM runs WHERE employee=? AND message=? AND rowid>?", run.employee, run.message, run.seq))
+      throw new Error("This run was already retried or dismissed");
+    // A member, a delegate still below its delegator, or the task's own
+    // assignee or reviewer (a reviewer may sit outside the project).
+    const parent = run.parent ? this.store.one("SELECT employee FROM runs WHERE id=?", run.parent) : null;
+    const task = run.task ? this.store.one("SELECT assignees,reviewer FROM tasks WHERE id=?", run.task) : null;
+    if (
+      !JSON.parse(conversation?.members || "[]").includes(run.employee) &&
+      !(parent && this.org.isBelow(run.employee, parent.employee)) &&
+      !(task && (task.reviewer === run.employee || JSON.parse(task.assignees || "[]").includes(run.employee)))
+    )
+      throw new Error("That bot isn't in this conversation any more");
+    if (run.parent && this.store.one("SELECT count(*) AS n FROM runs WHERE root=?", run.root).n >= 8)
+      throw new Error("Root task reached its delegation limit");
+    return this.store.transaction(() => {
+      const retry = this.addRun(
+        run.conversation,
+        run.employee,
+        run.message,
+        run.parent,
+        run.parent ? run.root : null,
+        run.depth,
+        run.task,
+        run.thread,
+      );
+      this.store.run("UPDATE runs SET dismissed=1 WHERE id=?", run.id);
+      this.store.event("run.retried", { run: run.id, retry });
+      return retry;
+    });
   }
   async cancel(runId) {
     requireRow(

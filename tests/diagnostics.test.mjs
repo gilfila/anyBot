@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { createRequire } from "node:module";
 import { Coordinator } from "../runtime/coordinator.mjs";
 import { classifyRunError, isUnexpected } from "../runtime/diagnostics.mjs";
-import { describeIssue, issueReport } from "../src/lib/diagnostics.js";
+import { describeIssue, issueReport, issueTargets } from "../src/lib/diagnostics.js";
 import { onRenderError, renderMarkdownInline } from "../src/lib/markdown.js";
 
 const require = createRequire(import.meta.url);
@@ -204,4 +204,33 @@ test("issue descriptions, the copyable report, and the markdown fallback", () =>
   assert.equal(renderMarkdownInline(Symbol("odd")), "Symbol(odd)");
   assert.equal(errors.length, 1);
   onRenderError(null);
+});
+
+test("an issue's jump buttons point only at runs, conversations, tasks and bots that still exist", () => {
+  const data = {
+    runs: [{ id: "r1", conversation: "c1" }],
+    conversations: [
+      { id: "c1", title: "Launch" },
+      { id: "c2", title: "Ops" },
+    ],
+    tasks: [{ id: "t1", title: "Ship it", conversation: "c1" }],
+    employees: [
+      { id: "e1", name: "Sol" },
+      { id: "e2", name: "Old", archived: 1 },
+    ],
+  };
+  assert.deepEqual(issueTargets({ run: "r1", conversation: "c2", task: "t1", employeeId: "e1" }, data), {
+    run: "r1",
+    conversation: { id: "c1", title: "Launch" },
+    task: { id: "t1", title: "Ship it" },
+    bot: data.employees[0],
+  });
+  // The run is gone (pruned): its conversation from the context still opens.
+  assert.deepEqual(issueTargets({ run: "gone", conversation: "c2", employeeId: "e2" }, data), {
+    run: null,
+    conversation: { id: "c2", title: "Ops" },
+    task: null,
+    bot: null,
+  });
+  assert.deepEqual(issueTargets(undefined, data), { run: null, conversation: null, task: null, bot: null });
 });

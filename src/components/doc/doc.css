@@ -216,6 +216,23 @@
 .mention-agent {
   cursor: default;
 }
+/* A canvas @bot chip opens that bot's direct chat. */
+.doc-text .mention-agent[data-mention] {
+  cursor: pointer;
+}
+.doc-text .mention-agent[data-mention]:hover {
+  background: var(--paper-3);
+}
+/* A file block's Show in folder, beside it. */
+.doc-file-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.doc-file-row .doc-file {
+  flex: 1;
+  min-width: 0;
+}
 
 .type-h1 :is(.doc-text, .doc-input) {
   font-size: 30px;

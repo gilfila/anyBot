@@ -10,6 +10,8 @@ const {
   shell,
   Notification,
   safeStorage,
+  clipboard,
+  session,
 } = require("electron");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
@@ -21,7 +23,10 @@ const { pathToFileURL } = require("node:url");
 const { DiagnosticsLog, checkPendingUpdate, rememberPendingUpdate } = require("./diagnostics.cjs");
 const { createShutdown, createCrashTracker, createRestartBudget, isOfflineError } = require("./lifecycle.cjs");
 const { commandDirectory, killTree } = require("./shell-command.cjs");
+const fileAccess = require("./file-access.cjs");
+const { contextMenuItems, fileRequestBlocked, navigationTarget } = require("./window-shell.cjs");
 let diagnostics = null;
+let fileLinks = null;
 let window,
   worker,
   tray,
@@ -695,6 +700,7 @@ const methods = new Set([
   "messages.send",
   "runs.cancel",
   "runs.dismiss",
+  "runs.retry",
   "runs.terminal",
   "runs.stopConversation",
   "tasks.get",
@@ -849,6 +855,12 @@ else {
         const failure = await shell.openPath(diagnostics.directory);
         return { opened: !failure, error: failure || undefined };
       }
+      // Settings → Saved on this computer: the app's own data folder, never a
+      // path from the renderer.
+      if (method === "app.openDataFolder") {
+        const failure = await shell.openPath(app.getPath("userData"));
+        return { opened: !failure, error: failure || undefined };
+      }
       if (method === "mobile.status")
         return {
           enabled: !!mobileGateway,
@@ -909,6 +921,41 @@ else {
         app.quit();
         return { quitting: true };
       }
+      // File links in chat (desktop/file-access.cjs). The paths come from bot
+      // output, so each action re-inspects from scratch and only a path of an
+      // allowed type ever reaches shell.openPath.
+      if (method === "files.check") return fileLinkService().check(payload);
+      if (method === "files.preview") return fileAccess.readPreview(await fileTarget(payload, "preview"));
+      if (method === "files.open") {
+        const ref = await fileTarget(payload, "open");
+        // A folder opens with a trailing separator. If it has been renamed
+        // away since the check, "tools\" is simply not found, where "tools"
+        // would let the shell try tools.exe, tools.cmd…; a file swapped in
+        // under the same name only opens when its name could (policy()).
+        const target = ref.state === "folder" && !ref.path.endsWith(path.sep) ? `${ref.path}${path.sep}` : ref.path;
+        const failure = await shell.openPath(target);
+        if (failure) {
+          const scrubbed = [ref.path, ref.name.length >= 3 ? ref.name : ""]
+            .filter(Boolean)
+            .reduce((text, part) => text.split(part).join("<file>"), String(failure));
+          diagnostics.record({
+            level: "error",
+            source: "app",
+            code: "files.open_failed",
+            message: "Windows couldn't open a file from chat.",
+            detail: scrubbed.slice(0, 300),
+            context: { ext: fileAccess.safeExtension(ref.name) || undefined },
+          });
+          notifyRenderer();
+          throw new Error(`Couldn't open ${ref.name}: ${failure}`);
+        }
+        return { opened: true };
+      }
+      if (method === "files.reveal") {
+        const ref = await fileTarget(payload, "reveal");
+        shell.showItemInFolder(ref.path);
+        return { revealed: true };
+      }
       if (!methods.has(method)) throw new Error("Operation not allowed");
       await waitForReady();
       if (method === "artifacts.reveal") {
@@ -935,6 +982,7 @@ else {
     });
     ipcMain.handle("anybot:listDirectory", async (event, dirPath) => {
       validateSender(event);
+      fileAccess.ownerPath(dirPath);
       try {
         const entries = fs.readdirSync(dirPath, { withFileTypes: true });
         return {
@@ -952,9 +1000,11 @@ else {
         throw new Error(`Cannot read directory: ${error.message}`);
       }
     });
+    // Owner-chosen paths only (attachments, the rail explorer); file links in
+    // chat never come here (tests/desktop-ipc.test.mjs).
     ipcMain.handle("anybot:revealPath", async (event, filePath) => {
       validateSender(event);
-      shell.showItemInFolder(filePath);
+      shell.showItemInFolder(fileAccess.ownerPath(filePath));
       return { revealed: true };
     });
     // The context rail's Terminal: the owner's own commands, typed in the
@@ -1038,6 +1088,7 @@ else {
       return { opened: true };
     });
     // Slack starts when the coordinator first reports ready (ensureSlack).
+    guardFileRequests();
     startWorker();
     startMobileAccess().catch((error) => {
       mobileError = String(error.message);
@@ -1099,6 +1150,64 @@ function isExternalWebUrl(url) {
 function validateSender(event) {
   if (event.sender !== window?.webContents || event.senderFrame?.url !== page)
     throw new Error("Untrusted application sender");
+}
+// The window loads only the app's own dist/ folder over file:. Anything else
+// (a file://host request above all, which is SMB and sends the NTLM hash) is
+// cancelled for every frame, the sandboxed previews included; bot HTML shown
+// in chat can ask for one through CSS or SVG (window-shell.cjs). The first
+// block of each kind per session goes to the diagnostics log, without the URL.
+function guardFileRequests() {
+  const root = path.join(__dirname, "../dist");
+  const logged = new Set();
+  session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
+    const blocked = fileRequestBlocked(details.url, root);
+    callback({ cancel: blocked });
+    if (!blocked) return;
+    const kind = /^file:\/\/[^/]/i.test(details.url) ? "network" : "local";
+    if (logged.has(kind)) return;
+    logged.add(kind);
+    diagnostics?.record({
+      level: "warn",
+      source: "app",
+      code: "files.request_blocked",
+      message: `The window tried to load a ${kind} file and was stopped.`,
+      context: { kind },
+    });
+    notifyRenderer();
+  });
+}
+// A message's folders come from the coordinator (files.context, main-only:
+// it is not in the renderer's `methods` allowlist).
+function fileLinkService() {
+  fileLinks ??= fileAccess.createFileLinks({
+    inspector: fileAccess.createInspector(),
+    context: async (message) => {
+      await waitForReady();
+      return request("files.context", { message });
+    },
+  });
+  return fileLinks;
+}
+// Re-inspects the raw path for an action and throws the owner-facing reason
+// when it isn't allowed; opening a folder or showing a file in its folder
+// also checks the folder Explorer will draw. Refusals are logged without the
+// path or message.
+async function fileTarget(payload, action) {
+  const links = fileLinkService();
+  const { raw, ref } = await links.resolve(payload);
+  const problem = fileAccess.actionProblem(ref, action, raw) || (await links.explorerProblem(ref, action));
+  if (!problem) return ref;
+  if (problem.record) {
+    diagnostics.record({
+      level: "warn",
+      source: "app",
+      code: "files.refused",
+      message: `A file link was refused (${problem.reason}).`,
+      context: { action, reason: problem.reason, ext: problem.ext || undefined },
+    });
+    notifyRenderer();
+  }
+  throw new Error(problem.message);
 }
 function request(method, payload) {
   return new Promise((resolve, reject) => {
@@ -1176,13 +1285,15 @@ function startWorker() {
     }
     if (message.type === "attention") {
       // A bot is waiting on the owner (an approval). Say so when the window
-      // isn't in front; clicking the notification brings it back.
+      // isn't in front; clicking the notification brings it back, opened at
+      // the conversation (and thread) that is waiting.
       if ((!window || !window.isFocused()) && Notification.isSupported()) {
         const notice = new Notification({
           title: String(message.notice?.title || "Any Bot").slice(0, 120),
           body: String(message.notice?.body || "").slice(0, 240),
         });
-        notice.on("click", () => showWindow());
+        const target = navigationTarget(message.notice?.target);
+        notice.on("click", () => (target ? navigate(target) : showWindow()));
         notice.show();
       }
       window?.webContents.send("anybot:changed");
@@ -1242,6 +1353,16 @@ function startWorker() {
       });
   });
 }
+// Brings the window forward and asks the renderer to open `target` (ids
+// from navigationTarget); App resolves them against its snapshot.
+function navigate(target) {
+  showWindow();
+  const contents = window?.webContents;
+  if (!contents) return;
+  const send = () => contents.send("anybot:navigate", target);
+  if (contents.isLoading()) contents.once("did-finish-load", send);
+  else send();
+}
 function showWindow(rendererSandbox = app.isPackaged) {
   if (window && !window.isDestroyed()) {
     window.show();
@@ -1274,6 +1395,23 @@ function showWindow(rendererSandbox = app.isPackaged) {
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (isExternalWebUrl(url)) void shell.openExternal(url);
     return { action: "deny" };
+  });
+  // Right-click: Cut, Copy, Paste and Select all in text fields, Copy on a
+  // selection, and web links. The renderer's own menus (file links) call
+  // preventDefault, so Electron doesn't ask for this one there.
+  window.webContents.on("context-menu", (_event, params) => {
+    const items = contextMenuItems(params, isExternalWebUrl);
+    if (!items.length) return;
+    const contents = window.webContents;
+    // openExternal and (in Electron 44) clipboard writes return promises; a
+    // rejection here must not reach the unhandled-rejection error dialog.
+    const click = {
+      replace: (word) => contents.replaceMisspelling(word),
+      openLink: (url) => isExternalWebUrl(url) && Promise.resolve(shell.openExternal(url)).catch(() => {}),
+      copyLink: (url) => Promise.resolve(clipboard.writeText(url)).catch(() => {}),
+    };
+    const template = items.map(({ action, value, ...item }) => (action ? { ...item, click: () => click[action](value) } : item));
+    Menu.buildFromTemplate(template).popup({ window });
   });
   window.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
     if (!isMainFrame) return;

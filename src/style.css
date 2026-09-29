@@ -4519,12 +4519,11 @@ nav button.selected,
   font-size: 12.5px;
   color: var(--ink-3);
 }
-/* Streaming output from a run in progress. */
+/* Streaming output from a run in progress, rendered like the reply it will
+   become. */
 .message.live-run .message-body {
-  font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-size: 13.5px;
   line-height: 1.6;
-  white-space: pre-wrap;
   color: var(--ink-2);
   background: var(--card);
   border: 1px solid var(--rule);
@@ -5774,4 +5773,115 @@ dialog .modal-form > .primary.full:last-child {
 }
 .bot-list.compact .bot-row-text small {
   font-size: 11px;
+}
+
+/* Clickable everywhere: names, lines, and targets that open where the work
+   is (App's openTarget), plus copy and show-in-folder beside commands and
+   paths. Tokens only; ink, never vermilion. */
+.text-link {
+  display: inline;
+  padding: 0;
+  border-radius: 3px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+.text-link:hover:not(:disabled),
+.text-link:focus-visible {
+  text-decoration-color: currentColor;
+}
+.roster-now-link {
+  min-width: 0;
+  margin: -4px -6px;
+  padding: 4px 6px;
+  justify-content: flex-start;
+  text-align: left;
+}
+.roster-now-link:hover:not(:disabled) {
+  background: var(--paper-3);
+}
+.roster-now .roster-line {
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--ink-2);
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.roster-row.is-working .roster-now .roster-line {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+button.harness-tag:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--ink-3);
+}
+.harness-copy-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+}
+.harness-copy-row .icon-button {
+  width: 28px;
+  height: 28px;
+  flex: none;
+}
+.info-box .secondary {
+  margin-top: 8px;
+}
+.issue-failures li > button {
+  margin-top: 6px;
+}
+.agent-done li:has(> .icon-button) {
+  grid-template-columns: 16px minmax(0, 1fr) auto auto;
+}
+.agent-done .icon-button,
+.agent-now .icon-button,
+.report-head .icon-button {
+  width: 26px;
+  height: 26px;
+}
+.report-head .task-label {
+  cursor: pointer;
+}
+.report-head .task-label:hover {
+  border-color: var(--ink-3);
+}
+/* The message a jump landed on, for a moment (App's focusMessage). */
+.message.is-target {
+  border-radius: 14px;
+  box-shadow: 0 0 0 2px var(--ink-3);
+  transition: box-shadow 400ms var(--ease-out);
+}
+.shortcut-list {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 14px;
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.shortcut-list dt,
+.shortcut-list dd {
+  margin: 0;
+}
+.shortcut-list kbd {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--card);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
 }

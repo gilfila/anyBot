@@ -64,3 +64,14 @@ test("bot @mentions are highlighted, but not emails, code, or unknown names", ()
   assert.equal(renderMarkdownInline("`@Alex` @Alexander", { people }), "<code>@Alex</code> @Alexander");
   assert.match(renderMarkdownInline('@<b>Alex</b>', { people: ["<b>Alex</b>"] }), /@&lt;b&gt;Alex&lt;\/b&gt;<\/span>$/);
 });
+
+test("with botLinks, @mentions link to the bot by an escaped data-bot name", () => {
+  assert.equal(
+    renderMarkdownInline("ask @morgan", { people: ["Morgan"], botLinks: true }),
+    'ask <span class="mention mention-agent bot-link" role="link" tabindex="0" data-bot="morgan" title="Message morgan directly">@morgan</span>',
+  );
+  const html = renderMarkdownInline('@O"Neil" <x>', { people: ['O"Neil" <x>'], botLinks: true });
+  assert.match(html, /data-bot="O&quot;Neil&quot; &lt;x&gt;"/);
+  assert.ok(!/data-bot="O"/.test(html), html);
+  assert.ok(!renderMarkdownInline("@Morgan", { people: ["Morgan"] }).includes("data-bot"));
+});

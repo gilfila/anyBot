@@ -32,7 +32,8 @@ export class Routines {
               : runs.length
                 ? runs.at(-1).status
                 : latest?.status;
-        return { ...routine, lastOccurrence: status || null };
+        // lastRun: the run that occurrence started, for the page to link.
+        return { ...routine, lastOccurrence: status || null, lastRun: latest?.root || null };
       });
   }
   validateTarget(conversationId, employeeId) {

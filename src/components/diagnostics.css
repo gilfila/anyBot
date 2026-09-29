@@ -156,6 +156,11 @@
   padding: 4px 10px;
   font-size: 12.5px;
 }
+/* Several actions (Edit bot, Open terminal, Open conversation…) sit together
+   at the right. */
+.diagnostic-action.secondary ~ .diagnostic-action.secondary {
+  margin-left: 0;
+}
 .diagnostic-detail {
   margin-top: 10px;
   padding: 10px 12px;
