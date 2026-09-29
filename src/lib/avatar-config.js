@@ -6,6 +6,21 @@ export const avatarColors = [
   { id: "coral", name: "Coral", fill: "#F46B4E", css: "var(--bot-coral)" },
   { id: "citron", name: "Citron", fill: "#D2E64A", css: "var(--bot-citron)" },
   { id: "violet", name: "Violet", fill: "#9B83ED", css: "var(--bot-violet)" },
+  // Added in 0.3.29. Keep the first four in place: a bot with no saved color
+  // falls back to one of them by name, and that must not change. New ids
+  // avoid the legacy aliases below (mint, sky, gold, rose...).
+  { id: "tangerine", name: "Tangerine", fill: "#F28C28", css: "var(--bot-tangerine)" },
+  { id: "crimson", name: "Crimson", fill: "#D63A4A", css: "var(--bot-crimson)" },
+  { id: "magenta", name: "Magenta", fill: "#D946A8", css: "var(--bot-magenta)" },
+  { id: "blush", name: "Blush", fill: "#F291B6", css: "var(--bot-blush)" },
+  { id: "marigold", name: "Marigold", fill: "#E8B62C", css: "var(--bot-marigold)" },
+  { id: "emerald", name: "Emerald", fill: "#2EAD6B", css: "var(--bot-emerald)" },
+  { id: "seafoam", name: "Seafoam", fill: "#6FDDB8", css: "var(--bot-seafoam)" },
+  { id: "teal", name: "Teal", fill: "#1FA3A0", css: "var(--bot-teal)" },
+  { id: "azure", name: "Azure", fill: "#3BA6E8", css: "var(--bot-azure)" },
+  { id: "indigo", name: "Indigo", fill: "#4B4FD1", css: "var(--bot-indigo)" },
+  { id: "graphite", name: "Graphite", fill: "#4A5160", css: "var(--bot-graphite)" },
+  { id: "pearl", name: "Pearl", fill: "#E4DFD3", css: "var(--bot-pearl)" },
 ];
 export const avatarHeadStyles = [
   {
@@ -82,7 +97,7 @@ export function parseAvatarConfig(value, name = "bot", harness) {
       parsed.color,
       avatarColors,
       oldColors,
-      harnessColors[harness] || avatarColors[seed % 4].id,
+      harnessColors[harness] || avatarColors[seed % 4].id, // the original four only
     ),
     shape: pick(
       parsed.shape,

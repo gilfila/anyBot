@@ -5646,3 +5646,96 @@ dialog .modal-form > .primary.full:last-child {
 .issue-hint {
   margin: 0;
 }
+
+/* Sidebar (0.3.29): one scroll area for Workspace, Bots and Projects, with
+   foldable sections whose headings stay in view. The lists no longer scroll
+   on their own, so a long bot list can't squeeze Projects. */
+.sidebar-scroll {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  margin: 0 -12px;
+  padding: 0 12px 12px;
+  scrollbar-gutter: stable;
+}
+.sidebar-scroll .conversation-list,
+.sidebar-scroll .bot-list {
+  flex: none;
+  max-height: none;
+  overflow: visible;
+}
+.sidebar [hidden] {
+  display: none !important;
+}
+.section-heading-row {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  background: var(--paper-2);
+}
+.section-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+.section-toggle:hover {
+  color: var(--ink);
+}
+/* The heading's own + button rule must not size the toggle. */
+.conversation-label > .section-toggle {
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  color: inherit;
+}
+.conversation-label > .section-toggle:hover {
+  background: none;
+  color: var(--ink);
+}
+.section-toggle > span {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--ink-4);
+}
+.section-toggle .chevron {
+  transition: transform 0.15s var(--ease-out);
+}
+.section-toggle .chevron.folded {
+  transform: rotate(-90deg);
+}
+
+/* Routines (0.3.29): interval as number + unit, and a delete button. */
+.interval-field {
+  display: flex;
+  gap: 8px;
+}
+.interval-field input {
+  flex: 1;
+  min-width: 0;
+}
+.interval-field select {
+  flex: 0 0 120px;
+}
+.field-error {
+  margin: -4px 0 0;
+  color: var(--danger);
+  font-size: 12px;
+}
+.run-row .routine-delete:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: var(--danger);
+}

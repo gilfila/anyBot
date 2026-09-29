@@ -109,3 +109,50 @@ test("manual run stays queued during pause and overlapping manual work is reject
   );
   assert.equal(c.snapshot().runs.length, 1);
 });
+
+test("a routine can be edited: text in place, a new interval restarts the clock", async (t) => {
+  const { c, routine, employee, conversation, advance } = await setup(t);
+  const before = c.snapshot().routines[0];
+  advance(60000);
+  await c.command("routines.update", { id: routine, name: "Daily brief", prompt: "Write the brief", minutes: 5 });
+  let after = c.snapshot().routines[0];
+  assert.equal(after.name, "Daily brief");
+  assert.equal(after.prompt, "Write the brief");
+  assert.equal(after.nextRun, before.nextRun, "same interval keeps the schedule");
+  await c.command("routines.update", { id: routine, name: "Daily brief", prompt: "Write the brief", minutes: 1440 });
+  after = c.snapshot().routines[0];
+  assert.equal(after.minutes, 1440);
+  assert.equal(after.nextRun, 1000000 + 60000 + 1440 * 60000);
+  assert.equal(after.enabled, 1, "editing keeps it running");
+  await assert.rejects(c.command("routines.update", { id: routine, name: "x", prompt: "y", minutes: 2 }), /5–10080/);
+  await assert.rejects(c.command("routines.update", { id: routine, name: " ", prompt: "y", minutes: 5 }), /Routine name/);
+  // Moving it to a bot outside the conversation is refused.
+  await c.command("employees.create", { name: "Other", role: "Else", harness: "codex", trusted: true });
+  const other = c.snapshot().employees.find((e) => e.name === "Other").id;
+  await assert.rejects(
+    c.command("routines.update", { id: routine, name: "a", prompt: "b", minutes: 5, employee: other, conversation }),
+    /must belong/,
+  );
+  // Into a project that has the bot, it moves.
+  await c.command("conversations.create", { title: "Both", members: [employee, other] });
+  const both = c.snapshot().conversations.find((x) => x.title === "Both").id;
+  await c.command("routines.update", { id: routine, name: "a", prompt: "b", minutes: 5, employee: other, conversation: both });
+  assert.deepEqual([c.snapshot().routines[0].employee, c.snapshot().routines[0].conversation], [other, both]);
+});
+
+test("deleting a routine removes it and its history; its finished work stays", async (t) => {
+  const { c, routine, advance } = await setup(t);
+  c.paused = false;
+  advance(300000);
+  c.routines.tick();
+  assert.equal(c.snapshot().runs.length, 1);
+  await c.command("routines.delete", { id: routine });
+  assert.equal(c.snapshot().routines.length, 0);
+  assert.equal(c.store.one("SELECT count(*) AS n FROM routine_occurrences").n, 0);
+  assert.equal(c.snapshot().runs.length, 1, "queued work is not cancelled");
+  assert.ok(c.snapshot().messages.some((m) => m.kind === "routine"));
+  advance(600000);
+  c.routines.tick();
+  assert.equal(c.snapshot().runs.length, 1, "nothing is scheduled after delete");
+  await assert.rejects(c.command("routines.delete", { id: routine }), /not found/);
+});
