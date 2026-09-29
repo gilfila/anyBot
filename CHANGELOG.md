@@ -6,14 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-## [0.3.32] - 2026-09-29
+## [0.3.31] - 2026-09-29
 
 ### Fixed
 - **Updating or quitting no longer cuts your bots off without warning.** If bots are working when you click **Restart** to update, or **Quit** in Settings, Any Bot asks first. **Install when they finish** waits until they're done (new work waits too), then installs. **Stop and restart now** stops them cleanly first. Either way, Any Bot shuts down properly before the installer starts.
 - **Work cut off by a quit, an update or a crash isn't forgotten.** At the next start its conversation gets a note, the bot that handed the work off is told so it can carry on, and its task card says so. A Slack request gets an answer too, instead of the "eyes" reaction staying for a day.
 - **Long runs aren't stopped partway.** A Claude Code or Codex bot doing a lot of work (big tool output, pictures) was stopped once its output passed 2 MB. Now only a truly runaway run is stopped, with its own message.
 - **Codex bots don't give up on a passing hiccup.** A Codex warning or retry notice no longer ends the run. Only errors it can't recover from (out of credits, signed out, a model it can't use) do.
-- **Bots can work in your project's folders.** A project's **Allowed folders** and **Artifacts folder** are now opened to Claude Code and Codex bots instead of only being mentioned to them. Codex bots couldn't write there before.
+- **Bots can work in your project's folders.** A project's **Allowed folders** are now opened to Claude Code and Codex bots (Codex bots set to Read-only excepted) instead of only being mentioned to them. Codex bots couldn't write there before. The **Artifacts folder** stays Any Bot's to fill, so nothing there gets overwritten.
 - **Waiting for your approval no longer uses up a bot's time limit.**
 - **Nothing in the Artifacts folder is overwritten.** A file with the same name as one already there is saved as, for example, "report (2).pdf".
 - **Editing a file in a bot's inbox no longer breaks that bot's later runs.**
@@ -24,7 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Your unsent message stays** when you switch to another conversation and back.
 - **A project with only one bot left stays in the sidebar**, where you can still edit or delete it.
 - **Boards:** a bot action that's rejected now changes nothing at all, and the notice says which action it was. Approval notices appear in the thread where the bot is working. A canvas section no longer repeats its heading.
-- **Autopilot can't run away.** It turns off when you press **Stop all** in the project's chat, and after the bots have started 20 tasks they created for themselves in a day. A task it can't start is noted once instead of every few seconds.
+- **Autopilot can't run away.** It turns off when you press **Stop all** in the project's chat, and after the bots have started 20 tasks they created for themselves in a day (turn it back on to keep going). A task it can't start is noted once instead of every few seconds.
 - **Bots know direct chats have no board**, so they no longer try to add tasks there and have them rejected.
 - Update checks that fail because you're offline (at login, after sleep) no longer show up as problems.
 
@@ -449,7 +449,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Markdown tables from bots:** they become canvas tables in `doc.append` and `doc.section`, and they now render as real tables in chat messages instead of raw pipes.
 
 ### Added (release automation)
-Two branches used the 0.3.6 number: the Canvas above and the automated release workflow. A merge lost this Canvas entry and the 0.3.5 Diagnostics entry below; both were restored in 0.3.32.
+Two branches used the 0.3.6 number: the Canvas above and the automated release workflow. A merge lost this Canvas entry and the 0.3.5 Diagnostics entry below; both were restored in 0.3.31.
 - PR-driven Windows release workflow with version validation, packaged dependency/UI verification, exact-source provenance, and an installer-only public asset allowlist. Merging to main publishes after verification once the scoped GitHub App and Actions billing are configured.
 - Direct installer download page and safeguards against reused versions, mismatched source tags, incomplete uploads, and update-feed downgrades.
 
