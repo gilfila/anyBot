@@ -126,6 +126,8 @@ Bots read the canvas before they start and can add to it or update a section.
 
 ### See your organization
 
+Zoom and pan the org chart (Ctrl + scroll, pinch, or the corner controls; **Fit** shows everyone), and big teams stack in columns so even a large org stays readable.
+
 The **Organization** page shows who reports to whom, what each bot is working on, and what it has finished. Drag a bot onto another to change its manager.
 
 - **Memory:** each bot keeps memories of its own, of the team, and of each project. The most relevant ones come back into its prompt automatically.

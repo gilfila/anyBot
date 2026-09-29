@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { DndContext, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
-import { hierarchy, tree } from "d3-hierarchy";
 import {
   ArrowUpRight,
   CheckCheck,
   Inbox,
+  Maximize,
+  Minus,
   Network,
   Pin,
   PinOff,
@@ -20,12 +21,10 @@ import { RobotAvatar } from "../RobotAvatar.jsx";
 import { Status } from "../Status.jsx";
 import { renderMarkdownInline } from "../../lib/markdown.js";
 import { KnowledgeGraph } from "./KnowledgeGraph.jsx";
+import { layoutOrg, linkPath } from "../../lib/org-layout.js";
+import { anchoredScroll, clampZoom, fitZoom, stepZoom, wheelZoom } from "../../lib/zoom.js";
 import "./org.css";
 
-const CARD_W = 236;
-const CARD_H = 144;
-const GAP_X = 28;
-const GAP_Y = 64;
 const ACTIVE = ["queued", "running", "cancelling"];
 const ago = (value) => {
   const minutes = Math.round((Date.now() - new Date(value).getTime()) / 60000);
@@ -35,7 +34,7 @@ const ago = (value) => {
   return new Date(value).toLocaleDateString([], { month: "short", day: "numeric" });
 };
 
-function OrgCard({ node, employee, stats, working, selected, onSelect }) {
+function OrgCard({ node, employee, stats, working, selected, onSelect, zoom = 1 }) {
   const isOwner = node.data.id === "owner";
   const drag = useDraggable({ id: node.data.id, disabled: isOwner });
   const drop = useDroppable({ id: node.data.id });
@@ -46,7 +45,8 @@ function OrgCard({ node, employee, stats, working, selected, onSelect }) {
   const style = {
     left: node.x,
     top: node.y,
-    transform: drag.transform ? `translate(${drag.transform.x}px, ${drag.transform.y}px)` : undefined,
+    // dnd-kit moves in screen pixels; the stage is scaled by the zoom.
+    transform: drag.transform ? `translate(${drag.transform.x / zoom}px, ${drag.transform.y / zoom}px)` : undefined,
   };
   return (
     <div
@@ -103,28 +103,13 @@ function OrgChart({ employees, stats, runs, selected, onSelect, onReparent }) {
       active
         .filter((e) => (id === "owner" ? !e.manager || !ids.has(e.manager) : e.manager === id))
         .map((e) => ({ id: e.id, children: childrenOf(e.id) }));
-    const root = hierarchy({ id: "owner", children: childrenOf("owner") });
-    tree().nodeSize([CARD_W + GAP_X, CARD_H + GAP_Y])(root);
-    const nodes = root.descendants();
-    const minX = Math.min(...nodes.map((n) => n.x));
-    nodes.forEach((n) => {
-      n.x = n.x - minX + 24;
-      n.y = n.y + 24;
-    });
-    const width = Math.max(...nodes.map((n) => n.x)) + CARD_W + 24;
-    const height = Math.max(...nodes.map((n) => n.y)) + CARD_H + 24;
-    return { nodes, links: root.links(), width, height };
+    // Teams without sub-teams stack in columns (src/lib/org-layout.js).
+    return layoutOrg({ id: "owner", children: childrenOf("owner") });
   }, [employees]);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const zoomer = useChartZoom(layout);
+  const { zoom } = zoomer;
   const workingIds = new Set(runs.filter((r) => ACTIVE.includes(r.status)).map((r) => r.employee));
-  const path = ({ source, target }) => {
-    const sx = source.x + CARD_W / 2;
-    const sy = source.y + (source.data.id === "owner" ? 64 : CARD_H);
-    const tx = target.x + CARD_W / 2;
-    const ty = target.y;
-    const mid = sy + (ty - sy) / 2;
-    return `M${sx},${sy} V${mid} H${tx} V${ty}`;
-  };
   return (
     <DndContext
       sensors={sensors}
@@ -133,11 +118,23 @@ function OrgChart({ employees, stats, runs, selected, onSelect, onReparent }) {
         onReparent(active.id, over.id === "owner" ? "" : over.id);
       }}
     >
-      <div className="org-canvas">
-        <div className="org-stage" style={{ width: layout.width, height: layout.height }}>
+      <div className="org-chart-wrap">
+      <div
+        className={`org-canvas${zoomer.panning ? " is-panning" : ""}`}
+        ref={zoomer.canvas}
+        tabIndex={0}
+        aria-label="Organization chart. Ctrl and scroll to zoom, drag the background to move around."
+        onKeyDown={zoomer.onKeyDown}
+        onPointerDown={zoomer.onPointerDown}
+      >
+        <div className="org-zoom-box" style={{ width: layout.width * zoom, height: layout.height * zoom }}>
+        <div
+          className="org-stage"
+          style={{ width: layout.width, height: layout.height, transform: `scale(${zoom})` }}
+        >
           <svg className="org-links" width={layout.width} height={layout.height} aria-hidden="true">
             {layout.links.map((link) => (
-              <path key={`${link.source.data.id}-${link.target.data.id}`} d={path(link)} />
+              <path key={`${link.source.data.id}-${link.target.data.id}`} d={linkPath(link)} />
             ))}
           </svg>
           {layout.nodes.map((node) => (
@@ -149,12 +146,134 @@ function OrgChart({ employees, stats, runs, selected, onSelect, onReparent }) {
               working={workingIds.has(node.data.id)}
               selected={selected === node.data.id}
               onSelect={onSelect}
+              zoom={zoom}
             />
           ))}
         </div>
+        </div>
+      </div>
+      <div className="org-zoom-controls" role="group" aria-label="Zoom">
+        <button type="button" aria-label="Zoom out" title="Zoom out (Ctrl −)" onClick={() => zoomer.step(-1)}>
+          <Minus size={15} />
+        </button>
+        <button type="button" className="org-zoom-level" title="Reset to 100% (Ctrl 0)" onClick={() => zoomer.set(1)}>
+          {Math.round(zoom * 100)}%
+        </button>
+        <button type="button" aria-label="Zoom in" title="Zoom in (Ctrl +)" onClick={() => zoomer.step(1)}>
+          <Plus size={15} />
+        </button>
+        <button type="button" className="org-zoom-fit" title="Fit the whole org" onClick={zoomer.fit}>
+          <Maximize size={14} />
+          Fit
+        </button>
+      </div>
       </div>
     </DndContext>
   );
+}
+
+// Zoom and pan for the chart canvas. The zoom is remembered per window; the
+// first time, the chart is fitted to the view. Buttons and keys zoom around
+// the view's center, Ctrl + wheel (and trackpad pinch) around the pointer.
+function useChartZoom(layout) {
+  const canvas = useRef(null);
+  const [zoom, setZoom] = useState(() => {
+    try {
+      const saved = localStorage.getItem("anybot-org-zoom");
+      return saved ? clampZoom(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [panning, setPanning] = useState(false);
+  const anchor = useRef(null);
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  const size = () => {
+    const el = canvas.current;
+    return el ? { width: el.clientWidth, height: el.clientHeight } : { width: 0, height: 0 };
+  };
+  const apply = (next, offset) => {
+    const from = zoomRef.current || 1;
+    const to = clampZoom(next);
+    const el = canvas.current;
+    if (el) anchor.current = { from, to, scroll: { left: el.scrollLeft, top: el.scrollTop }, offset: offset || { x: el.clientWidth / 2, y: el.clientHeight / 2 } };
+    zoomRef.current = to;
+    setZoom(to);
+    try { localStorage.setItem("anybot-org-zoom", String(to)); } catch {}
+  };
+  const fit = () => {
+    const to = fitZoom(layout, size());
+    anchor.current = null;
+    zoomRef.current = to;
+    setZoom(to);
+    try { localStorage.setItem("anybot-org-zoom", String(to)); } catch {}
+    requestAnimationFrame(() => canvas.current?.scrollTo({ left: 0, top: 0 }));
+  };
+  // First visit: fit the whole org.
+  useLayoutEffect(() => {
+    if (zoom === null) setZoom(fitZoom(layout, size()));
+  }, [zoom]);
+  // Keep the anchored point still after the new zoom renders.
+  useLayoutEffect(() => {
+    const el = canvas.current;
+    const pending = anchor.current;
+    if (!el || !pending) return;
+    anchor.current = null;
+    const next = anchoredScroll(pending.scroll, pending.offset, pending.from, pending.to);
+    el.scrollLeft = next.left;
+    el.scrollTop = next.top;
+  }, [zoom]);
+  // Ctrl + wheel zooms (a trackpad pinch arrives as one); needs a
+  // non-passive listener to stop the page zooming instead.
+  useEffect(() => {
+    const el = canvas.current;
+    if (!el) return;
+    const onWheel = (event) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      const box = el.getBoundingClientRect();
+      apply(wheelZoom(zoomRef.current || 1, event.deltaY), { x: event.clientX - box.left, y: event.clientY - box.top });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+  const onKeyDown = (event) => {
+    if (!(event.ctrlKey || event.metaKey)) return;
+    if (event.key === "=" || event.key === "+") apply(stepZoom(zoomRef.current || 1, 1));
+    else if (event.key === "-") apply(stepZoom(zoomRef.current || 1, -1));
+    else if (event.key === "0") apply(1);
+    else return;
+    event.preventDefault();
+  };
+  // Drag the empty background to move around (cards keep their own drag).
+  const onPointerDown = (event) => {
+    if (event.button !== 0 || event.target.closest(".org-card")) return;
+    const el = canvas.current;
+    const start = { x: event.clientX, y: event.clientY, left: el.scrollLeft, top: el.scrollTop };
+    const move = (e) => {
+      el.scrollLeft = start.left - (e.clientX - start.x);
+      el.scrollTop = start.top - (e.clientY - start.y);
+    };
+    const up = () => {
+      setPanning(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    setPanning(true);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  return {
+    canvas,
+    zoom: zoom || 1,
+    panning,
+    set: (value) => apply(value),
+    step: (direction) => apply(stepZoom(zoomRef.current || 1, direction)),
+    fit,
+    onKeyDown,
+    onPointerDown,
+  };
 }
 
 function MemoryList({ employee }) {

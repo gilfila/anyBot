@@ -43,9 +43,75 @@
     radial-gradient(circle at 1px 1px, var(--rule) 1px, transparent 0) 0 0 / 22px 22px,
     var(--paper);
 }
-.org-stage {
+/* Zoom (0.3.35): the box takes the scaled size so scrolling matches; the
+   stage keeps its layout size and is scaled from its top-left. */
+.org-chart-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.org-canvas {
+  position: relative;
+  cursor: grab;
+  outline: none;
+}
+.org-canvas.is-panning {
+  cursor: grabbing;
+  user-select: none;
+}
+.org-zoom-box {
   position: relative;
   margin: 0 auto;
+}
+.org-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+.org-zoom-controls {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: 0 6px 18px -10px oklch(0 0 0 / 0.35);
+}
+.org-zoom-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+.org-zoom-controls button:hover {
+  background: var(--paper-3);
+  color: var(--ink);
+}
+.org-zoom-level {
+  min-width: 52px !important;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.org-zoom-fit {
+  border-left: 1px solid var(--rule) !important;
+  border-radius: 0 7px 7px 0 !important;
 }
 .org-links {
   position: absolute;
