@@ -436,6 +436,7 @@ export function invocation(harness, model = "", permissionMode = "auto", approva
   if (model) return [...invocation(harness, "", permissionMode, approvals, inputs), "--model", model];
   const addDirs = inputs.addDirs || [];
   const images = inputs.images || [];
+  const effort = inputs.effort || "";
   switch (harness) {
     case "claude": {
       // anyBot modes → Claude Code permission modes:
@@ -458,6 +459,7 @@ export function invocation(harness, model = "", permissionMode = "auto", approva
           "--mcp-config",
           approvals.configPath,
         );
+      if (effort) args.push("--effort", effort);
       // Claude Code reads images by path; folders need --add-dir.
       for (const dir of addDirs) args.push("--add-dir", dir);
       return args;
@@ -471,6 +473,7 @@ export function invocation(harness, model = "", permissionMode = "auto", approva
         "--skip-git-repo-check",
         ...images.flatMap((image) => ["--image", image]),
         ...addDirs.flatMap((dir) => ["--add-dir", dir]),
+        ...(effort ? ["-c", `model_reasoning_effort="${effort}"`] : []),
         "--sandbox",
         "workspace-write",
         "-",
@@ -746,7 +749,7 @@ export async function probeAll(modelCatalog = {}) {
 }
 
 export async function runHarness(
-  { harness, model, workspace, prompt, signal, onText, onTerminal, onUsage, timeoutMs = 600000, permissionMode = "auto", approvals, addDirs, images },
+  { harness, model, workspace, prompt, signal, onText, onTerminal, onUsage, timeoutMs = 600000, permissionMode = "auto", approvals, addDirs, images, effort },
   { resolve = resolveExecutable, args, outputFormat, pipeGraceMs = 2000 } = {},
 ) {
   // The raw CLI view for the Activity terminal: redacted, never parsed for results.
@@ -759,7 +762,7 @@ export async function runHarness(
       `${harness} is not installed or its launcher is unsupported. Open Harnesses for setup instructions.`,
     );
   if (signal.aborted) throw new Error("Run cancelled");
-  const argv = [...executable.prefix, ...(args ?? invocation(harness, model, permissionMode, approvals, { addDirs, images }))];
+  const argv = [...executable.prefix, ...(args ?? invocation(harness, model, permissionMode, approvals, { addDirs, images, effort }))];
   const quote = (part) => (/[\s"]/.test(part) ? `"${String(part).replace(/"/g, '\\"')}"` : part);
   term(`$ ${[executable.file, ...argv].map(quote).join(" ")}  < prompt (${prompt.length.toLocaleString("en-US")} chars)\n`);
   const child = spawn(

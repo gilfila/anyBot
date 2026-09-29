@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.30] - 2026-09-28
+
+### Changed
+- **Delegated work happens in the team's project, not in your chat.** When a bot hands work to one of its reports, that bot now works in a project room they share (for example your chief of staff's HQ, or the content team's studio), as a new thread there. Your chat with the bot that delegated gets a one-line note saying where the work went, and the final answer still comes back to you in your chat. Each team's work, board tasks and knowledge now stay organized by project. If the two bots share no project, the work stays where it started, as before.
+
+### Added
+- **Set how hard each bot thinks.** Claude Code and Codex bots have a new **Thinking effort** setting in the bot editor: Low (Codex calls it light), Medium, High, Extra high or Max. Leave it on the default to use the harness's own setting.
+
 ## [0.3.29] - 2026-09-28
 
 ### Added

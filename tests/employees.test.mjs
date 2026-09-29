@@ -205,3 +205,35 @@ test("schema one employee records migrate without losing fields", async (t) => {
   );
   store.close();
 });
+
+test("each bot can set a thinking effort that reaches its harness", async () => {
+  const { invocation } = await import("../runtime/adapters.mjs");
+  const { effortFor } = await import("../runtime/effort.mjs");
+  assert.deepEqual(invocation("claude", "claude-opus-5-5", "auto", undefined, { effort: "high" }).slice(-4), ["--effort", "high", "--model", "claude-opus-5-5"]);
+  assert.deepEqual(invocation("codex", "gpt-6-astra", "auto", undefined, { effort: "low" }), [
+    "exec", "--json", "--skip-git-repo-check", "-c", 'model_reasoning_effort="low"', "--sandbox", "workspace-write", "-", "--model", "gpt-6-astra",
+  ]);
+  assert.equal(effortFor("claude", ""), "");
+  assert.equal(effortFor("codex", "medium"), "medium");
+  assert.throws(() => effortFor("claude", "ultra"), /Effort must be/);
+  assert.throws(() => effortFor("hermes", "low"), /no effort setting/);
+});
+
+test("effort is stored per bot, kept on edits, and dropped when the harness has none", async (t) => {
+  const { c, employee } = await fixture(t);
+  assert.equal(employee.effort, "");
+  const save = (patch) => {
+    const current = c.snapshot().employees[0];
+    return c.command("employees.update", { ...current, trusted: true, ...patch });
+  };
+  await save({ model: "gpt-6-astra", effort: "medium" });
+  assert.equal(c.snapshot().employees[0].effort, "medium");
+  await save({ effort: undefined, role: "Lead builder" });
+  assert.equal(c.snapshot().employees[0].effort, "medium", "kept when not sent");
+  await assert.rejects(save({ effort: "ultra" }), /Effort must be/);
+  await save({ harness: "claude", model: "claude-opus-5-5", effort: "high" });
+  assert.deepEqual([c.snapshot().employees[0].model, c.snapshot().employees[0].effort], ["claude-opus-5-5", "high"]);
+  await save({ harness: "hermes", model: "", effort: undefined });
+  assert.equal(c.snapshot().employees[0].effort, "", "hermes has no effort");
+  await assert.rejects(c.command("employees.create", { name: "Xi", role: "r", harness: "codex", trusted: true, effort: "ultra" }), /Effort must be/);
+});

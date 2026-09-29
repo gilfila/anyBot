@@ -21,6 +21,7 @@ import { Approvals } from "./approvals.mjs";
 import { TerminalLog } from "./terminal.mjs";
 import { actionsFrom, withoutActions } from "./actions.mjs";
 import { buildContext } from "./context.mjs";
+import { effortFor } from "./effort.mjs";
 import {
   harnessInputs,
   materialize as materializeAttachments,
@@ -518,7 +519,7 @@ export class Coordinator extends EventEmitter {
     const avatar = typeof payload.avatar === "string" ? payload.avatar.slice(0, 1000) : "";
     this.store.transaction(() => {
       this.store.run(
-        "INSERT INTO employees(id,name,role,harness,instructions,workspace,trusted,created,model,timeoutMinutes,permissionMode,avatar) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO employees(id,name,role,harness,instructions,workspace,trusted,created,model,timeoutMinutes,permissionMode,avatar,effort) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         employeeId,
         name,
         role,
@@ -531,6 +532,7 @@ export class Coordinator extends EventEmitter {
         timeoutMinutes(payload.timeoutMinutes),
         permissionMode(payload.permissionMode),
         avatar,
+        effortFor(harness, payload.effort),
       );
       if (payload.manager) this.org.setManager({ id: employeeId, manager: payload.manager });
       this.store.event("employee.created", {
@@ -602,7 +604,7 @@ export class Coordinator extends EventEmitter {
     const avatar = typeof payload.avatar === "string" ? payload.avatar.slice(0, 1000) : (employee.avatar || "");
     this.store.transaction(() => {
       this.store.run(
-        "UPDATE employees SET name=?,role=?,harness=?,instructions=?,workspace=?,model=?,timeoutMinutes=?,permissionMode=?,avatar=?,revision=revision+1 WHERE id=?",
+        "UPDATE employees SET name=?,role=?,harness=?,instructions=?,workspace=?,model=?,timeoutMinutes=?,permissionMode=?,avatar=?,effort=?,revision=revision+1 WHERE id=?",
         name,
         role,
         harness,
@@ -616,6 +618,16 @@ export class Coordinator extends EventEmitter {
             : payload.permissionMode,
         ),
         avatar,
+        // Unchanged when not sent; dropped when the new harness has no such level.
+        payload.effort === undefined
+          ? (() => {
+              try {
+                return effortFor(harness, employee.effort || "");
+              } catch {
+                return "";
+              }
+            })()
+          : effortFor(harness, payload.effort),
         employee.id,
       );
       if (payload.manager !== undefined && payload.manager !== (employee.manager || ""))
@@ -1503,6 +1515,7 @@ export class Coordinator extends EventEmitter {
         result = await this.runner({
           harness: employee.harness,
           model: employee.model,
+          effort: employee.effort || "",
           timeoutMs: employee.timeoutMinutes * 60_000,
           workspace: employee.workspace,
           prompt,
@@ -1746,23 +1759,51 @@ export class Coordinator extends EventEmitter {
         .n >= 8
     )
       throw new Error("Root task reached its delegation limit");
-    const message = this.addMessage(
+    // Delegated work runs in the delegate's project room, as a new thread,
+    // so each team's work (and the knowledge graph built from it) stays in
+    // its own project. The conversation it came from gets a pointer, and the
+    // result comes back there (returnToParent).
+    const room = this.delegationRoom(conversation, run.employee, request.employeeId);
+    if (room.id === conversation.id) {
+      const message = this.addMessage(run.conversation, run.employee, "handoff", request.objective, run.thread);
+      this.addRun(run.conversation, request.employeeId, message, run.id, run.root, run.depth + 1, run.task, run.thread);
+      return;
+    }
+    const message = this.addMessage(room.id, run.employee, "handoff", request.objective);
+    this.addRun(room.id, request.employeeId, message, run.id, run.root, run.depth + 1, null, message);
+    const name = (employeeId) => this.store.one("SELECT name FROM employees WHERE id=?", employeeId)?.name || "A bot";
+    this.addMessage(
       run.conversation,
-      run.employee,
-      "handoff",
-      request.objective,
+      "system",
+      "notice",
+      `${name(run.employee)} handed this to ${name(request.employeeId)} in ${room.title}. The work happens there, and the result comes back here.`,
       run.thread,
     );
-    this.addRun(
-      run.conversation,
-      request.employeeId,
-      message,
-      run.id,
-      run.root,
-      run.depth + 1,
-      run.task,
-      run.thread,
-    );
+  }
+  // Where delegated work runs. The current conversation, when it is a
+  // project the delegate belongs to. Otherwise an open project with both
+  // bots in it, or failing that one with the delegate: its team room first
+  // (the one holding most of its own reports), then the smallest. With no
+  // such project the work stays where it is.
+  delegationRoom(conversation, fromEmployee, toEmployee) {
+    const members = (c) => JSON.parse(c.members);
+    if (this.isProject(conversation) && members(conversation).includes(toEmployee)) return conversation;
+    const rooms = this.store
+      .all("SELECT * FROM conversations WHERE archived=0 ORDER BY created")
+      .filter((c) => this.isProject(c) && members(c).includes(toEmployee));
+    if (!rooms.length) return conversation;
+    const reports = new Set(this.org.directReports(toEmployee).map((r) => r.id));
+    const score = (c) => [
+      members(c).includes(fromEmployee) ? 1 : 0,
+      members(c).filter((id) => reports.has(id)).length,
+      -members(c).length,
+    ];
+    const better = (a, b) => {
+      const [x, y] = [score(a), score(b)];
+      for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] > y[i];
+      return false;
+    };
+    return rooms.reduce((best, c) => (better(c, best) ? c : best));
   }
   // A bot that @mentions a teammate in its reply pulls that teammate into the
   // same thread. Bots can pass a thread
@@ -1826,16 +1867,18 @@ export class Coordinator extends EventEmitter {
       );
       return;
     }
+    // The result goes back to where the delegating bot was working, which
+    // is not where this run worked when the work moved to a project room.
     const message = this.addMessage(
-      run.conversation,
+      parent.conversation,
       "system",
       "handoff",
       `Delegated work returned. Synthesize the result for the human.\n\n${result.slice(0, 24000)}`,
-      run.thread,
+      parent.thread,
     );
     // Continue the delegating employee and retain its own parent for nested returns.
     this.addRun(
-      run.conversation,
+      parent.conversation,
       parent.employee,
       message,
       parent.parent,

@@ -1,9 +1,11 @@
+import { EFFORTS } from "../../runtime/effort.mjs";
 import React, { useEffect, useState, useMemo } from "react";
 import { Check, Folder, Plus } from "lucide-react";
 import { names, customModelValue, avatarColors, avatarHeadStyles, avatarEyeStyles } from "../constants.js";
 import { RobotAvatarPreview, parseAvatarConfig, stringifyAvatarConfig } from "./RobotAvatar.jsx";
 import { bubbleColors, bubbleStyle } from "../lib/bubbles.js";
 
+const effortLabels = { low: "Low (light)", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
 export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [], employees = [] }) {
   // An employee cannot report to itself or to anyone already below it.
   const managerOf = (id) => employees.find((e) => e.id === id)?.manager || "";
@@ -42,6 +44,7 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [], em
     instructions: preset?.instructions || "",
     workspace: preset?.workspace || "",
     model: preset?.model || "",
+    effort: preset?.effort || "",
     timeoutMinutes: preset?.timeoutMinutes || 10,
     modelChoice: preset?.model
       ? initialKnown
@@ -218,6 +221,7 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [], em
               harness,
               model: current,
               modelChoice: current,
+              effort: EFFORTS[harness]?.includes(value.effort) ? value.effort : "",
             }));
           }}
         >
@@ -270,6 +274,22 @@ export function EmployeeForm({ preset, editing, busy, onSave, harnesses = [], em
           identifier.
         </span>
       </label>
+      {EFFORTS[form.harness] && (
+        <label>
+          Thinking effort <span className="optional">optional</span>
+          <select aria-label="Thinking effort" value={form.effort} onChange={(e) => set("effort", e.target.value)}>
+            <option value="">Use the harness default</option>
+            {EFFORTS[form.harness].map((level) => (
+              <option key={level} value={level}>
+                {effortLabels[level] || level}
+              </option>
+            ))}
+          </select>
+          <span className="field-hint">
+            How hard the model thinks before answering. Higher is slower and uses more of your plan.
+          </span>
+        </label>
+      )}
       <label>
         Instructions <span className="optional">optional</span>
         <textarea

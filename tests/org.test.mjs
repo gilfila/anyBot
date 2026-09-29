@@ -199,3 +199,50 @@ test("memories are scoped, recalled by relevance, and only forgettable by their 
   const { memories: peerMemories } = await c.command("memory.delete", { id: (await c.command("memory.list", { employee: e.Peer.id })).memories[0].id, employee: e.Peer.id });
   assert.equal(peerMemories.length, 0);
 });
+
+test("delegated work runs in the delegate's project room and the result comes back to the chat", async (t) => {
+  let step = 0;
+  const { c, e, chat, direct } = await fixture(t, (who, prompt) => {
+    if (who === "Chief" && !/Delegated work returned/.test(prompt)) return delegate(e.Lead.id, "Plan the launch video");
+    if (who === "Lead" && step++ === 0) return delegate(e.Junior.id, "Cut the launch video");
+    if (who === "Junior") return "Cut done: launch.mp4";
+    if (/Delegated work returned/.test(prompt)) return `${who} summary`;
+    return "ok";
+  });
+  // Like HQ (Chief + his directors) and a team room (Lead + her reports).
+  await c.command("conversations.create", { title: "HQ", members: [e.Chief.id, e.Lead.id, e.Peer.id] });
+  await c.command("conversations.create", { title: "Studio", members: [e.Lead.id, e.Junior.id] });
+  await c.command("conversations.create", { title: "Side room", members: [e.Junior.id, e.Peer.id] });
+  const rooms = Object.fromEntries(c.snapshot().conversations.map((x) => [x.title, x]));
+  const chief = await direct(e.Chief);
+  await chat(e.Chief, "Get the launch video done", chief);
+  const snap = c.snapshot();
+  const where = (name) => snap.runs.filter((r) => r.employee === e[name].id).map((r) => snap.conversations.find((x) => x.id === r.conversation).title);
+  // Chief's own turns stay in the chat with the owner; Lead works in HQ
+  // (shared with Chief); Junior in Studio (Lead's team room).
+  assert.deepEqual([...new Set(where("Chief"))], ["Chief"]);
+  assert.deepEqual([...new Set(where("Lead"))], ["HQ"]);
+  assert.deepEqual([...new Set(where("Junior"))], ["Studio"]);
+  // The chat only holds the owner, Chief, and pointers; no teammate replies.
+  const inChat = snap.messages.filter((m) => m.conversation === chief.id);
+  assert.ok(inChat.every((m) => ["human", "system", e.Chief.id].includes(m.author)));
+  assert.ok(inChat.some((m) => /handed this to Lead in HQ/.test(m.body)));
+  assert.equal(inChat.at(-1).author, e.Chief.id);
+  assert.equal(inChat.at(-1).body, "Chief summary");
+  // In the rooms, each handoff opens its own thread.
+  const handoff = snap.messages.find((m) => m.conversation === rooms.Studio.id && m.kind === "handoff");
+  assert.equal(handoff.author, e.Lead.id);
+  assert.equal(handoff.thread, null);
+  assert.ok(snap.runs.some((r) => r.employee === e.Junior.id && r.thread === handoff.id));
+  assert.ok(snap.messages.some((m) => m.conversation === rooms.HQ.id && /handed this to Junior in Studio/.test(m.body)));
+});
+
+test("delegation stays put when the delegate shares no project", async (t) => {
+  const { c, e, chat, direct } = await fixture(t, (who, prompt) =>
+    who === "Chief" && !/Delegated work returned/.test(prompt) ? delegate(e.Lead.id, "Do it") : "done",
+  );
+  const chief = await direct(e.Chief);
+  await chat(e.Chief, "Go", chief);
+  const lead = c.snapshot().runs.find((r) => r.employee === e.Lead.id);
+  assert.equal(lead.conversation, chief.id);
+});
