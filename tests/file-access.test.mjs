@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
@@ -20,8 +20,10 @@ const {
   resolveCandidate,
 } = require("../desktop/file-access.cjs");
 
+// The long form of the temp folder: a runner whose profile has an 8.3 short
+// name (C:\Users\RUNNER~1) gets it back expanded from realpath.
 async function temp(t) {
-  const directory = await mkdtemp(join(tmpdir(), "anybot-files-"));
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "anybot-files-")));
   t.after(() => rm(directory, { recursive: true, force: true }));
   return directory;
 }
