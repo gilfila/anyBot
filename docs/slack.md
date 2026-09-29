@@ -22,8 +22,9 @@ Want the bot's picture in Slack? Upload it under **Basic Information → Display
 - **Nothing reaches your computer from outside.** Socket Mode means Any Bot opens an outbound WebSocket to Slack for each connected bot. There's no public URL and no relay (`runtime/slack-bridge.mjs`, in the main process).
 - **Your message becomes a message in the bot's direct chat,** marked `[Slack DM]` or `[Slack channel]` so the bot knows where it came from. The bot then works as usual.
   - While it works, your Slack message shows 👀.
-  - When the run finishes, its reply is posted back to Slack, converted to Slack formatting.
-  - If the run fails, the first line of the error is posted instead.
+  - When the run finishes, its reply is posted back to Slack, converted to Slack formatting. Any Bot's own action and hand-off blocks are left out.
+  - **Hand-offs:** if the bot hands the work to another bot, Slack says so once ("Handed to Nova…") and keeps waiting. The answer is the bot's summary once the work comes back, however many hand-offs it took. Approvals any of those bots need show in Slack too.
+  - If the run fails, the first line of the error is posted instead. If it was stopped in Any Bot, or cut off because Any Bot quit, updated or crashed, Slack says that instead of waiting.
 - **Approvals:** when the bot needs your OK for a risky action, Slack shows **Approve** and **Deny** buttons. Only a paired person's click counts.
 - **The app's scopes:** `app_mentions:read`, `chat:write`, `im:history`, `im:read`, `im:write`, `reactions:write`, `users:read`. Its events are `app_mention` and `message.im`. The bot doesn't read channel messages that don't mention it.
 
@@ -36,6 +37,8 @@ Want the bot's picture in Slack? Upload it under **Basic Information → Display
 
 ## Limits
 
+- **Files aren't passed on yet.** The app can't download files from Slack. A message with a file gets a reply saying so, and its text still goes to the bot (with the file names, so the bot knows something was left behind). Paste what the bot needs, or put the file in a folder it can reach.
+- **A channel @mention is answered from the bot's direct chat.** The bot sees your private history with it (and its memories) while it answers, and the answer is posted in the channel, where everyone in it can read it. It only repeats private details if the request leads it there, but keep sensitive work to DMs, or to Any Bot itself.
 - Follow-ups in a channel thread need a fresh @mention; the app doesn't read the rest of the thread.
 - Any Bot has to be running (the tray is enough) for the bot to answer. Messages sent while it's closed are not picked up later. Slack gives up on them.
 - Each bot needs its own Slack app. Connecting one app to two bots is refused.

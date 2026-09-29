@@ -470,3 +470,33 @@ test("if following up cut-off work fails, the runs are still marked and the runt
     await reopened.close();
   }
 });
+
+// "Install when idle" (desktop/main.cjs): the update waits for running work,
+// nothing new starts meanwhile, and queued work waits for after the restart.
+test("an update waiting for the team holds new work and reports what's still running", async (t) => {
+  let release;
+  const gate = new Promise((resolve) => (release = resolve));
+  const { c, send } = await fixture(t, async ({ signal }) => {
+    await Promise.race([gate, new Promise((resolve) => signal.addEventListener("abort", resolve))]);
+    return "Finished";
+  });
+  await send("Long job");
+  const until = async (check, what) => {
+    for (let i = 0; i < 500; i++) {
+      if (check(await c.command("runtime.activity"))) return;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    throw new Error(`Timed out waiting for ${what}`);
+  };
+  await until((a) => a.running === 1, "the run to start");
+  assert.deepEqual(await c.command("runtime.activity"), { running: 1, queued: 0, holding: false, bots: ["Builder"] });
+  assert.equal((await c.command("runtime.hold", { hold: true })).holding, true);
+  await send("Next job");
+  release();
+  await until((a) => a.running === 0, "the first run to finish");
+  const idle = await c.command("runtime.activity");
+  assert.deepEqual([idle.queued, idle.holding], [1, true], "the next job waits");
+  assert.equal(c.snapshot().runtime.paused, false, "holding isn't the owner's pause");
+  await c.command("runtime.hold", { hold: false });
+  await until((a) => a.queued === 0 && a.running === 0, "the held job to run");
+});

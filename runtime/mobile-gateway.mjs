@@ -20,6 +20,17 @@ const runKeys = [
   "started",
   "ended",
 ];
+// The phone shows the end of a run's output (and all of it only while the run
+// is live), so only that much travels. Replies must fit the phone link's
+// relay frames (runtime/phone-link.mjs).
+const liveRun = new Set(["queued", "running", "cancelling"]);
+const shortRun = (run, keep) => {
+  const value = pick(run, runKeys);
+  if (typeof value.output === "string" && value.output.length > keep) value.output = `…${value.output.slice(1 - keep)}`;
+  if (typeof value.error === "string" && value.error.length > 2000) value.error = `${value.error.slice(0, 2000)}…`;
+  return value;
+};
+const PAGE_BYTES = 24 * 1024;
 const deviceRoles = new Set(["viewer", "contributor", "operator"]);
 const humanRoles = new Set(["owner", "member", "viewer"]);
 const memberIdPattern = /^[A-Za-z0-9][A-Za-z0-9_.:@+-]{0,159}$/;
@@ -58,6 +69,8 @@ export function createMobileGateway({
   clock = Date.now,
   // false: no HTTPS listener; only phones paired by QR code reach handle().
   serve = true,
+  // Problems worth the owner's attention (desktop: the diagnostics log).
+  onDiagnostic = () => {},
 }) {
   if (serve && !tls && !(allowInsecureLoopback && host === "127.0.0.1"))
     throw new Error("Mobile access requires TLS");
@@ -110,6 +123,9 @@ export function createMobileGateway({
     attempts = new Map(),
     conversationAccess = new Map(),
     auditLog = [];
+  // The log is appended line by line, so a power cut can tear its last line.
+  // An unreadable log is set aside (kept for inspection) and a fresh one
+  // starts, rather than keeping every phone from connecting.
   const loadAudit = () => {
     if (!auditPath || !existsSync(auditPath)) return;
     try {
@@ -120,8 +136,19 @@ export function createMobileGateway({
             typeof entry.at !== "number") throw new Error("Invalid audit entry");
         auditLog.push(entry);
       }
-    } catch {
-      throw new Error("Gateway audit state is invalid or unreadable");
+    } catch (error) {
+      auditLog.length = 0;
+      try {
+        renameSync(auditPath, `${auditPath}.corrupt-${clock()}`);
+      } catch {
+        throw new Error("Gateway audit state is invalid or unreadable");
+      }
+      onDiagnostic({
+        level: "warn",
+        source: "mobile",
+        code: "mobile.audit_quarantined",
+        message: `The phone access log couldn't be read (${error instanceof SyntaxError ? "a damaged line" : "an invalid entry"}), so it was set aside and a new one started`,
+      });
     }
   };
   const recordAudit = (entry) => {
@@ -364,7 +391,7 @@ export function createMobileGateway({
       return reply(200, {
         employees: state.employees.map((e) => pick(e, employeeKeys)),
         conversations: visibleConversations.slice(-100),
-        runs: state.runs.filter((run) => visibleIds.has(run.conversation)).slice(-100).map((r) => pick(r, runKeys)),
+        runs: state.runs.filter((run) => visibleIds.has(run.conversation)).slice(-100).map((r) => shortRun(r, 300)),
         humanMembers: [...configuredMembers.values()].map((member) => pick(member, ["id", "name", "role"])),
         memberId: session.memberId,
         memberRole: session.humanRole,
@@ -403,9 +430,15 @@ export function createMobileGateway({
           ? all.findIndex((m) => m.id === before)
           : all.length;
         if (end < 0) return reply(400, { error: "Invalid cursor" });
+        // A page is up to 100 messages or about PAGE_BYTES, newest first (at
+        // least one), so a chat of long replies still fits a phone-link frame.
+        let start = end;
+        for (let size = 0; start > Math.max(0, end - 100); start--) {
+          size += JSON.stringify(all[start - 1]).length;
+          if (size > PAGE_BYTES && start < end) break;
+        }
         // Attachments are desktop paths: the phone sees their names only.
-        const start = Math.max(0, end - 100),
-          messages = all.slice(start, end).map(({ attachments, ...m }) => ({
+        const messages = all.slice(start, end).map(({ attachments, ...m }) => ({
             ...m,
             attachments: parseAttachments(attachments).map((a) => ({ name: a.name, kind: a.kind })),
           }));
@@ -416,7 +449,7 @@ export function createMobileGateway({
           runs: state.runs
             .filter((r) => r.conversation === conversation.id)
             .slice(-30)
-            .map((r) => pick(r, runKeys)),
+            .map((r) => shortRun(r, liveRun.has(r.status) ? 2000 : 300)),
         });
       }
       if (method === "POST" && match[2] === "messages") {

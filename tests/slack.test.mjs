@@ -256,6 +256,124 @@ test("work cut off when Any Bot stopped gets an answer instead of a 24-hour wait
   assert.equal(bridge.status("e1").waiting, 0);
 });
 
+test("a hand-off is announced once, and Slack waits for the bot's final answer", async (t) => {
+  let result = { status: "running", approvals: [], handoffs: [{ id: "r2", to: "Nova" }] };
+  const { bridge, slack } = await bridgeFixture(t, { updates: () => result });
+  const { pairing } = await bridge.connect("e1", { botToken: BOT, appToken: APP });
+  await until(() => slack.sockets.length === 1, "socket");
+  const socket = slack.sockets[0];
+  socket.push(dm("U1", pairing.code, "1.0"));
+  await until(() => bridge.status("e1").users.length === 1, "pairing");
+  socket.push(dm("U1", "<@UBOT> price the course", "8.8"));
+  await until(() => bridge.status("e1").waiting === 1, "the request");
+  await bridge.refresh();
+  await bridge.refresh();
+  const handed = slack.posts().filter((p) => /Handed to Nova/.test(p.args.text));
+  assert.equal(handed.length, 1, "each hand-off is announced once");
+  assert.equal(bridge.status("e1").waiting, 1, "still waiting for the answer");
+  assert.equal(slack.posts("reactions.remove").length, 0, "still working");
+  result = { status: "succeeded", reply: "Charge $15.", approvals: [], handoffs: [{ id: "r2", to: "Nova" }] };
+  await bridge.refresh();
+  assert.equal(slack.posts().at(-1).args.text, "Charge $15.");
+  assert.equal(bridge.status("e1").waiting, 0);
+});
+
+test("files attached in Slack are refused politely; any text still goes to the bot", async (t) => {
+  const { bridge, slack, requests } = await bridgeFixture(t);
+  const { pairing } = await bridge.connect("e1", { botToken: BOT, appToken: APP });
+  await until(() => slack.sockets.length === 1, "socket");
+  const socket = slack.sockets[0];
+  socket.push(dm("U1", pairing.code, "1.0"));
+  await until(() => bridge.status("e1").users.length === 1, "pairing");
+  const withFile = (text, ts) => {
+    const envelope = dm("U1", text, ts);
+    Object.assign(envelope.payload.event, { subtype: "file_share", files: [{ id: "F1", name: "storyboard.pdf" }] });
+    return envelope;
+  };
+  socket.push(withFile("<@UBOT> cut this down to 60s", "9.1"));
+  await until(() => requests.some((r) => r.method === "bridge.send"), "the text");
+  const sent = requests.find((r) => r.method === "bridge.send").payload.body;
+  assert.match(sent, /^\[Slack DM\] cut this down to 60s/);
+  assert.match(sent, /storyboard\.pdf/, "the bot hears a file was left behind");
+  await until(() => slack.posts().some((p) => /can't open files from Slack/.test(p.args.text)), "the file notice");
+  // A file with no text: nothing to forward, but the sender hears why.
+  socket.push(withFile("", "9.2"));
+  await until(() => slack.posts().filter((p) => /can't open files from Slack/.test(p.args.text)).length === 2, "the second notice");
+  assert.equal(requests.filter((r) => r.method === "bridge.send").length, 1);
+  // Edits and deletions are still ignored.
+  const edit = dm("U1", "changed", "9.3");
+  edit.payload.event.subtype = "message_changed";
+  socket.push(edit);
+  await flush();
+  assert.equal(requests.filter((r) => r.method === "bridge.send").length, 1);
+});
+
+test("the coordinator follows a Slack request through a hand-off to the bot's summary", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "anybot-bridge-"));
+  const who = {};
+  let release;
+  const gate = new Promise((r) => (release = r));
+  const ids = {};
+  const c = new Coordinator({
+    directory,
+    concurrency: 2,
+    probe: async () => [],
+    runner: async ({ workspace, prompt, signal }) => {
+      if (who[workspace] === "Nova") {
+        await Promise.race([gate, new Promise((resolve) => signal.addEventListener("abort", resolve))]);
+        return "Competitors charge $12 to $20.";
+      }
+      const handOff = (target) =>
+        `On it, handing this over.\n\`\`\`anybot\n${JSON.stringify({ type: "delegate", employeeId: target, objective: "Research competitor prices" })}\n\`\`\``;
+      // Ghost isn't Chief's report, so that hand-off is refused.
+      if (prompt.includes("ask the ghost")) return handOff(ids.ghost);
+      if (prompt.includes("Delegated work returned")) return "Charge $15: the middle of the market.";
+      return handOff(ids.nova);
+    },
+  });
+  t.after(async () => {
+    if (!c.closed) await c.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  await c.initialize();
+  for (const name of ["Chief", "Nova", "Ghost"]) await c.command("employees.create", { name, role: name, harness: "claude", trusted: true });
+  const e = Object.fromEntries(c.snapshot().employees.map((x) => [x.name, x]));
+  for (const x of Object.values(e)) who[x.workspace] = x.name;
+  ids.nova = e.Nova.id;
+  ids.ghost = e.Ghost.id;
+  await c.command("employees.setManager", { id: e.Nova.id, manager: e.Chief.id });
+  const { message } = await c.command("bridge.send", { employee: e.Chief.id, body: "[Slack DM] price the course", requestId: "slack:T1:D1:10" });
+  const update = async () => (await c.command("bridge.updates", { messages: [message] })).items[0];
+  const until2 = async (check, what) => {
+    for (let i = 0; i < 500; i++) {
+      const item = await update();
+      if (check(item)) return item;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    throw new Error(`Timed out waiting for ${what}`);
+  };
+  // Chief handed off and Nova is working: still running, with the hand-off named.
+  const working = await until2((item) => item.handoffs?.length === 1, "the hand-off");
+  assert.equal(working.status, "running");
+  assert.equal(working.reply, undefined);
+  assert.deepEqual(working.handoffs.map((h) => h.to), ["Nova"]);
+  release();
+  const done = await until2((item) => item.status !== "running" && item.status !== "queued", "the summary");
+  assert.equal(done.status, "succeeded");
+  assert.equal(done.reply, "Charge $15: the middle of the market.");
+
+  // A hand-off that isn't scheduled leaves the first reply, without its machine block.
+  const second = await c.command("bridge.send", { employee: e.Chief.id, body: "[Slack DM] ask the ghost", requestId: "slack:T1:D1:11" });
+  let item;
+  for (let i = 0; i < 500; i++) {
+    item = (await c.command("bridge.updates", { messages: [second.message] })).items[0];
+    if (!["running", "queued"].includes(item.status)) break;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  assert.equal(item.status, "succeeded");
+  assert.equal(item.reply, "On it, handing this over.");
+});
+
 test("a dropped connection reconnects; a revoked token stops retrying and says why", async (t) => {
   const fail = {};
   const { bridge, slack } = await bridgeFixture(t, { fail });

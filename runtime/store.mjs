@@ -495,6 +495,11 @@ export class Store {
         throw error;
       }
     }
+    // Runs are looked up by root (routine status on every snapshot, delegation
+    // limits, the Slack bridge) and by the message they answer. Plain indexes
+    // need no schema bump: an older version reads the database as before.
+    this.db.exec(`CREATE INDEX IF NOT EXISTS runs_root ON runs(root);
+      CREATE INDEX IF NOT EXISTS runs_message ON runs(message);`);
     this.db
       .prepare("INSERT OR IGNORE INTO metadata VALUES ('paused', 'false')")
       .run();

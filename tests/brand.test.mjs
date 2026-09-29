@@ -10,7 +10,10 @@ for (const [label, packaged, userDir, expectedDir] of [
   ['renamed packaged default preserves existing data', true, 'Any Bot', 'anyBot'],
   ['existing installed profile stays in place', true, 'anyBot', 'anyBot'],
   ['custom test/profile override stays in place', true, 'custom-profile', 'custom-profile'],
-  ['development profile stays in place', false, 'anybot-desktop', 'anybot-desktop'],
+  // npm start: its own profile, so a checkout never migrates or runs the
+  // installed app's live data (docs/operations.md).
+  ['development run gets its own profile', false, 'anybot-desktop', 'anybot-desktop-dev'],
+  ['development test/profile override stays in place', false, 'custom-profile', 'custom-profile'],
 ]) test(label, () => {
   const root = path.resolve('test-profiles');
   const paths = { appData: root, userData: path.join(root, userDir), sessionData: path.join(root, userDir) };
@@ -20,6 +23,28 @@ for (const [label, packaged, userDir, expectedDir] of [
   assert.equal(paths.userData, path.join(root, expectedDir));
   assert.equal(paths.sessionData, paths.userData);
   if (process.platform === 'win32') assert.equal(app.id, 'dev.anybot.desktop');
+});
+
+test('ANYBOT_USER_DATA picks the development profile', () => {
+  const root = path.resolve('test-profiles');
+  const paths = { appData: root, userData: path.join(root, 'anybot-desktop'), sessionData: path.join(root, 'anybot-desktop') };
+  const app = { isPackaged: false, getPath: key => paths[key], setPath: (key, value) => paths[key] = value, setName() {}, setAppUserModelId() {} };
+  const previous = process.env.ANYBOT_USER_DATA;
+  process.env.ANYBOT_USER_DATA = path.join(root, 'anybot-desktop');
+  try {
+    applyBrand(app);
+  } finally {
+    if (previous === undefined) delete process.env.ANYBOT_USER_DATA;
+    else process.env.ANYBOT_USER_DATA = previous;
+  }
+  assert.equal(paths.userData, path.join(root, 'anybot-desktop'), 'deliberately the live profile');
+  assert.equal(paths.sessionData, paths.userData);
+});
+
+test('a development run leaves Windows launch-at-login alone', () => {
+  const main = readFileSync(new URL('../desktop/main.cjs', import.meta.url), 'utf8');
+  const apply = main.slice(main.indexOf('function applyStartupPreference'), main.indexOf('function applyTrayPreference'));
+  assert.match(apply, /if \(app\.isPackaged\) app\.setLoginItemSettings/);
 });
 
 test('Windows branding retains install/update identity and includes every icon size', () => {

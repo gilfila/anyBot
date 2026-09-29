@@ -48,6 +48,8 @@ export function ConversationForm({ employees, busy, onSave }) {
       {!employees.length && (
         <p>Create an employee first to start a project.</p>
       )}
+      {/* A project is two or more bots; one bot already has its chat in Bots. */}
+      <p className="field-hint">Pick at least two bots. To work with one bot, open its chat from the Bots list.</p>
       <div className="member-picker">
         {employees.map((e) => (
           <label className="checkbox" key={e.id}>
@@ -123,7 +125,7 @@ export function ConversationForm({ employees, busy, onSave }) {
           </button>
         </div>
       </div>
-      <button className="primary full" disabled={busy || !members.length}>
+      <button className="primary full" disabled={busy || members.length < 2}>
         <MessageSquare size={16} />
         Create project
       </button>

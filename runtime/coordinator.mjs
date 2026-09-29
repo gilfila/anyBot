@@ -27,7 +27,7 @@ import { classifyRunError } from "./diagnostics.mjs";
 import { Approvals } from "./approvals.mjs";
 import { TerminalLog } from "./terminal.mjs";
 import { actionsFrom, withoutActions } from "./actions.mjs";
-import { buildContext } from "./context.mjs";
+import { buildContext, stripMachineBlocks } from "./context.mjs";
 import { effortFor } from "./effort.mjs";
 import {
   harnessInputs,
@@ -185,6 +185,8 @@ export class Coordinator extends EventEmitter {
     this.active = new Map();
     this.installations = [];
     this.closed = false;
+    // An update waiting for the team to finish holds new work (runtime.hold).
+    this.holding = false;
     this.startupDiagnostics = [];
     this.reconcileInterrupted();
     this.paused =
@@ -415,6 +417,17 @@ export class Coordinator extends EventEmitter {
       }
       case "bridge.updates":
         return this.bridgeUpdates(payload);
+      // For desktop/main.cjs only (not in the renderer allowlist): what is
+      // still working before an update installs, and holding new work while
+      // it waits ("install when idle"). Holding lives in memory, so the
+      // restart ends it and queued work starts after the update.
+      case "runtime.activity":
+        return this.activity();
+      case "runtime.hold":
+        this.holding = payload.hold === true;
+        this.notify();
+        this.dispatch();
+        return this.activity();
       case "runs.cancel":
         await this.cancel(payload.id);
         break;
@@ -590,6 +603,17 @@ export class Coordinator extends EventEmitter {
     this.notify();
     this.dispatch();
     return this.snapshot();
+  }
+  activity() {
+    const names = [...this.active.values()].map(
+      (state) => this.store.one("SELECT name FROM employees WHERE id=?", state.employee)?.name || "A bot",
+    );
+    return {
+      running: this.active.size,
+      queued: this.store.one("SELECT count(*) AS n FROM runs WHERE status='queued'").n,
+      holding: this.holding,
+      bots: [...new Set(names)],
+    };
   }
   setPaused(value) {
     this.paused = value;
@@ -872,7 +896,10 @@ export class Coordinator extends EventEmitter {
     );
     if (typeof payload.archived !== "boolean")
       throw new Error("Archived must be a boolean");
-    if (JSON.parse(conversation.members).length < 2)
+    // A bot's direct chat stays; a one-bot "project" (created with, or trimmed
+    // to, one bot) is a project the owner can still delete.
+    const members = JSON.parse(conversation.members);
+    if (members.length < 2 && this.directConversationId(members[0]) === conversation.id)
       throw new Error("Only projects can be deleted");
     // Stop the project's work first (cancelling a run also stops its hand-offs).
     if (payload.archived)
@@ -1029,7 +1056,7 @@ export class Coordinator extends EventEmitter {
   // (so the bot's other tasks still run), and a project whose bots keep
   // starting tasks they created themselves turns autopilot off.
   autopilot() {
-    if (this.closed || this.paused || Date.now() - this.lastAutopilot < 5000) return;
+    if (this.closed || this.paused || this.holding || Date.now() - this.lastAutopilot < 5000) return;
     this.lastAutopilot = Date.now();
     const busy = new Set(
       this.store
@@ -1430,14 +1457,18 @@ export class Coordinator extends EventEmitter {
     if (!record || record.kind !== "file") throw new Error("Attachment not found");
     return record;
   }
-  // The owner's one-to-one chat with a bot, created on first use.
-  directConversation(employee) {
-    const existing = this.store
+  // The bot's direct chat: its first open one-bot conversation.
+  directConversationId(employeeId) {
+    return this.store
       .all("SELECT id,members FROM conversations WHERE archived=0 ORDER BY created")
       .find((c) => {
         const members = JSON.parse(c.members);
-        return members.length === 1 && members[0] === employee.id;
+        return members.length === 1 && members[0] === employeeId;
       })?.id;
+  }
+  // The owner's one-to-one chat with a bot, created on first use.
+  directConversation(employee) {
+    const existing = this.directConversationId(employee.id);
     if (existing) return existing;
     const conversation = id();
     this.store.run(
@@ -1462,26 +1493,45 @@ export class Coordinator extends EventEmitter {
     const message = this.store.one("SELECT result FROM requests WHERE key=?", payload.requestId).result;
     return { conversation, message };
   }
-  // Where each of those messages stands: the bot's reply once its run
-  // succeeds, the error if it failed, and approvals it is waiting on.
+  // Where each of those messages stands. A request is followed through its
+  // whole piece of work (every run sharing its root), so a bot that hands
+  // work off answers once it comes back: the request is running while any of
+  // those runs is. Then the reply is the newest answer in the work (the
+  // addressed bot's summary; another bot's answer is named), or, when the
+  // work ended without one, how it ended. Hand-offs so far and approvals any
+  // of the runs waits on come along. Machine blocks never reach the reply.
   bridgeUpdates(payload) {
     const ids = Array.isArray(payload.messages) ? payload.messages.slice(0, 200).map((m) => text(m, "Message ID", 100)) : [];
+    const name = (employee) => this.store.one("SELECT name FROM employees WHERE id=?", employee)?.name || "A teammate";
     return {
       items: ids.map((message) => {
-        const run = this.store.one(
-          "SELECT id,status,error FROM runs WHERE message=? AND parent IS NULL ORDER BY created DESC LIMIT 1",
+        const top = this.store.one(
+          "SELECT id,root,employee,status,error FROM runs WHERE message=? AND parent IS NULL ORDER BY created DESC LIMIT 1",
           message,
         );
-        if (!run) return { message, status: "unknown" };
-        const reply = this.store.one(
-          "SELECT m.body FROM run_responses r JOIN messages m ON m.id=r.message WHERE r.run=?",
-          run.id,
-        );
+        if (!top) return { message, status: "unknown" };
+        const root = top.root || top.id;
         const approvals = this.store.all(
           "SELECT id,tool,summary FROM approvals WHERE run IN (SELECT id FROM runs WHERE root=?) AND status='pending' ORDER BY created",
-          run.id,
+          root,
         );
-        return { message, run: run.id, status: run.status, reply: reply?.body, error: run.error || undefined, approvals };
+        const handoffs = this.store
+          .all("SELECT id,employee FROM runs WHERE root=? AND parent IS NOT NULL ORDER BY created, rowid", root)
+          .map((r) => ({ id: r.id, to: name(r.employee) }));
+        const live = ["queued", "running", "cancelling"];
+        if (this.store.one("SELECT id FROM runs WHERE root=? AND status IN ('queued','running','cancelling') LIMIT 1", root))
+          return { message, run: top.id, status: live.includes(top.status) ? top.status : "running", approvals, handoffs };
+        const last = this.store.one("SELECT id,status,error FROM runs WHERE root=? ORDER BY created DESC, rowid DESC LIMIT 1", root);
+        if (last.status !== "succeeded")
+          return { message, run: top.id, status: last.status, error: last.error || undefined, approvals, handoffs };
+        const answer = this.store.one(
+          `SELECT r.employee, m.body FROM runs r JOIN run_responses rr ON rr.run=r.id JOIN messages m ON m.id=rr.message
+           WHERE r.root=? AND r.status='succeeded' ORDER BY r.created DESC, r.rowid DESC LIMIT 1`,
+          root,
+        );
+        const body = stripMachineBlocks(answer?.body);
+        const reply = answer && answer.employee !== top.employee && body ? `${name(answer.employee)}: ${body}` : body;
+        return { message, run: top.id, status: "succeeded", reply: reply || undefined, approvals, handoffs };
       }),
     };
   }
@@ -1693,7 +1743,7 @@ export class Coordinator extends EventEmitter {
     return section;
   }
   dispatch() {
-    if (this.closed || this.paused || this.active.size >= this.concurrency)
+    if (this.closed || this.paused || this.holding || this.active.size >= this.concurrency)
       return;
     const occupied = new Set([...this.active.values()].map((a) => a.workspace));
     const employees = new Set([...this.active.values()].map((a) => a.employee));

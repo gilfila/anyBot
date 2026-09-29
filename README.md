@@ -24,7 +24,7 @@ Everything runs on your machine, using your own accounts.
    - The builds aren't code-signed yet, so SmartScreen may warn you. Choose **More info → Run anyway**.
 3. **Hire your first bot.** Any Bot suggests a few starter roles. Pick one, or make your own.
 
-Any Bot updates itself. When a new version is ready, an **Update** button appears next to your name. One click installs the update and restarts the app.
+Any Bot updates itself. When a new version is ready, an **Update** button appears next to your name. One click downloads it, and **Restart** installs it. If bots are working, Any Bot asks first and offers to install once they finish.
 
 ## What you can do
 
@@ -159,8 +159,8 @@ Give any bot its own Slack app: open the bot's **⋯** menu and choose **Connect
 
 ### Keep working in the background
 
-- **The tray:** closing the window keeps Any Bot running in the tray, so your bots keep working. **Quit and stop active work** in the tray menu stops everything.
-- **Launch at login** (Settings → Runtime & privacy) starts Any Bot when you sign in to Windows, so routines and long runs pick up again. The computer still has to stay on.
+- **The tray:** closing the window keeps Any Bot running in the tray, so your bots keep working. **Quit and stop active work** in the tray menu stops everything. Work cut off by quitting is marked in its conversation, and the bot that handed it off is told; start it again when you're back.
+- **Launch at login** (Settings → Runtime & privacy) starts Any Bot when you sign in to Windows, so routines and queued work pick up again. The computer still has to stay on.
 
 ## Supported harnesses
 

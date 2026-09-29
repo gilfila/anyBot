@@ -9,8 +9,16 @@ function applyBrand(app) {
   const previous = app.getPath('userData');
   const session = app.getPath('sessionData');
   const renamedDefault = path.join(app.getPath('appData'), DISPLAY_NAME);
+  // Running from source (npm start) gets its own profile, so a checkout never
+  // migrates, runs, or re-registers the installed app's live data.
+  // ANYBOT_USER_DATA picks another folder (the live one, deliberately).
+  // Scripts that set their own profile before loading this keep it.
+  const devDefault = path.join(app.getPath('appData'), 'anybot-desktop');
   const profile = app.isPackaged && path.resolve(previous) === path.resolve(renamedDefault)
-    ? path.join(app.getPath('appData'), 'anyBot') : previous;
+    ? path.join(app.getPath('appData'), 'anyBot')
+    : !app.isPackaged && path.resolve(previous) === path.resolve(devDefault)
+      ? process.env.ANYBOT_USER_DATA || path.join(app.getPath('appData'), 'anybot-desktop-dev')
+      : previous;
   app.setName(DISPLAY_NAME);
   app.setPath('userData', profile);
   app.setPath('sessionData', session === previous ? profile : session);

@@ -19,18 +19,29 @@ const { DISPLAY_NAME, BRAND_DIR, applyBrand, trayIcon } = require("./brand.cjs")
 applyBrand(app);
 const { pathToFileURL } = require("node:url");
 const { DiagnosticsLog, checkPendingUpdate, rememberPendingUpdate } = require("./diagnostics.cjs");
+const { createShutdown, createCrashTracker, createRestartBudget, isOfflineError } = require("./lifecycle.cjs");
+const { commandDirectory, killTree } = require("./shell-command.cjs");
 let diagnostics = null;
 let window,
   worker,
   tray,
   quitting = false,
   ready = false,
-  restarts = 0,
+  // Set once the window first loads: from then on a failure is logged, not
+  // shown in a blocking "could not start" dialog.
+  windowLoaded = false,
   launchAtLogin = false,
   keepRunningInTray = true,
   userDataFallback = false;
+const restarts = createRestartBudget();
+const rendererCrashes = createCrashTracker();
+// Terminal commands still running (Settings → context rail → Terminal), by id.
+const commands = new Map();
 
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+// An automatic check that failed because the computer was offline tries again
+// this much later, without showing a problem.
+const OFFLINE_RETRY_MS = 5 * 60 * 1000;
 
 // The Android app is attached to every release under one name (docs/mobile.md),
 // so this link always gives the newest. The pairing screen offers it only once
@@ -77,6 +88,14 @@ let updateError = null;
 let dismissedVersion = null;
 let updateCheckTimer = null;
 let autoUpdater = null;
+// The owner asked for this check (Check now, Retry): its failures always show.
+let manualCheck = false;
+let stateBeforeCheck = UpdateState.IDLE;
+let checkFailed = false;
+let offlineRetry = null;
+// "Install when idle": the downloaded update installs once no bot is working.
+let installWhenIdle = false;
+let installing = null;
 const pending = new Map();
 const readyWaiters = new Set();
 let mobileGateway, mobileUrl, mobileError, phoneLink, phoneError, slackBridge, slackError;
@@ -115,6 +134,13 @@ function reportStartupFailure(label, error) {
     message: `${label}: ${error?.message || String(error)}`,
     detail,
   });
+  // The dialog blocks the main process (Slack, the phone link, every IPC
+  // call), so it is only for failures before the window first loads. Later
+  // ones stay in the log and in Settings → Diagnostics.
+  if (quitting || windowLoaded) {
+    notifyRenderer();
+    return;
+  }
   const message = `${label}: ${detail}\n\nSee ${startupLogPath()} for details.`;
   if (app.isReady()) dialog.showErrorBox("Any Bot could not start", message);
   else app.once("ready", () => dialog.showErrorBox("Any Bot could not start", message));
@@ -176,7 +202,9 @@ function saveStartupPreference() {
 }
 function applyStartupPreference(enabled) {
   launchAtLogin = Boolean(enabled);
-  app.setLoginItemSettings({ openAtLogin: launchAtLogin });
+  // A run from source would point Windows' login entry at the checkout's
+  // electron.exe instead of the installed app; it only saves the choice.
+  if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: launchAtLogin });
   saveStartupPreference();
 }
 function applyTrayPreference(enabled) {
@@ -270,6 +298,9 @@ function initializeAutoUpdater() {
     electronAutoUpdater.autoDownload = false;
     electronAutoUpdater.autoInstallOnAppQuit = false;
     electronAutoUpdater.allowDowngrade = false;
+    // The build is a full NSIS installer, never a web installer. This only
+    // silences the download-time warning; installing is unchanged.
+    electronAutoUpdater.disableWebInstaller = true;
     
     // Detect GitHub releases URL pattern and use appropriate provider
     const githubInfo = parseGitHubReleasesUrl(UPDATE_FEED_URL);
@@ -339,6 +370,26 @@ function initializeAutoUpdater() {
     });
 
     electronAutoUpdater.on("error", (error) => {
+      checkFailed = true;
+      // An automatic check while offline (at login, after sleep) isn't a
+      // problem: note it, keep what was showing, and try again soon.
+      if (updateState === UpdateState.CHECKING && !manualCheck && isOfflineError(error)) {
+        diagnostics?.record({
+          level: "info",
+          source: "updater",
+          code: "update.offline",
+          message: "Couldn't check for updates: this computer seems to be offline. Trying again in a few minutes.",
+        });
+        updateState = stateBeforeCheck;
+        clearTimeout(offlineRetry);
+        offlineRetry = setTimeout(() => {
+          offlineRetry = null;
+          checkForUpdates();
+        }, OFFLINE_RETRY_MS);
+        notifyRenderer();
+        return;
+      }
+      if (installWhenIdle) cancelIdleInstall();
       diagnostics?.record({
         level: "error",
         source: "updater",
@@ -366,7 +417,7 @@ function initializeAutoUpdater() {
 }
 
 function notifyRenderer() {
-  window?.webContents.send("anybot:changed");
+  if (window && !window.isDestroyed()) window.webContents.send("anybot:changed");
 }
 
 // Get the current update state for the renderer
@@ -397,6 +448,7 @@ function getUpdateState() {
     progress: updateProgress,
     error: updateError,
     feedConfigured,
+    installWhenIdle,
   };
 }
 
@@ -417,18 +469,23 @@ async function checkForUpdates() {
     return getUpdateState();
   }
 
+  stateBeforeCheck = updateState;
+  checkFailed = false;
   try {
     await autoUpdater.checkForUpdates();
   } catch (error) {
-    updateState = UpdateState.ERROR;
-    updateError = {
-      message: error.message || "Failed to check for updates",
-      code: error.code,
-      retryable: true,
-    };
-    notifyRenderer();
+    // The error event already decided what to show (see its handler).
+    if (!checkFailed) {
+      updateState = UpdateState.ERROR;
+      updateError = {
+        message: error.message || "Failed to check for updates",
+        code: error.code,
+        retryable: true,
+      };
+      notifyRenderer();
+    }
   }
-  
+
   return getUpdateState();
 }
 
@@ -459,33 +516,94 @@ async function downloadUpdate() {
   }
 }
 
+// Why the downloaded update can't be installed now, if it can't.
+function installBlocker() {
+  if (!autoUpdater) return "Auto-updater not configured";
+  if (updateState !== UpdateState.DOWNLOADED) return "No downloaded update to install";
+  return null;
+}
+
 // Install the downloaded update and restart
-function installUpdate() {
-  if (!autoUpdater) {
-    throw new Error("Auto-updater not configured");
-  }
+async function installUpdate() {
+  const blocked = installBlocker();
+  if (blocked) throw new Error(blocked);
+  if (installing) return installing;
+  installWhenIdle = false;
+  installing = (async () => {
+    // The installer ends Any Bot's processes about a second after it starts,
+    // so the team is stopped first, the same way as quitting: running bots
+    // are recorded as cut off and followed up at the next start.
+    await shutdown.stop();
+    // Silent install: isSilent=true runs the NSIS installer with /S flag,
+    // which suppresses the Setup wizard UI entirely. isForceRunAfter=true
+    // ensures the app restarts automatically after the silent install completes.
+    // This requires the NSIS config to use oneClick=true (one-click installers
+    // support silent mode natively). Per-user install (perMachine=false) avoids
+    // UAC prompts since installation goes to %LOCALAPPDATA%\Programs.
+    // Lets the next start confirm the installer actually ran (see
+    // checkPendingUpdate). Install behavior itself is unchanged.
+    rememberPendingUpdate(app.getPath("userData"), app.getVersion(), updateInfo?.version);
+    diagnostics?.record({
+      level: "info",
+      source: "updater",
+      code: "update.install_started",
+      message: `Installing ${updateInfo?.version} over ${app.getVersion()}`,
+    });
+    autoUpdater.quitAndInstall(true, true);
+    // The installer couldn't start (its error was recorded and the state is
+    // now error), and the team is already stopped: start again on this
+    // version rather than stay open with nothing running.
+    if (updateState === UpdateState.ERROR) {
+      app.relaunch();
+      app.quit();
+    }
+  })();
+  return installing;
+}
 
-  if (updateState !== UpdateState.DOWNLOADED) {
-    throw new Error("No downloaded update to install");
+// "Install when idle": nothing new starts (the coordinator holds queued work
+// for after the restart), and the update installs once no bot is working.
+function startIdleInstall() {
+  const blocked = installBlocker();
+  if (blocked) throw new Error(blocked);
+  installWhenIdle = true;
+  request("runtime.hold", { hold: true }).catch(() => {});
+  notifyRenderer();
+  checkIdleInstall();
+  return getUpdateState();
+}
+function cancelIdleInstall() {
+  installWhenIdle = false;
+  request("runtime.hold", { hold: false }).catch(() => {});
+  notifyRenderer();
+  return getUpdateState();
+}
+// Runs on every coordinator change; one check at a time, plus one more when
+// something changed meanwhile.
+let idleCheck = null;
+let idleAgain = false;
+function checkIdleInstall() {
+  if (!installWhenIdle || !ready) return;
+  if (idleCheck) {
+    idleAgain = true;
+    return;
   }
-
-  // Silent install: isSilent=true runs the NSIS installer with /S flag,
-  // which suppresses the Setup wizard UI entirely. isForceRunAfter=true
-  // ensures the app restarts automatically after the silent install completes.
-  // This requires the NSIS config to use oneClick=true (one-click installers
-  // support silent mode natively). Per-user install (perMachine=false) avoids
-  // UAC prompts since installation goes to %LOCALAPPDATA%\Programs.
-  quitting = true;
-  // Lets the next start confirm the installer actually ran (see
-  // checkPendingUpdate). Install behavior itself is unchanged.
-  rememberPendingUpdate(app.getPath("userData"), app.getVersion(), updateInfo?.version);
-  diagnostics?.record({
-    level: "info",
-    source: "updater",
-    code: "update.install_started",
-    message: `Installing ${updateInfo?.version} over ${app.getVersion()}`,
-  });
-  autoUpdater.quitAndInstall(true, true);
+  idleCheck = (async () => {
+    do {
+      idleAgain = false;
+      const activity = await request("runtime.activity");
+      if (installWhenIdle && activity.running === 0) {
+        await installUpdate();
+        return;
+      }
+    } while (idleAgain && installWhenIdle);
+  })()
+    .catch((error) =>
+      diagnostics?.record({ level: "warn", source: "updater", code: "update.idle_install_failed", message: String(error.message).slice(0, 300) }),
+    )
+    .finally(() => {
+      idleCheck = null;
+    });
 }
 
 // Dismiss an update version
@@ -539,6 +657,8 @@ function stopUpdateChecker() {
     clearInterval(updateCheckTimer);
     updateCheckTimer = null;
   }
+  clearTimeout(offlineRetry);
+  offlineRetry = null;
 }
 
 // Some Windows hosts have a broken or unavailable GPU driver. Keep the
@@ -643,7 +763,12 @@ else {
         return withShellState(await request(method, payload));
       }
       if (method === "update.check") {
-        await checkForUpdates();
+        manualCheck = true;
+        try {
+          await checkForUpdates();
+        } finally {
+          manualCheck = false;
+        }
         return { update: getUpdateState() };
       }
       if (method === "update.dismiss") {
@@ -658,16 +783,29 @@ else {
           return { error: error.message, update: getUpdateState() };
         }
       }
+      // { when: "idle" } waits until no bot is working; otherwise the team is
+      // stopped (gracefully) and the update installs now.
       if (method === "update.install") {
         try {
-          installUpdate();
+          if (payload?.when === "idle") return { waiting: true, update: startIdleInstall() };
+          const blocked = installBlocker();
+          if (blocked) throw new Error(blocked);
+          installUpdate().catch((error) =>
+            diagnostics?.record({ level: "error", source: "updater", code: "update.failed", message: String(error.message).slice(0, 300) }),
+          );
           return { installing: true };
         } catch (error) {
           return { error: error.message, update: getUpdateState() };
         }
       }
+      if (method === "update.cancelInstall") return { update: cancelIdleInstall() };
       if (method === "update.retry") {
-        await retryUpdate();
+        manualCheck = true;
+        try {
+          await retryUpdate();
+        } finally {
+          manualCheck = false;
+        }
         return { update: getUpdateState() };
       }
       if (method === "diagnostics.list")
@@ -759,8 +897,9 @@ else {
         if (!mobileGateway) throw new Error("Configure mobile-access.json with TLS first.");
         return { members: mobileGateway.removeMember(payload?.id) };
       }
+      // Settings → Quit: the same graceful shutdown as the tray's Quit
+      // (before-quit), not a hard stop.
       if (method === "app.quit") {
-        quitting = true;
         app.quit();
         return { quitting: true };
       }
@@ -812,50 +951,79 @@ else {
       shell.showItemInFolder(filePath);
       return { revealed: true };
     });
-    ipcMain.handle("anybot:runCommand", async (event, { id, command }) => {
+    // The context rail's Terminal: the owner's own commands, typed in the
+    // app (never bot output). They run in the conversation's folder the
+    // renderer names, else the owner's home; never in this app's data folder.
+    ipcMain.handle("anybot:runCommand", async (event, { id, command, cwd }) => {
       validateSender(event);
       const { spawn } = require("node:child_process");
+      const folder = commandDirectory(cwd, { home: os.homedir(), userData: app.getPath("userData") });
+      const key = String(id || "").slice(0, 64);
       return new Promise((resolve) => {
         const isWindows = process.platform === "win32";
         const shell = isWindows ? "cmd.exe" : "/bin/sh";
         const shellArgs = isWindows ? ["/c", command] : ["-c", command];
-        
+
         const child = spawn(shell, shellArgs, {
-          cwd: app.getPath("userData"),
+          cwd: folder,
           env: { ...process.env, FORCE_COLOR: "0" },
+          // No input: a command that prompts ends instead of waiting.
+          stdio: ["ignore", "pipe", "pipe"],
+          windowsHide: true,
+          // Its own process group, so Stop ends everything it started.
+          detached: !isWindows,
         });
-        
         let output = "";
-        
+        let stopped = false;
+        const entry = {
+          stop() {
+            stopped = true;
+            killTree(child);
+          },
+        };
+        if (key) commands.set(key, entry);
+        const send = (chunk) => {
+          if (window && !window.isDestroyed()) window.webContents.send("anybot:commandOutput", { id, chunk });
+        };
+
         child.stdout.on("data", (data) => {
           const chunk = data.toString();
           output += chunk;
-          window?.webContents.send("anybot:commandOutput", { id, chunk });
+          send(chunk);
         });
-        
+
         child.stderr.on("data", (data) => {
           const chunk = data.toString();
           output += chunk;
-          window?.webContents.send("anybot:commandOutput", { id, chunk });
+          send(chunk);
         });
-        
+
         const timeout = setTimeout(() => {
           if (child.exitCode === null && !child.killed) {
-            child.kill();
-            resolve({ output: output + "\n[Command timed out after 60s]", exitCode: 124 });
+            entry.stop();
+            resolve({ output: output + "\n[Command timed out after 60s]", exitCode: 124, cwd: folder });
           }
         }, 60000);
 
         child.on("close", (exitCode) => {
           clearTimeout(timeout);
-          resolve({ output, exitCode: exitCode ?? 0 });
+          if (commands.get(key) === entry) commands.delete(key);
+          resolve({ output: stopped ? `${output}\n[Stopped]` : output, exitCode: exitCode ?? (stopped ? 130 : 0), cwd: folder });
         });
 
         child.on("error", (error) => {
           clearTimeout(timeout);
-          resolve({ output: error.message, exitCode: 1 });
+          if (commands.get(key) === entry) commands.delete(key);
+          resolve({ output: error.message, exitCode: 1, cwd: folder });
         });
       });
+    });
+    // The Terminal's Stop button: ends the command and everything it started.
+    ipcMain.handle("anybot:stopCommand", async (event, id) => {
+      validateSender(event);
+      const entry = commands.get(String(id || "").slice(0, 64));
+      entry?.stop();
+      return { stopped: Boolean(entry) };
     });
     ipcMain.handle("anybot:openUrl", async (event, url) => {
       validateSender(event);
@@ -863,12 +1031,20 @@ else {
       await shell.openExternal(url);
       return { opened: true };
     });
+    // Slack starts when the coordinator first reports ready (ensureSlack).
     startWorker();
-    startSlack().catch((error) => {
-      slackError = String(error.message);
-    });
     startMobileAccess().catch((error) => {
       mobileError = String(error.message);
+      // The QR phone link runs on the same gateway: say why it isn't
+      // starting instead of showing "Starting…" forever.
+      if (!phoneLink) phoneError = `Phone connections couldn't start: ${error.message}`;
+      diagnostics.record({
+        level: "error",
+        source: "mobile",
+        code: "mobile.start_failed",
+        // The reason (it can name files) shows in Settings → Your phone.
+        message: "The phone gateway couldn't start, so phones can't connect",
+      });
     });
     showWindow();
     const installed = checkPendingUpdate(app.getPath("userData"), app.getVersion());
@@ -889,7 +1065,8 @@ else {
     tray.setToolTip("Any Bot — your team is available");
     tray.setContextMenu(
       Menu.buildFromTemplate([
-        { label: "Open Any Bot", click: showWindow },
+        // showWindow's argument is the renderer sandbox flag, not the menu item.
+        { label: "Open Any Bot", click: () => showWindow() },
         {
           label: "Pause new work",
           click: () => request("runtime.pause").catch(() => {}),
@@ -902,7 +1079,7 @@ else {
         { label: "Quit and stop active work", click: () => app.quit() },
       ]),
     );
-    tray.on("double-click", showWindow);
+    tray.on("double-click", () => showWindow());
   });
 }
 function isExternalWebUrl(url) {
@@ -952,11 +1129,12 @@ function settleReadyWaiters(error) {
   readyWaiters.clear();
 }
 function startWorker() {
-  worker = utilityProcess.fork(
+  const child = utilityProcess.fork(
     path.join(__dirname, "../runtime/worker.mjs"),
     [app.getPath("userData")],
     { serviceName: "Any Bot coordinator", stdio: "pipe" },
   );
+  worker = child;
   worker.stderr?.on("data", (chunk) => {
     const text = String(chunk);
     console.error(text);
@@ -968,13 +1146,19 @@ function startWorker() {
   worker.on("message", (message) => {
     if (message.type === "ready") {
       ready = true;
+      restarts.ready();
       settleReadyWaiters();
-      window?.webContents.send("anybot:changed");
+      notifyRenderer();
+      ensureSlack();
+      // A restarted coordinator forgets the hold an idle install asked for.
+      if (installWhenIdle) request("runtime.hold", { hold: true }).catch(() => {});
+      checkIdleInstall();
       return;
     }
     if (message.type === "changed") {
-      window?.webContents.send("anybot:changed");
+      notifyRenderer();
       slackBridge?.refresh();
+      checkIdleInstall();
       return;
     }
     if (message.type === "attention") {
@@ -1004,14 +1188,7 @@ function startWorker() {
     else call.resolve(message.result);
   });
   worker.on("exit", (code) => {
-    if (!quitting)
-      diagnostics?.record({
-        level: "error",
-        source: "runtime",
-        code: "runtime.exited",
-        message: `The coordinator stopped unexpectedly (exit ${code})`,
-        context: { exitCode: code, restarts },
-      });
+    if (worker === child) worker = null;
     ready = false;
     settleReadyWaiters(new Error("Runtime interrupted"));
     for (const call of pending.values()) {
@@ -1019,12 +1196,37 @@ function startWorker() {
       call.reject(new Error("Runtime interrupted"));
     }
     pending.clear();
-    if (!quitting && restarts++ < 3) setTimeout(startWorker, 1000 * restarts);
-    else if (!quitting)
-      dialog.showErrorBox(
-        "Any Bot runtime stopped",
-        "The coordinator failed repeatedly. Restart the application to retry. Your saved conversations are retained.",
-      );
+    if (quitting) return;
+    // Restarts are limited per burst of crashes (createRestartBudget).
+    const delay = restarts.exited();
+    diagnostics?.record({
+      level: "error",
+      source: "runtime",
+      code: "runtime.exited",
+      message: `The coordinator stopped unexpectedly (exit ${code})`,
+      context: { exitCode: code, restarts: restarts.count },
+    });
+    if (delay !== null) {
+      setTimeout(startWorker, delay);
+      return;
+    }
+    // Not a blocking dialog: Slack and the phone link keep answering (with
+    // "unavailable") while it is up.
+    void dialog
+      .showMessageBox({
+        type: "error",
+        title: "Any Bot runtime stopped",
+        message: "The coordinator failed repeatedly.",
+        detail: "Restart Any Bot to try again. Your saved conversations are kept.",
+        buttons: ["Restart Any Bot", "Not now"],
+        defaultId: 0,
+        cancelId: 1,
+      })
+      .then(({ response }) => {
+        if (response !== 0) return;
+        app.relaunch();
+        app.quit();
+      });
   });
 }
 function showWindow(rendererSandbox = app.isPackaged) {
@@ -1067,14 +1269,51 @@ function showWindow(rendererSandbox = app.isPackaged) {
       new Error(`${errorDescription} — ${validatedURL}`),
     );
   });
+  window.webContents.on("did-finish-load", () => {
+    windowLoaded = true;
+  });
   window.webContents.on("render-process-gone", (_event, details) => {
-    if (rendererSandbox && details.reason === "launch-failed" && !quitting) {
+    if (quitting) return;
+    if (rendererSandbox && details.reason === "launch-failed") {
       window.destroy();
       window = null;
       setTimeout(() => showWindow(false), 0);
       return;
     }
-    reportStartupFailure("Renderer process stopped", new Error(`${details.reason} (exit ${details.exitCode})`));
+    if (!windowLoaded) {
+      reportStartupFailure("Renderer process stopped", new Error(`${details.reason} (exit ${details.exitCode})`));
+      return;
+    }
+    // After startup the window reloads (the bots, Slack and the phone link
+    // never stopped: they live outside the renderer), unless it keeps
+    // crashing, which a reload wouldn't fix.
+    const next = rendererCrashes.next();
+    diagnostics?.record({
+      level: "error",
+      source: "app",
+      code: "renderer.gone",
+      message: `Renderer process stopped: ${details.reason} (exit ${details.exitCode})`,
+      context: { reason: details.reason, exitCode: details.exitCode, reloaded: next === "reload" },
+    });
+    if (next === "reload") {
+      window.webContents.reload();
+      return;
+    }
+    void dialog
+      .showMessageBox({
+        type: "error",
+        title: "Any Bot's window keeps crashing",
+        message: "The window stopped several times in a row.",
+        detail: "Your bots are still working in the background. Restart Any Bot to reopen the window.",
+        buttons: ["Restart Any Bot", "Not now"],
+        defaultId: 0,
+        cancelId: 1,
+      })
+      .then(({ response }) => {
+        if (response !== 0) return;
+        app.relaunch();
+        app.quit();
+      });
   });
   window.webContents.on("will-navigate", (event, url) => {
     if (url !== page) event.preventDefault();
@@ -1093,25 +1332,28 @@ function showWindow(rendererSandbox = app.isPackaged) {
   });
 }
 app.on("window-all-closed", () => {});
+// Every way out goes through here: the tray's and Settings' Quit, closing the
+// window without the tray, and installing an update (installUpdate waits for
+// it before starting the installer). The coordinator stops its runs itself
+// and records them for the next start (runtime/coordinator.mjs).
+const shutdown = createShutdown({
+  worker: () => worker,
+  before: () => {
+    quitting = true;
+    installWhenIdle = false;
+    stopUpdateChecker();
+    for (const command of commands.values()) command.stop();
+    void mobileGateway?.close();
+    phoneLink?.stop();
+    slackBridge?.stop();
+    ready = false;
+  },
+  timeoutMs: 10000,
+});
 app.on("before-quit", (event) => {
-  if (quitting) return;
+  if (shutdown.stopped) return;
   event.preventDefault();
-  quitting = true;
-  stopUpdateChecker();
-  void mobileGateway?.close();
-  phoneLink?.stop();
-  slackBridge?.stop();
-  ready = false;
-  if (!worker) {
-    app.quit();
-    return;
-  }
-  worker.once("exit", () => app.quit());
-  worker.postMessage({ type: "shutdown" });
-  setTimeout(() => {
-    worker?.kill();
-    app.quit();
-  }, 10000).unref();
+  shutdown.stop().then(() => app.quit());
 });
 // Phones reach this computer two ways, through one gateway:
 // - Settings → Your phone: paired by QR code, through the relay, end-to-end
@@ -1121,32 +1363,49 @@ app.on("before-quit", (event) => {
 async function startMobileAccess() {
   const { createMobileGateway } = await import("../runtime/mobile-gateway.mjs");
   const configPath = path.join(app.getPath("userData"), "mobile-access.json");
-  let config = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, "utf8")) : null;
-  if (config?.enabled !== true) config = null;
+  let config = null;
   let url = null;
-  if (config) {
-    url = new URL(config.publicUrl);
-    if (
-      url.protocol !== "https:" ||
-      url.username ||
-      url.password ||
-      url.pathname !== "/" ||
-      url.search ||
-      url.hash
-    )
-      throw new Error("Mobile publicUrl must be an HTTPS origin");
-    if (!path.isAbsolute(config.certPath) || !path.isAbsolute(config.keyPath))
-      throw new Error("TLS certificate paths must be absolute");
+  let tls = null;
+  // A broken mobile-access.json turns off only the HTTPS listener it
+  // configures (fail closed) and says why; phones paired by QR code still
+  // connect through the same gateway.
+  try {
+    config = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, "utf8")) : null;
+    if (config?.enabled !== true) config = null;
+    if (config) {
+      url = new URL(config.publicUrl);
+      if (
+        url.protocol !== "https:" ||
+        url.username ||
+        url.password ||
+        url.pathname !== "/" ||
+        url.search ||
+        url.hash
+      )
+        throw new Error("Mobile publicUrl must be an HTTPS origin");
+      if (!path.isAbsolute(config.certPath) || !path.isAbsolute(config.keyPath))
+        throw new Error("TLS certificate paths must be absolute");
+      tls = { cert: fs.readFileSync(config.certPath), key: fs.readFileSync(config.keyPath) };
+    }
+  } catch (error) {
+    config = null;
+    url = null;
+    tls = null;
+    mobileError = `mobile-access.json couldn't be used, so the HTTPS listener is off: ${error.message}`;
+    diagnostics?.record({
+      level: "warn",
+      source: "mobile",
+      code: "mobile.config_invalid",
+      message: "mobile-access.json couldn't be used, so the HTTPS phone listener is off",
+    });
   }
   const gateway = createMobileGateway({
     command: request,
     serve: Boolean(config),
     host: config?.host || "127.0.0.1",
     port: config?.port || 4319,
-    tls: config && {
-      cert: fs.readFileSync(config.certPath),
-      key: fs.readFileSync(config.keyPath),
-    },
+    tls,
+    onDiagnostic: (entry) => diagnostics?.record(entry),
     origins: [
       "capacitor://localhost",
       "https://localhost",
@@ -1178,8 +1437,26 @@ function computerName() {
   const user = (os.userInfo().username || "").replace(/[^\p{L}\p{N} ._-]/gu, "").trim();
   return user ? `${user[0].toUpperCase()}${user.slice(1)}'s computer` : os.hostname();
 }
+// Slack starts each time the coordinator reports ready until it is running,
+// so a coordinator that crashed during startup doesn't leave it off.
+let slackStarting = false;
+function ensureSlack() {
+  if (slackBridge || slackStarting || quitting) return;
+  slackStarting = true;
+  startSlack()
+    .then(
+      () => {
+        slackError = null;
+      },
+      (error) => {
+        slackError = String(error.message);
+      },
+    )
+    .finally(() => {
+      slackStarting = false;
+    });
+}
 async function startSlack() {
-  await waitForReady(120000);
   const { createSlackBridge } = await import("../runtime/slack-bridge.mjs");
   slackBridge = createSlackBridge({
     statePath: path.join(app.getPath("userData"), "slack.json"),

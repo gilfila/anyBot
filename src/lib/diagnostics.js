@@ -124,6 +124,28 @@ export function describeIssue(issue) {
     },
     "update.init_failed": { title: "Automatic updates are unavailable", hint: "The updater didn't start.", bug: true },
     "update.warning": { title: "The updater reported a warning", hint: "Usually harmless. Details are below." },
+    "update.offline": {
+      title: "Couldn't check for updates while offline",
+      hint: "Nothing to fix: the check runs again a few minutes later, and Check now works any time.",
+    },
+    "update.idle_install_failed": {
+      title: "The update didn't install when the team finished",
+      hint: "Any Bot was waiting for the bots to finish before restarting. Restart from the update button in Settings.",
+      action: "update",
+    },
+    "mobile.audit_quarantined": {
+      title: "The phone access log was damaged and set aside",
+      hint: "Usually after a power cut. A new log started and phones connect as before; the old file is kept next to it (mobile-audit.jsonl.corrupt-…) in the data folder.",
+    },
+    "mobile.config_invalid": {
+      title: "mobile-access.json couldn't be used",
+      hint: "The HTTPS phone listener it sets up is off; phones paired by QR code still connect. Settings → Mobile companion shows why. Fix the file (docs/mobile.md) and restart Any Bot.",
+    },
+    "mobile.start_failed": {
+      title: "Phones can't connect",
+      hint: "The phone gateway didn't start. Settings → Your phone shows why. This is a bug in Any Bot if it keeps happening.",
+      bug: true,
+    },
     "harness.stuck_cancel": {
       title: `${tool(c)} didn't stop cleanly for ${who(c)}`,
       hint: "Any Bot marked the run stopped and freed the bot. A helper process the harness started may still be running; it ends when you restart the computer.",
@@ -172,7 +194,13 @@ export function describeIssue(issue) {
       title: "Attachments couldn't be copied to a bot",
       hint: "Any Bot couldn't write into the bot's workspace inbox (.anybot-inbox). Check the bot's workspace folder exists and isn't read-only.",
     },
-    "renderer.gone": { title: "The window's renderer stopped", hint: "Any Bot reloaded the window.", bug: true },
+    "renderer.gone": {
+      title: "The window's renderer stopped",
+      hint: c.reloaded === false
+        ? "It kept stopping, so Any Bot stopped reloading it. Your bots kept working; restart Any Bot to reopen the window."
+        : "Any Bot reloaded the window. Your bots, Slack and the phone link kept working.",
+      bug: true,
+    },
     "renderer.load_failed": { title: "The window failed to load", hint: "This is a bug in Any Bot.", bug: true },
     "main.exception": { title: "Any Bot hit an internal error", hint: "This is a bug in Any Bot.", bug: true },
     "main.rejection": { title: "Any Bot hit an internal error", hint: "This is a bug in Any Bot.", bug: true },

@@ -11,6 +11,8 @@ npm start
 
 `npm start` builds the renderer first, so a fresh checkout works without a separate build step.
 
+A run from source uses its own profile, `%APPDATA%\anybot-desktop-dev`, not the installed app's `%APPDATA%\anybot-desktop`. So a checkout never migrates the live database, never runs your real bots, routines, Slack or phone link from unreleased code, and never rewrites the Launch at login entry (a run from source only saves that choice). To run a checkout against another profile, the live one included, set `ANYBOT_USER_DATA` to its folder first; test scripts that set their own profile keep it.
+
 `npm run verify:local` is the local acceptance gate. It runs these in order:
 
 1. the unit and integration suite
@@ -24,12 +26,12 @@ The desktop shell tries Electron's Chromium renderer sandbox first. Some Windows
 
 - **Workspace:** the SQLite workspace and each employee's workspace folder live in Electron's per-user application data directory.
 - **Temporary profile:** if Windows denies every persistent profile location, anyBot starts in a clearly marked temporary profile so the app stays recoverable. Repair the profile permissions before relying on saved history or long-running work.
-- **Startup errors:** if the renderer or coordinator fails before the workspace appears, the error goes to `startup.log` beside the SQLite workspace. The error dialog shows the path.
+- **Startup errors:** if the renderer or coordinator fails before the workspace appears, the error goes to `startup.log` beside the SQLite workspace. The error dialog shows the path. After the window has loaded there is no blocking dialog: a crashed window reloads by itself (up to three times in two minutes), and the bots, Slack and the phone link keep running in the other processes. A coordinator that exits unexpectedly restarts up to three times in a row; one that stayed up for ten minutes starts a new count.
 - **Everything else:** other problems are recorded in `logs/diagnostics.jsonl` in the same folder and shown under **Settings → Diagnostics**. The log holds error details only, never conversation text, and it stays on the computer.
 
 ## Background work and the tray
 
-Closing the window hides anyBot to the tray. The coordinator and active employees keep running. **Quit and stop active work** in the tray menu stops everything.
+Closing the window hides anyBot to the tray. The coordinator and active employees keep running. **Quit and stop active work** in the tray menu, or **Quit** in Settings, stops everything the same graceful way: the coordinator stops each run, records it as cut off, and at the next start posts a note in its conversation, tells the bot that handed it the work, and notes its task. Queued work starts again at the next start. Settings asks first when bots are working.
 
 **Launch at login** (Settings → Runtime & privacy) is opt-in. It starts the runtime after you sign in to Windows, so routines and long runs keep going. The computer still has to stay on.
 
@@ -40,6 +42,8 @@ anyBot 0.2.18 and later update themselves with `electron-updater`:
 - The update downloads in the background, with progress shown in the app.
 - It installs silently, without the NSIS setup wizard, and restarts into the new version.
 - The Update button beside your name starts a one-click upgrade.
+- **Restart** asks first when bots are working. **Install when they finish** holds new work (queued work starts after the restart) and installs once nothing is running; the button shows **Waiting** and can be cancelled. **Stop and restart now** stops the team gracefully, as Quit does, and only then starts the installer. Nothing installs by itself: `autoInstallOnAppQuit` is off, so an update never interrupts work unless you start it.
+- An automatic check that fails because the computer is offline (at login, after sleep) is not shown as a problem; it is noted and tried again five minutes later. Checks you start yourself always show their errors.
 
 Updates come from the source repository's own releases (it has been public since 2026-09-23):
 

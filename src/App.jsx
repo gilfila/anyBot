@@ -48,9 +48,12 @@ import {
   X,
 } from "lucide-react";
 import { presets, names } from "./constants.js";
-import { empty, time, shouldShowUpdateChrome } from "./lib/ui.js";
+import { empty, time, shouldShowUpdateChrome, workingBots } from "./lib/ui.js";
+import { singleFlight } from "./lib/single-flight.js";
+import { loadDrafts, saveDrafts, withDraft } from "./lib/drafts.js";
+import { primaryChats, sidebarProjects } from "./lib/projects.js";
 
-function UpdateButton({ update, onAction, onDismiss }) {
+function UpdateButton({ update, working = 0, onAction, onDismiss }) {
   const [busy, setBusy] = useState(false);
 
   const handleAction = async (action) => {
@@ -103,13 +106,27 @@ function UpdateButton({ update, onAction, onDismiss }) {
     );
   }
 
+  if (state === "downloaded" && update.installWhenIdle) {
+    return (
+      <button
+        className="update-btn ready"
+        onClick={() => handleAction("cancel")}
+        disabled={busy}
+        title={`v${version} installs once no bot is working. Click to cancel.`}
+      >
+        <Clock size={14} />
+        <span>Waiting</span>
+      </button>
+    );
+  }
+
   if (state === "downloaded") {
     return (
       <button
         className="update-btn ready"
         onClick={() => handleAction("install")}
         disabled={busy}
-        title={`Install update v${version} and restart`}
+        title={`Install update v${version} and restart${working ? ` (${working} bot${working === 1 ? " is" : "s are"} working)` : ""}`}
       >
         <RefreshCw size={14} />
         <span>Restart</span>
@@ -240,7 +257,19 @@ export function App() {
       ),
     [data.employees],
   );
-  const [draft, setDraft] = useState("");
+  // Unsent text per conversation (src/lib/drafts.js); `draft` is the open one's.
+  const [drafts, setDrafts] = useState(loadDrafts);
+  const draft = drafts[conversationId] || "";
+  const setDraftFor = useCallback(
+    (id, next) =>
+      setDrafts((current) => {
+        const updated = withDraft(current, id, typeof next === "function" ? next(current[id] || "") : next);
+        if (updated !== current) saveDrafts(updated);
+        return updated;
+      }),
+    [],
+  );
+  const setDraft = useCallback((next) => setDraftFor(conversationId, next), [conversationId, setDraftFor]);
   const [sidebarSearch, setSidebarSearch] = useState("");
   const [dictating, setDictating] = useState(false),
     [voiceAgent, setVoiceAgent] = useState(null);
@@ -372,24 +401,36 @@ export function App() {
       setError(error.message);
     }
   }
-  async function refresh() {
-    if (!window.anybot) return;
-    try {
-      setData(await window.anybot.request("snapshot"));
-      setConnected(true);
-    } catch {
-      setConnected(false);
-    }
-  }
+  // One snapshot request at a time (plus one after it for whatever changed
+  // meanwhile): while bots stream, change pushes come up to ten a second.
+  // A window hidden in the tray skips them and catches up when shown.
+  const refresh = useMemo(
+    () =>
+      singleFlight(async () => {
+        if (!window.anybot) return;
+        try {
+          setData(await window.anybot.request("snapshot"));
+          setConnected(true);
+        } catch {
+          setConnected(false);
+        }
+      }),
+    [],
+  );
   useEffect(() => {
+    const visibleRefresh = () => {
+      if (!document.hidden) refresh();
+    };
     refresh();
-    const off = window.anybot?.onChanged(refresh);
-    const timer = setInterval(refresh, 4000);
+    const off = window.anybot?.onChanged(visibleRefresh);
+    const timer = setInterval(visibleRefresh, 4000);
+    document.addEventListener("visibilitychange", visibleRefresh);
     return () => {
       off?.();
       clearInterval(timer);
+      document.removeEventListener("visibilitychange", visibleRefresh);
     };
-  }, []);
+  }, [refresh]);
   async function act(method, payload) {
     setError("");
     setBusy(true);
@@ -415,6 +456,9 @@ export function App() {
     ["queued", "running", "cancelling"].includes(r.status),
   );
   const isProject = Boolean(conversation && conversation.members.length > 1);
+  // Each bot's direct chat; any other conversation has project settings.
+  const directChats = useMemo(() => primaryChats(data.conversations), [data.conversations]);
+  const isDirectChat = Boolean(conversation && directChats.has(conversation.id));
   const openTaskCount = (data.tasks || []).filter(
     (task) => task.conversation === conversationId && task.status !== "done",
   ).length;
@@ -431,7 +475,7 @@ export function App() {
     setConversationId(c.id);
     if (c.id !== conversationId) setOpenThread(null);
     setView("chat");
-    setDraft("");
+    // Each conversation keeps its own unsent text (drafts).
     if (c.id !== conversationId) {
       setProjectTab("chat");
       setSelectedTask(null);
@@ -473,14 +517,15 @@ export function App() {
   // Attachments are paths the composer collected (dropped, pasted, picked).
   async function send(attachments = []) {
     if (busy || (!draft.trim() && !attachments.length)) return false;
+    const sentFrom = conversationId;
     const result = await act("messages.send", {
-      conversation: conversationId,
+      conversation: sentFrom,
       body: draft,
       attachments,
       requestId: crypto.randomUUID(),
     });
     if (!result) return false;
-    setDraft("");
+    setDraftFor(sentFrom, "");
     // Open the thread where the mentioned bots just started.
     const sent = result.messages.filter((m) => m.conversation === conversationId && m.author === "human" && !m.thread).at(-1);
     if (isProject && sent && result.runs.some((r) => r.thread === sent.id)) setOpenThread(sent.id);
@@ -559,7 +604,7 @@ export function App() {
   }
   async function directChat(employee) {
     const existing = data.conversations.find(
-      (c) => c.members.length === 1 && c.members[0] === employee.id,
+      (c) => directChats.has(c.id) && c.members[0] === employee.id,
     );
     if (existing) {
       openConversation(existing);
@@ -580,8 +625,10 @@ export function App() {
   const sidebarEmployees = data.employees
     .filter((employee) => !employee.archived)
     .filter((employee) => !sidebarTerm || `${employee.name} ${employee.role}`.toLowerCase().includes(sidebarTerm));
-  const projectMatches = data.conversations.filter(
-    (item) => item.members.length > 1 && (!sidebarTerm || item.title.toLowerCase().includes(sidebarTerm)),
+  // Projects, plus one-bot conversations that aren't a bot's direct chat
+  // (src/lib/projects.js), so none becomes unreachable.
+  const projectMatches = sidebarProjects(data.conversations).filter(
+    (item) => !sidebarTerm || item.title.toLowerCase().includes(sidebarTerm),
   );
   const groupConversations = projectMatches.filter((item) => !item.archived);
   const archivedProjects = projectMatches.filter((item) => item.archived);
@@ -598,7 +645,7 @@ export function App() {
   }
   function getConversationForEmployee(employeeId) {
     return data.conversations.find(
-      (c) => c.members.length === 1 && c.members[0] === employeeId,
+      (c) => directChats.has(c.id) && c.members[0] === employeeId,
     );
   }
   function hasUnreadMessages(convId) {
@@ -608,6 +655,29 @@ export function App() {
     const convMessages = data.messages.filter((m) => m.conversation === convId);
     const lastSeenIndex = convMessages.findIndex((m) => m.id === lastSeenMessages[convId]);
     return convMessages.slice(lastSeenIndex + 1).some((m) => m.author !== "human");
+  }
+  // Restarting for an update, or quitting, stops the bots that are working.
+  // Ask first when any are, and offer to install once they finish.
+  const [stopConfirm, setStopConfirm] = useState(null);
+  async function installUpdate(when) {
+    setError("");
+    try {
+      const result = await window.anybot.update.install(when === "idle" ? { when: "idle" } : undefined);
+      if (result?.error) setError(result.error);
+      else if (result?.update) setData((current) => ({ ...current, update: result.update }));
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+  function requestInstall() {
+    const bots = workingBots(data);
+    if (bots.length) setStopConfirm({ kind: "update", bots });
+    else installUpdate("now");
+  }
+  function requestQuit() {
+    const bots = workingBots(data);
+    if (bots.length) setStopConfirm({ kind: "quit", bots });
+    else window.anybot.request("app.quit").catch((e) => setError(e.message));
   }
   async function dismissRun(runId) {
     await act("runs.dismiss", { id: runId });
@@ -716,7 +786,7 @@ export function App() {
             return (
               <div
                 key={employee.id}
-                className={`bot-row ${view === "chat" && conversation?.members.length === 1 && conversation.members[0] === employee.id ? "selected" : ""}`}
+                className={`bot-row ${view === "chat" && isDirectChat && conversation.members[0] === employee.id ? "selected" : ""}`}
               >
                 <button
                   className="bot-row-main"
@@ -959,12 +1029,15 @@ export function App() {
           {shouldShowUpdateChrome(data.update) && (
             <UpdateButton 
               update={data.update} 
+              working={workingBots(data).length}
               onAction={async (action) => {
                 try {
                   if (action === "download") {
                     await window.anybot.update.download();
                   } else if (action === "install") {
-                    await window.anybot.update.install();
+                    requestInstall();
+                  } else if (action === "cancel") {
+                    await window.anybot.update.cancelInstall();
                   } else if (action === "retry") {
                     await window.anybot.update.retry();
                   } else if (action === "check") {
@@ -1303,7 +1376,7 @@ export function App() {
                     <Users size={16} />
                     Manage bots
                   </button>
-                  {conversation.members.length > 1 && (
+                  {!isDirectChat && (
                     <button
                       type="button"
                       className="secondary"
@@ -1832,6 +1905,14 @@ export function App() {
                         />
                       </div>
                     </>
+                  ) : data.update.state === "downloaded" && data.update.installWhenIdle ? (
+                    <>
+                      <strong>Restarting when the team is idle: v{data.update.version}</strong>
+                      <p>
+                        The update installs once no bot is working
+                        {workingBots(data).length ? ` (still working: ${workingBots(data).join(", ")})` : ""}. New work waits until after the restart.
+                      </p>
+                    </>
                   ) : data.update.state === "downloaded" ? (
                     <>
                       <strong>Update ready: v{data.update.version}</strong>
@@ -1886,22 +1967,14 @@ export function App() {
                     </>
                   )}
                   {data.update.state === "downloaded" && (
-                    <button
-                      className="primary"
-                      disabled={busy}
-                      onClick={async () => {
-                        setBusy(true);
-                        try {
-                          await window.anybot.update.install();
-                        } catch (e) {
-                          setError(e.message);
-                        } finally {
-                          setBusy(false);
-                        }
-                      }}
-                    >
+                    <button className="primary" disabled={busy} onClick={requestInstall}>
                       <RefreshCw size={14} />
-                      Restart & Install
+                      {data.update.installWhenIdle ? "Restart now" : "Restart & Install"}
+                    </button>
+                  )}
+                  {data.update.state === "downloaded" && data.update.installWhenIdle && (
+                    <button className="secondary" onClick={() => window.anybot.update.cancelInstall().catch((e) => setError(e.message))}>
+                      Cancel
                     </button>
                   )}
                   {data.update.state === "error" && (
@@ -2059,7 +2132,7 @@ export function App() {
                 <h3>Quit Any Bot</h3>
                 <p>Stop the local runtime and exit the desktop app.</p>
               </div>
-              <button className="danger" onClick={() => act("app.quit")}>
+              <button className="danger" onClick={requestQuit}>
                 <Square size={15} />
                 Quit and stop active work
               </button>
@@ -2414,6 +2487,55 @@ export function App() {
               >
                 <Trash2 size={14} />
                 Delete
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      {stopConfirm && (
+        <Modal
+          title={stopConfirm.kind === "update" ? "Restart to update?" : "Quit Any Bot?"}
+          onClose={() => setStopConfirm(null)}
+        >
+          <div className="delete-confirm-content">
+            <p>
+              <strong>
+                {stopConfirm.bots.length} bot{stopConfirm.bots.length === 1 ? " is" : "s are"} working
+              </strong>
+              : {stopConfirm.bots.join(", ")}.
+            </p>
+            <p className="delete-confirm-note">
+              {stopConfirm.kind === "update"
+                ? "Restarting now stops their work partway. Each conversation gets a note, and bots that handed that work off are told. Installing when they finish holds new work until the restart; queued work starts after it."
+                : "Quitting stops their work partway. Each conversation gets a note, and bots that handed that work off are told. Queued work starts the next time Any Bot opens."}
+            </p>
+            <div className="delete-confirm-actions">
+              <button className="secondary" onClick={() => setStopConfirm(null)}>
+                Cancel
+              </button>
+              {stopConfirm.kind === "update" && (
+                <button
+                  className="primary"
+                  onClick={() => {
+                    setStopConfirm(null);
+                    installUpdate("idle");
+                  }}
+                >
+                  <Clock size={14} />
+                  Install when they finish
+                </button>
+              )}
+              <button
+                className="danger"
+                onClick={() => {
+                  const kind = stopConfirm.kind;
+                  setStopConfirm(null);
+                  if (kind === "update") installUpdate("now");
+                  else window.anybot.request("app.quit").catch((e) => setError(e.message));
+                }}
+              >
+                <Square size={14} />
+                {stopConfirm.kind === "update" ? "Stop and restart now" : "Stop and quit"}
               </button>
             </div>
           </div>

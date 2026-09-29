@@ -7,12 +7,12 @@ Local-first desktop workspace for named AI "employees" (a Grok-bot-style team UI
 Electron 44 main process (`desktop/main.cjs`) + sandboxed React 19 renderer (`src/`, Vite) + coordinator in an Electron utility process (`runtime/`, SQLite). `electron-updater` for silent NSIS updates. Capacitor mobile companion (`mobile/`), headless server (`server/`).
 
 ## Run / Build / Test
-- `npm start` (builds renderer, opens Electron). `npm run build` for the renderer only.
+- `npm start` (builds renderer, opens Electron). `npm run build` for the renderer only. A run from source uses its own profile, `%APPDATA%\anybot-desktop-dev` (`desktop/brand.cjs`); set `ANYBOT_USER_DATA` to use another one (the installed app's is `%APPDATA%\anybot-desktop`). It never touches the Windows login entry.
 - `npm test` (node:test, ~270 tests), `npm run test:runtime` (Electron utility-process smoke), `npm run doctor`, `npm run verify:local` (all gates).
 - `npm run package` builds `release/anyBot-Setup-X.Y.Z.exe` + `latest.yml` + blockmap. `.github/workflows/release.yml` validates PRs and publishes verified Windows assets after merge to main. Do not manually build/upload releases. One-time activation and recovery: `docs/releasing.md`.
 
 ## Structure
-- `desktop/main.cjs`: window, tray, IPC, updater state machine. Renderer-callable coordinator methods must be in the `methods` allowlist (enforced by `tests/desktop-ipc.test.mjs`).
+- `desktop/main.cjs`: window, tray, IPC, updater state machine. Renderer-callable coordinator methods must be in the `methods` allowlist (enforced by `tests/desktop-ipc.test.mjs`). Every way out (tray/Settings Quit, update install) goes through one graceful `shutdown` (`desktop/lifecycle.cjs`, with the crash-reload and restart rules; tested without Electron). "Install when idle" holds new work via the main-only `runtime.hold`/`runtime.activity` commands. The Terminal's folder and Stop live in `desktop/shell-command.cjs` (never the data folder, except bot workspaces).
 - `desktop/preload.cjs`: the only bridge (`window.anybot`). It exposes `runCommand` (a shell), so no untrusted content may ever run same-origin with the app.
 - `runtime/coordinator.mjs`: commands, dispatch, delegation. Every command returns a snapshot; main decorates it with `update` + tray/login state (`withShellState`).
 - `src/App.jsx`: whole app shell; `src/components/*`; `src/lib/markdown.js` (escape-first inline markdown, unit tested); `src/style.css`.

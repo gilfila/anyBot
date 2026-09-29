@@ -483,3 +483,22 @@ test("the phone sees a message's attachment names, never desktop paths", async (
   assert.doesNotMatch(text, /anybot-private-/);
   assert.deepEqual(JSON.parse(text).messages.find((m) => m.body === "look").attachments, [{ name: "shot.png", kind: "file" }]);
 });
+
+// The audit log is appended line by line, so a power cut can leave a torn or
+// zero-filled last line. That must not keep phones from connecting: the file
+// is set aside (kept for inspection), a fresh log starts, and it is reported.
+test("a torn audit log is set aside and the gateway still starts", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "anybot-audit-torn-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const auditPath = join(directory, "mobile-audit.jsonl");
+  await writeFile(auditPath, `${JSON.stringify({ actor: "owner", action: "session.paired", resource: null, at: 1 })}\n{"actor":"own\u0000\u0000`);
+  const diagnostics = [];
+  const gateway = createMobileGateway({ command: async () => ({}), serve: false, auditPath, onDiagnostic: (entry) => diagnostics.push(entry) });
+  assert.deepEqual(gateway.audit(), []);
+  const { readdir } = await import("node:fs/promises");
+  const files = await readdir(directory);
+  assert.ok(files.some((name) => /^mobile-audit\.jsonl\.corrupt-\d+$/.test(name)), "the torn log is kept aside");
+  assert.equal(diagnostics.length, 1);
+  assert.equal(diagnostics[0].code, "mobile.audit_quarantined");
+  assert.doesNotMatch(JSON.stringify(diagnostics[0]), /anybot-audit-torn/, "no paths in diagnostics");
+});

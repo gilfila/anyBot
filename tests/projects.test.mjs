@@ -166,3 +166,18 @@ test("a project's folders are granted to Claude Code and Codex, and only listed 
   assert.equal(missing[0].message, "2 of this project's allowed folders don't exist or aren't absolute paths");
   assert.ok(!JSON.stringify(missing).includes(directory));
 });
+
+// A "project" created with one bot, or trimmed to one, isn't that bot's direct
+// chat (its first one-bot conversation), so it can still be deleted; the
+// direct chat itself can't.
+test("a one-bot conversation that isn't the bot's direct chat can be deleted", async (t) => {
+  const { c, alex, direct } = await workspace(t);
+  await c.command("conversations.create", { title: "Solo launch", members: [alex.id] });
+  const solo = c.snapshot().conversations.at(-1);
+  await c.command("conversations.setArchived", { conversation: solo.id, archived: true });
+  assert.equal(c.snapshot().conversations.find((x) => x.id === solo.id).archived, 1);
+  await assert.rejects(
+    c.command("conversations.setArchived", { conversation: direct.id, archived: true }),
+    /Only projects can be deleted/,
+  );
+});
