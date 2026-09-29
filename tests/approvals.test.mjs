@@ -72,7 +72,14 @@ test("a Claude run waits on the owner's answer, and the chat records it", async 
   assert.match(config.env.ANYBOT_APPROVAL_TOKEN, /^[0-9a-f]{64}$/);
   const pending = c.snapshot().approvals.find((a) => a.status === "pending");
   assert.deepEqual([pending.tool, pending.summary, pending.employee, pending.conversation], ["Bash", "rm -rf build", sol.id, chat.id]);
-  assert.deepEqual(attention, [{ title: "Sol needs your approval", body: "Bash: rm -rf build" }]);
+  // The notification opens the waiting conversation and run (desktop/main.cjs).
+  assert.deepEqual(attention, [
+    {
+      title: "Sol needs your approval",
+      body: "Bash: rm -rf build",
+      target: { approval: pending.id, conversation: chat.id, run: pending.run },
+    },
+  ]);
   await c.command("approvals.decide", { id: pending.id, decision: "allow" });
   await until(() => c.snapshot().approvals.filter((a) => a.status === "pending").length === 1 && c.snapshot().approvals.length === 2, "the second request");
   const second = c.snapshot().approvals.find((a) => a.status === "pending");

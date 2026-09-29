@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fileTooltip, pathShape } from "../src/lib/file-refs.js";
-import { fileCandidates, renderMarkdownInline } from "../src/lib/markdown.js";
+import { fileCandidates, linkPlainText, renderMarkdownInline } from "../src/lib/markdown.js";
 
 const candidates = (text, platform = "win32") => fileCandidates([text], platform);
 const found = (state = "file", extra = {}) => ({
@@ -184,4 +184,39 @@ test("tooltips say what a click does", () => {
   );
   assert.match(fileTooltip({ state: "file", path: "C:\\x.lnk", name: "x.lnk", action: "menu" }), /Shortcut files aren't opened from chat/);
   assert.match(fileTooltip({ state: "folder", path: "C:\\x", name: "x", action: "open", reveal: true }), /^C:\\x\nFolder\nClick to open the folder/);
+});
+
+// Terminal output (RunTerminal.jsx): links only, no markdown.
+test("terminal lines link web URLs and confirmed paths, and keep * and backticks as printed", () => {
+  const lookup = lookupOf(["C:\\work\\src\\app.ts"]);
+  const html = linkPlainText("⏺ Read(C:\\work\\src\\app.ts) *then* `npm test` <b>", { files: { platform: "win32", lookup } });
+  assert.match(
+    html,
+    /^⏺ Read\(<span class="file-link"[^>]*data-file-ref="C:\\work\\src\\app\.ts"[^>]*>C:\\work\\src\\app\.ts<\/span>\) \*then\* `npm test` &lt;b&gt;$/,
+  );
+  assert.equal(
+    linkPlainText("⏺ WebFetch(https://example.com/a?b=1)"),
+    '⏺ WebFetch(<a href="https://example.com/a?b=1" target="_blank" rel="noopener noreferrer">https://example.com/a?b=1</a>)',
+  );
+  // Unconfirmed paths stay text, and a NUL in the output can't forge a placeholder.
+  assert.equal(linkPlainText("Edit(C:\\work\\gone.ts)", { files: { platform: "win32", lookup } }), "Edit(C:\\work\\gone.ts)");
+  assert.equal(linkPlainText("a\u00000\u0000b"), "a0b");
+  assert.deepEqual(fileCandidates(["⏺ Read(C:\\work\\src\\app.ts)", "*notes/plan.md*"], "win32", { plain: true }), [
+    "C:\\work\\src\\app.ts",
+    "notes/plan.md",
+  ]);
+});
+
+test("a tool call's relative path argument links, though the tool's name is glued to it", () => {
+  const lookup = lookupOf(["notes/plan.md"]);
+  const files = { platform: "win32", lookup };
+  assert.match(
+    linkPlainText("⏺ Edit(notes/plan.md)", { files }),
+    /^⏺ Edit\(<span class="file-link"[^>]*data-file-ref="notes\/plan\.md"[^>]*>notes\/plan\.md<\/span>\)$/,
+  );
+  assert.deepEqual(fileCandidates(["⏺ Edit(notes/plan.md)"], "win32", { plain: true }), ["notes/plan.md"]);
+  // Commands, globs, searches and URLs aren't paths; paths inside a command still link.
+  for (const line of ["⏺ Bash(npm test)", "⏺ Glob(**/*.ts)", "⏺ Grep(TODO)", "⏺ WebSearch(anybot docs)"])
+    assert.equal(linkPlainText(line, { files: { platform: "win32", lookup: lookupOf(["npm test", "**/*.ts", "TODO"]) } }), line, line);
+  assert.match(linkPlainText("⏺ Bash(cat notes/plan.md)", { files }), /cat <span class="file-link"[^>]*>notes\/plan\.md<\/span>\)$/);
 });

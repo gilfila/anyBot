@@ -155,7 +155,12 @@ export class Coordinator extends EventEmitter {
     this.approvals = new Approvals(this.store, directory, {
       onRequest: (approval) => {
         const name = this.store.one("SELECT name FROM employees WHERE id=?", approval.employee)?.name || "A bot";
-        this.emit("attention", { title: `${name} needs your approval`, body: `${approval.tool}: ${approval.summary}`.slice(0, 200) });
+        this.emit("attention", {
+          title: `${name} needs your approval`,
+          body: `${approval.tool}: ${approval.summary}`.slice(0, 200),
+          // Where clicking the notification opens (desktop/main.cjs).
+          target: { approval: approval.id, conversation: approval.conversation, run: approval.run },
+        });
         this.notify();
       },
       onSettled: (approval) => this.approvalSettled(approval),
@@ -1482,10 +1487,11 @@ export class Coordinator extends EventEmitter {
   // your own messages), then the conversation's allowed folders and its
   // artifacts folder. Main-only, like artifacts.resolve.
   fileContext(payload) {
-    const message = requireRow(
-      this.store.one("SELECT conversation,author FROM messages WHERE id=?", text(payload.message, "Message ID", 100)),
-      "Message",
-    );
+    const key = text(payload.message, "Message ID", 100);
+    // A run's terminal asks as "run:<id>": that run's bot and conversation.
+    const message = key.startsWith("run:")
+      ? requireRow(this.store.one("SELECT conversation,employee AS author FROM runs WHERE id=?", key.slice(4)), "Run")
+      : requireRow(this.store.one("SELECT conversation,author FROM messages WHERE id=?", key), "Message");
     const conversation = this.store.one(
       "SELECT members,allowedFolders,artifactsFolder FROM conversations WHERE id=?",
       message.conversation,

@@ -731,6 +731,39 @@
   color: var(--accent-ink);
   padding: 0;
 }
+/* A run row opens its terminal underneath; a failed run says why. */
+.task-work li.task-work-run {
+  flex-wrap: wrap;
+}
+.task-work-open {
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-start;
+  gap: 8px;
+  margin: -3px -6px;
+  padding: 3px 6px;
+  text-align: left;
+}
+.task-work-open:hover:not(:disabled) {
+  background: var(--paper-2);
+}
+.task-work-open time {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-4);
+}
+.task-work-error {
+  flex-basis: 100%;
+  margin: 0 0 0 32px;
+  font-size: 12px;
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+.task-work .run-terminal {
+  flex-basis: 100%;
+  margin: 4px 0 6px;
+}
 .task-activity {
   list-style: none;
   margin: 0;

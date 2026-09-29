@@ -57,6 +57,7 @@ test("file-link code never reaches the shell, folder, or URL bridges", async () 
     "src/components/MessageContent.jsx",
     "src/components/FileLinks.jsx",
     "src/components/FilePreview.jsx",
+    "src/components/RunTerminal.jsx",
   ];
   for (const file of files) {
     const source = await read(file);
@@ -65,10 +66,10 @@ test("file-link code never reaches the shell, folder, or URL bridges", async () 
   }
 });
 
-test("shell.openPath only opens the diagnostics folder or a file link main has just inspected", async () => {
+test("shell.openPath only opens the app's own folders or a file link main has just inspected", async () => {
   const main = await read("desktop/main.cjs");
-  const opened = [...main.matchAll(/shell\.openPath\(([^)]*)\)/g)].map((m) => m[1].trim()).sort();
-  assert.deepEqual(opened, ["diagnostics.directory", "ref.path"]);
+  const opened = [...main.matchAll(/shell\.openPath\(([^;]*)\);/g)].map((m) => m[1].trim()).sort();
+  assert.deepEqual(opened, ['app.getPath("userData")', "diagnostics.directory", "ref.path"]);
   const branch = main.match(/if \(method === "files\.open"\) \{[\s\S]*?return \{ opened: true \};/)?.[0] || "";
   assert.match(branch, /const ref = await fileTarget\(payload, "open"\);[\s\S]*shell\.openPath\(ref\.path\)/);
   const shown = [...main.matchAll(/shell\.showItemInFolder\(([^;]*)\);/g)].map((m) => m[1].trim()).sort();

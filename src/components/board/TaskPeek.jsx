@@ -3,6 +3,7 @@ import {
   Check,
   CircleDot,
   FileText,
+  FolderOpen,
   MessageSquare,
   Play,
   Plus,
@@ -12,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { RobotAvatar } from "../RobotAvatar.jsx";
+import { RunTerminal } from "../RunTerminal.jsx";
 import { Status } from "../Status.jsx";
 import { PRIORITIES, STATUSES, authorName, isWorking, statusLabel } from "./meta.js";
 
@@ -105,9 +107,11 @@ function PeoplePicker({ members, selected, onChange, label }) {
 
 const KIND_ICON = { comment: MessageSquare, progress: CircleDot, status: RotateCcw, started: Play };
 
-export function TaskPeek({ taskId, data, conversation, act, onClose, onOpenArtifact }) {
+export function TaskPeek({ taskId, data, conversation, act, onClose, onOpenArtifact, onRevealArtifact, onOpenThread }) {
   const task = data.tasks.find((item) => item.id === taskId);
   const [detail, setDetail] = useState(null);
+  // The Work section's run whose terminal is open.
+  const [terminal, setTerminal] = useState(null);
   const [comment, setComment] = useState("");
   const [newItem, setNewItem] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -335,20 +339,60 @@ export function TaskPeek({ taskId, data, conversation, act, onClose, onOpenArtif
           <section className="task-section">
             <h4>Work</h4>
             <ul className="task-work">
-              {detail.runs.map((run) => (
-                <li key={run.id}>
-                  <RobotAvatar small employee={data.employees.find((e) => e.id === run.employee)} working={run.status === "running"} />
-                  <span>{authorName(run.employee, data.employees)}</span>
-                  <Status status={run.status} />
-                  <time>{time(run.created)}</time>
-                </li>
-              ))}
+              {detail.runs.map((run) => {
+                // The snapshot's copy has the live status and the thread.
+                const current = data.runs.find((r) => r.id === run.id);
+                const open = terminal === run.id && current;
+                const name = authorName(run.employee, data.employees);
+                const error = ["failed", "interrupted"].includes(run.status) && run.error ? String(run.error).split("\n")[0].slice(0, 240) : "";
+                return (
+                  <li key={run.id} className="task-work-run">
+                    <button
+                      type="button"
+                      className="task-work-open"
+                      aria-expanded={Boolean(open)}
+                      disabled={!current}
+                      title={open ? "Hide the terminal" : `See ${name}'s terminal`}
+                      onClick={() => setTerminal(open ? null : run.id)}
+                    >
+                      <RobotAvatar small employee={data.employees.find((e) => e.id === run.employee)} working={run.status === "running"} />
+                      <span>{name}</span>
+                      <Status status={run.status} />
+                      <time>{time(run.created)}</time>
+                    </button>
+                    {current?.thread && onOpenThread && (
+                      <button
+                        type="button"
+                        className="icon-button"
+                        aria-label={`Open ${name}'s thread`}
+                        title="Open its thread"
+                        onClick={() => onOpenThread(current.thread)}
+                      >
+                        <MessageSquare size={14} />
+                      </button>
+                    )}
+                    {error && <p className="task-work-error">{error}</p>}
+                    {open && <RunTerminal run={current} paused={data.runtime?.paused} name={name} />}
+                  </li>
+                );
+              })}
               {detail.artifacts.map((artifact) => (
                 <li key={artifact.id}>
                   <button type="button" className="task-artifact" onClick={() => onOpenArtifact(artifact)}>
                     <FileText size={14} />
                     {artifact.name}
                   </button>
+                  {onRevealArtifact && (
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label={`Show ${artifact.name} in folder`}
+                      title="Show in folder"
+                      onClick={() => onRevealArtifact(artifact)}
+                    >
+                      <FolderOpen size={14} />
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>

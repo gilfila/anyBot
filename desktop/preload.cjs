@@ -24,6 +24,12 @@ contextBridge.exposeInMainWorld("anybot", {
     ipcRenderer.on("anybot:changed", listener);
     return () => ipcRenderer.removeListener("anybot:changed", listener);
   },
+  // A clicked notification: ids of the conversation, run or approval to open.
+  onNavigate: (callback) => {
+    const listener = (_event, target) => callback(target);
+    ipcRenderer.on("anybot:navigate", listener);
+    return () => ipcRenderer.removeListener("anybot:navigate", listener);
+  },
   listDirectory: (path) => ipcRenderer.invoke("anybot:listDirectory", path),
   revealPath: (path) => ipcRenderer.invoke("anybot:revealPath", path),
   // The context rail's Terminal. `cwd` is the folder to run in (main falls

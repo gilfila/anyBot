@@ -10,6 +10,7 @@ import {
   PinOff,
   Plus,
   Settings2,
+  SquareTerminal,
   Trash2,
   User,
   Waypoints,
@@ -228,7 +229,15 @@ function MemoryList({ employee }) {
   );
 }
 
-function AgentPanel({ employee, data, reports, act, onClose, onMessage, onEdit, onSelect }) {
+// A report's link: the run it came from (its thread or terminal), else its task.
+const reportTarget = (report, data) =>
+  report.run && data.runs.some((r) => r.id === report.run)
+    ? { run: report.run }
+    : report.task && data.tasks.some((t) => t.id === report.task)
+      ? { task: report.task }
+      : null;
+
+function AgentPanel({ employee, data, reports, act, onClose, onMessage, onEdit, onSelect, onOpenTarget, onOpenRun }) {
   const manager = data.employees.find((e) => e.id === employee.manager);
   const direct = data.employees.filter((e) => e.manager === employee.id && !e.archived);
   const running = data.runs.filter((r) => r.employee === employee.id && ACTIVE.includes(r.status));
@@ -308,7 +317,26 @@ function AgentPanel({ employee, data, reports, act, onClose, onMessage, onEdit, 
                 return (
                   <span key={run.id} className="agent-now">
                     <Status status={run.status === "running" ? "working" : run.status} />
-                    {task ? task.title : project?.title}
+                    {onOpenTarget ? (
+                      <button type="button" className="text-link" title="Open where this work is" onClick={() => onOpenTarget({ run: run.id })}>
+                        {task ? task.title : project?.title || "Direct work"}
+                      </button>
+                    ) : task ? (
+                      task.title
+                    ) : (
+                      project?.title
+                    )}
+                    {onOpenRun && (
+                      <button
+                        type="button"
+                        className="icon-button"
+                        aria-label={`Watch ${employee.name}'s terminal`}
+                        title="Watch the terminal"
+                        onClick={() => onOpenRun(run.id)}
+                      >
+                        <SquareTerminal size={14} />
+                      </button>
+                    )}
                   </span>
                 );
               })
@@ -323,17 +351,31 @@ function AgentPanel({ employee, data, reports, act, onClose, onMessage, onEdit, 
             {done.map((task) => (
               <li key={task.id}>
                 <CheckCheck size={14} />
-                <span>{task.title}</span>
+                {onOpenTarget ? (
+                  <button type="button" className="text-link" title="Open it on its board" onClick={() => onOpenTarget({ task: task.id })}>
+                    {task.title}
+                  </button>
+                ) : (
+                  <span>{task.title}</span>
+                )}
                 <time>{ago(task.updated)}</time>
               </li>
             ))}
-            {sent.map((report) => (
-              <li key={report.id} className="is-report">
-                <Inbox size={14} />
-                <span dangerouslySetInnerHTML={{ __html: renderMarkdownInline(report.summary.slice(0, 220)) }} />
-                <time>{ago(report.created)}</time>
-              </li>
-            ))}
+            {sent.map((report) => {
+              const target = onOpenTarget && reportTarget(report, data);
+              return (
+                <li key={report.id} className="is-report">
+                  <Inbox size={14} />
+                  <span dangerouslySetInnerHTML={{ __html: renderMarkdownInline(report.summary.slice(0, 220)) }} />
+                  {target && (
+                    <button type="button" className="icon-button" aria-label="Open where this was done" title="Open where this was done" onClick={() => onOpenTarget(target)}>
+                      <ArrowUpRight size={14} />
+                    </button>
+                  )}
+                  <time>{ago(report.created)}</time>
+                </li>
+              );
+            })}
             {!done.length && !sent.length && <li className="muted">No finished work yet.</li>}
           </ul>
           {manager && <p className="agent-footnote">Finished work is reported to {manager.name}.</p>}
@@ -344,7 +386,7 @@ function AgentPanel({ employee, data, reports, act, onClose, onMessage, onEdit, 
   );
 }
 
-function ReportsFeed({ reports, data, act }) {
+function ReportsFeed({ reports, data, act, onOpenTarget, onSelectBot }) {
   const [scope, setScope] = useState("owner");
   const visible = reports.filter((r) => scope === "all" || r.toEmployee === "");
   const unread = visible.filter((r) => !r.read && r.toEmployee === "");
@@ -383,15 +425,43 @@ function ReportsFeed({ reports, data, act }) {
         {visible.map((report) => {
           const from = data.employees.find((e) => e.id === report.fromEmployee);
           const task = data.tasks.find((t) => t.id === report.task);
+          const target = onOpenTarget && reportTarget(report, data);
           return (
             <li key={report.id} className={!report.read && report.toEmployee === "" ? "is-unread" : ""}>
               <RobotAvatar small employee={from} />
               <div>
                 <p className="report-head">
-                  <strong>{from?.name || "Former employee"}</strong>
+                  {from && !from.archived && onSelectBot ? (
+                    <button type="button" className="text-link" title={`See ${from.name} in the org chart`} onClick={() => onSelectBot(from.id)}>
+                      <strong>{from.name}</strong>
+                    </button>
+                  ) : (
+                    <strong>{from?.name || "Former employee"}</strong>
+                  )}
                   <span>to {name(report.toEmployee)}</span>
-                  {task && <span className="task-label">{task.title}</span>}
+                  {task &&
+                    (onOpenTarget ? (
+                      <button type="button" className="task-label" title="Open it on its board" onClick={() => onOpenTarget({ task: task.id })}>
+                        {task.title}
+                      </button>
+                    ) : (
+                      <span className="task-label">{task.title}</span>
+                    ))}
                   <time>{ago(report.created)}</time>
+                  {target && (
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label="Open where this was done"
+                      title="Open where this was done"
+                      onClick={() => {
+                        if (!report.read && report.toEmployee === "") act("reports.markRead", { ids: [report.id] });
+                        onOpenTarget(target);
+                      }}
+                    >
+                      <ArrowUpRight size={14} />
+                    </button>
+                  )}
                 </p>
                 <p className="report-body" dangerouslySetInnerHTML={{ __html: renderMarkdownInline(report.summary) }} />
               </div>
@@ -403,9 +473,27 @@ function ReportsFeed({ reports, data, act }) {
   );
 }
 
-export function OrgPage({ data, act, onMessage, onEdit, tab, onTab }) {
+// `selected`/`onSelect` let App open a bot's panel (the roster's names);
+// without them the page keeps its own. onOpenTarget, onOpenRun,
+// onOpenArtifact and onRevealArtifact link work to where it happened.
+export function OrgPage({
+  data,
+  act,
+  onMessage,
+  onEdit,
+  tab,
+  onTab,
+  selected: chosen,
+  onSelect,
+  onOpenTarget,
+  onOpenRun,
+  onOpenArtifact,
+  onRevealArtifact,
+}) {
   const [org, setOrg] = useState({ stats: {}, reports: [] });
-  const [selected, setSelected] = useState(null);
+  const [own, setOwn] = useState(null);
+  const selected = onSelect ? chosen : own;
+  const setSelected = onSelect || setOwn;
   const refreshKey = `${data.runs.length}:${data.tasks.map((t) => t.updated).join()}:${data.reportsUnread}:${data.employees.map((e) => e.manager).join()}`;
   useEffect(() => {
     if (!window.anybot) return;
@@ -456,8 +544,28 @@ export function OrgPage({ data, act, onMessage, onEdit, tab, onTab }) {
               <p>Create a few bots first. Then arrange who reports to whom here.</p>
             </div>
           ))}
-        {tab === "reports" && <ReportsFeed reports={org.reports} data={data} act={act} />}
-        {tab === "graph" && <KnowledgeGraph data={data} act={act} onMessage={onMessage} />}
+        {tab === "reports" && (
+          <ReportsFeed
+            reports={org.reports}
+            data={data}
+            act={act}
+            onOpenTarget={onOpenTarget}
+            onSelectBot={(id) => {
+              setSelected(id);
+              onTab("chart");
+            }}
+          />
+        )}
+        {tab === "graph" && (
+          <KnowledgeGraph
+            data={data}
+            act={act}
+            onMessage={onMessage}
+            onOpenTarget={onOpenTarget}
+            onOpenArtifact={onOpenArtifact}
+            onRevealArtifact={onRevealArtifact}
+          />
+        )}
       </div>
       {employee && tab === "chart" && (
         <AgentPanel
@@ -469,6 +577,8 @@ export function OrgPage({ data, act, onMessage, onEdit, tab, onTab }) {
           onMessage={() => onMessage(employee)}
           onEdit={() => onEdit(employee)}
           onSelect={setSelected}
+          onOpenTarget={onOpenTarget}
+          onOpenRun={onOpenRun}
         />
       )}
     </div>

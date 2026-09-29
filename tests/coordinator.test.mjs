@@ -605,4 +605,8 @@ test("files.context gives a message's folders: its bot's workspace, or every mem
   });
   await assert.rejects(c.command("files.context", { message: "missing" }), /Message not found/);
   await assert.rejects(c.command("files.context", {}), /Message ID/);
+  // A run's terminal (RunTerminal.jsx) asks as "run:<id>": its bot's workspace first.
+  const run = c.snapshot().runs.find((r) => r.employee === employees[0].id);
+  assert.deepEqual(await c.command("files.context", { message: `run:${run.id}` }), { bases: [workspace(0), ...sharedOnce, outputs] });
+  await assert.rejects(c.command("files.context", { message: "run:missing" }), /Run not found/);
 });

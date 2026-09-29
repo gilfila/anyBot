@@ -14,12 +14,15 @@ import {
   CircleHelp,
   Columns3,
   Clock,
+  Copy,
   Cpu,
   Download,
   ExternalLink,
   Folder,
+  FolderOpen,
   FileText,
   Hash,
+  Keyboard,
   Loader,
   Mic,
   MessageSquare,
@@ -207,6 +210,8 @@ import { PhoneLinkPanel } from "./components/PhoneLinkPanel.jsx";
 import { SlackPanel } from "./components/SlackPanel.jsx";
 import { AttentionIcon } from "./components/AttentionIcon.jsx";
 import { botAttention } from "./lib/attention.js";
+import { attentionTarget, resolveTarget } from "./lib/navigation.js";
+import { SHORTCUTS, nextApproval, shortcutFor, shortcutKeys } from "./lib/shortcuts.js";
 import { plainNotes } from "./lib/update-notes.js";
 import { RunTerminal } from "./components/RunTerminal.jsx";
 import { UsageToday } from "./components/UsageToday.jsx";
@@ -726,6 +731,143 @@ export function App() {
     document.getElementById("diagnostics-title")?.scrollIntoView({ behavior: "smooth", block: "start" });
     setShowDiagnostics(false);
   }, [showDiagnostics, view]);
+  // Jumps from anywhere (notifications, the sidebar's attention, Activity,
+  // the board, Organization, Diagnostics, Routines): the conversation, then
+  // its thread or task, then the message (src/lib/navigation.js). A run whose
+  // conversation is gone opens its terminal in Activity instead.
+  const [focusMessage, setFocusMessage] = useState(null);
+  const [focusRun, setFocusRun] = useState(null);
+  function openRunTerminal(runId) {
+    setView("work");
+    setOpenTerminal(runId);
+    setFocusRun({ id: runId });
+  }
+  function openTarget(target, source = data) {
+    const place = resolveTarget(target, source);
+    if (!place) {
+      setError("That conversation isn't there any more.");
+      return false;
+    }
+    if (place.view === "work") {
+      openRunTerminal(place.run);
+      return true;
+    }
+    openConversation(source.conversations.find((c) => c.id === place.conversation));
+    setOpenThread(place.thread);
+    setSelectedTask(place.task);
+    setProjectTab(place.task ? "board" : "chat");
+    if (place.task) setRightSidebarOpen(true);
+    setFocusMessage(place.message ? { id: place.message } : null);
+    return true;
+  }
+  // Scroll the jumped-to message into view (the thread panel's copy when
+  // it's open) and mark it for a moment.
+  useEffect(() => {
+    if (!focusMessage || view !== "chat") return undefined;
+    let clear;
+    const timer = setTimeout(() => {
+      const node = [...document.querySelectorAll(`[data-message="${CSS.escape(focusMessage.id)}"]`)].at(-1);
+      if (!node) return;
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
+      node.classList.add("is-target");
+      clear = setTimeout(() => node.classList.remove("is-target"), 2000);
+    }, 150);
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(clear);
+    };
+  }, [focusMessage, view]);
+  useEffect(() => {
+    if (!focusRun || view !== "work") return undefined;
+    const timer = setTimeout(
+      () => document.getElementById(`run-${focusRun.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      80,
+    );
+    return () => clearTimeout(timer);
+  }, [focusRun, view]);
+  // A clicked notification (desktop/main.cjs): the approval it was about,
+  // resolved against a fresh snapshot since it may be newer than ours.
+  const openTargetRef = useRef(openTarget);
+  openTargetRef.current = openTarget;
+  useEffect(
+    () =>
+      window.anybot?.onNavigate?.(async (target) => {
+        let source = dataRef.current;
+        try {
+          source = await window.anybot.request("snapshot");
+          setData(source);
+        } catch {
+          // Resolve against what's on screen.
+        }
+        openTargetRef.current(target, source);
+      }),
+    [],
+  );
+  // Keyboard shortcuts (src/lib/shortcuts.js, listed in Settings). Not while
+  // a dialog is open: it owns the keyboard.
+  const searchInput = useRef(null);
+  const shownApproval = useRef(null);
+  const shortcut = useRef(null);
+  shortcut.current = (action) => {
+    if (action === "sidebar") toggleLeftSidebar();
+    else if (action === "search") {
+      if (!leftSidebarOpen) toggleLeftSidebar();
+      setTimeout(() => {
+        searchInput.current?.focus();
+        searchInput.current?.select();
+      }, 50);
+    } else if (action === "approval") {
+      const next = nextApproval(data.approvals, shownApproval.current);
+      if (!next) setNotice("Nothing is waiting for your approval.");
+      else {
+        shownApproval.current = next.id;
+        openTarget({ approval: next.id });
+      }
+    }
+  };
+  useEffect(() => {
+    const onKey = (event) => {
+      const action = shortcutFor(event);
+      if (!action || event.defaultPrevented || document.querySelector("dialog[open]")) return;
+      event.preventDefault();
+      shortcut.current(action);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+  // Copies text the app shows (a command, a path) and says so.
+  async function copyToClipboard(text, what) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setNotice(`Copied ${what}.`);
+    } catch {
+      setError("Couldn't reach the clipboard. Select the text and copy it instead.");
+    }
+  }
+  // A path this computer reported (a harness's program, from the probe);
+  // never bot output, which only goes through files.*.
+  async function revealOwnerPath(path) {
+    try {
+      await window.anybot.revealPath(path);
+    } catch (error) {
+      setError(error.message.replace(/^Error invoking remote method '[^']+': Error: /, ""));
+    }
+  }
+  async function openDataFolder() {
+    try {
+      const result = await window.anybot.request("app.openDataFolder");
+      if (result?.error) setError(`Couldn't open the data folder: ${result.error}`);
+    } catch (error) {
+      setError(error.message);
+    }
+  }
+  // Organization: the bot whose panel is open (the roster's names open it).
+  const [orgSelected, setOrgSelected] = useState(null);
+  function openInOrg(employeeId) {
+    setOrgTab("chart");
+    setOrgSelected(employeeId);
+    setView("org");
+  }
   // What messages link out to (components/chat/ChatContext.js).
   const chatLinks = {
     employees: data.employees,
@@ -774,10 +916,26 @@ export function App() {
         <label className="sidebar-search">
           <Search size={15} />
           <input
+            ref={searchInput}
             aria-label="Search bots and projects"
             placeholder="Search"
+            title={`Search bots and projects (${shortcutKeys("search")}). Enter opens the first match.`}
             value={sidebarSearch}
             onChange={(event) => setSidebarSearch(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && sidebarSearch) {
+                event.preventDefault();
+                setSidebarSearch("");
+              } else if (event.key === "Enter" && sidebarTerm) {
+                // A quick switcher: open the first match, then show every row again.
+                event.preventDefault();
+                const bot = sidebarEmployees[0];
+                const project = groupConversations[0];
+                if (bot) directChat(bot);
+                else if (project) openConversation(project);
+                if (bot || project) setSidebarSearch("");
+              }
+            }}
           />
         </label>
         <div className="sidebar-scroll">
@@ -839,8 +997,12 @@ export function App() {
             const isMenuOpen = openBotMenu === employee.id;
             const run = currentRun(employee.id);
             const waiting = (data.approvals || []).some((a) => a.status === "pending" && a.employee === employee.id);
-            // What this bot needs from you, shown right of its name.
+            // What this bot needs from you, shown right of its name. The row
+            // opens where that is (the approval, failed run, question or PR);
+            // otherwise, and for a plain new reply, the direct chat.
             const attention = botAttention(employee.id, data, { unread });
+            const jump = attentionTarget(attention);
+            const jumpable = Boolean(jump && resolveTarget(jump, data));
             return (
               <div
                 key={employee.id}
@@ -848,7 +1010,8 @@ export function App() {
               >
                 <button
                   className="bot-row-main"
-                  onClick={() => directChat(employee)}
+                  title={jumpable ? `${attention.label}: open it` : undefined}
+                  onClick={() => (jumpable ? openTarget(jump) : directChat(employee))}
                 >
                   <RobotAvatar size={compactBots ? 28 : 60} employee={employee} working={run?.status === "running"} />
                   <span className="bot-row-text">
@@ -894,6 +1057,18 @@ export function App() {
                     label={`Actions for ${employee.name}`}
                     onClose={() => setOpenBotMenu(null)}
                   >
+                    {jumpable && (
+                      <button
+                        role="menuitem"
+                        onClick={() => {
+                          setOpenBotMenu(null);
+                          directChat(employee);
+                        }}
+                      >
+                        <MessageSquare size={14} />
+                        Message directly
+                      </button>
+                    )}
                     <button
                       role="menuitem"
                       onClick={() => {
@@ -1126,7 +1301,7 @@ export function App() {
             <button
               className="sidebar-toggle"
               onClick={toggleLeftSidebar}
-              title={leftSidebarOpen ? "Hide sidebar" : "Show sidebar"}
+              title={`${leftSidebarOpen ? "Hide sidebar" : "Show sidebar"} (${shortcutKeys("sidebar")})`}
               aria-label={leftSidebarOpen ? "Hide sidebar" : "Show sidebar"}
             >
               {leftSidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
@@ -1248,6 +1423,18 @@ export function App() {
                       const run = currentRun(e.id);
                       const working = run?.status === "running";
                       const last = !run && lastReply(e.id);
+                      const now = run
+                        ? lastLine(run.output) || data.messages.find((m) => m.id === run.message)?.body || "Starting up…"
+                        : last
+                          ? last.body
+                          : e.instructions;
+                      // The now-line opens the live run's terminal, or the
+                      // last reply where it was posted.
+                      const openNow = run
+                        ? () => openRunTerminal(run.id)
+                        : last && resolveTarget({ message: last.id }, data)
+                          ? () => openTarget({ message: last.id })
+                          : null;
                       return (
                         <article
                           className={`roster-row${working ? " is-working" : ""}${e.archived ? " is-archived" : ""}`}
@@ -1255,7 +1442,20 @@ export function App() {
                         >
                           <RobotAvatar size={88} employee={e} working={working} />
                           <div className="roster-who">
-                            <h3>{e.name}</h3>
+                            <h3>
+                              {e.archived ? (
+                                e.name
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="text-link"
+                                  title={`See ${e.name} in Organization`}
+                                  onClick={() => openInOrg(e.id)}
+                                >
+                                  {e.name}
+                                </button>
+                              )}
+                            </h3>
                             <span className="role">{e.role}</span>
                           </div>
                           <div className="roster-now">
@@ -1270,20 +1470,28 @@ export function App() {
                                     : "available"
                               }
                             />
-                            <p>
-                              {run
-                                ? lastLine(run.output) ||
-                                  data.messages.find((m) => m.id === run.message)?.body ||
-                                  "Starting up…"
-                                : last
-                                  ? last.body
-                                  : e.instructions}
-                            </p>
+                            {openNow ? (
+                              <button
+                                type="button"
+                                className="roster-now-link"
+                                title={run ? `Watch ${e.name}'s terminal` : "Open this reply in its conversation"}
+                                onClick={openNow}
+                              >
+                                <span className="roster-line">{now}</span>
+                              </button>
+                            ) : (
+                              <p>{now}</p>
+                            )}
                           </div>
-                          <span className="harness-tag">
+                          <button
+                            type="button"
+                            className="harness-tag"
+                            title="Open Harnesses"
+                            onClick={() => setView("harnesses")}
+                          >
                             <Cpu size={13} />
                             {harnessName(e.harness)}
-                          </span>
+                          </button>
                           <div className="roster-row-actions">
                             {e.archived ? (
                               <button
@@ -1686,6 +1894,11 @@ export function App() {
                 act={act}
                 onClose={() => setSelectedTask(null)}
                 onOpenArtifact={openArtifact}
+                onRevealArtifact={revealArtifact}
+                onOpenThread={(thread) => {
+                  setProjectTab("chat");
+                  setOpenThread(thread);
+                }}
               />
             ) : (
             <ContextRail
@@ -1772,7 +1985,7 @@ export function App() {
                   const tokens = runTokens(r);
                   return (
                   <React.Fragment key={r.id}>
-                  <article className={`run-row${open ? " is-open" : ""}`}>
+                  <article id={`run-${r.id}`} className={`run-row${open ? " is-open" : ""}`}>
                     <button
                       type="button"
                       className="run-open"
@@ -1806,15 +2019,17 @@ export function App() {
                         Stop
                       </button>
                     )}
+                    {/* Where the work happened: its thread, else its task, else
+                        the conversation, scrolled to the reply. */}
                     <button
                       aria-label="Open conversation"
-                      onClick={() =>
-                        openConversation(
-                          data.conversations.find(
-                            (c) => c.id === r.conversation,
-                          ),
-                        )
+                      title={
+                        data.conversations.some((c) => c.id === r.conversation)
+                          ? "Open where this happened"
+                          : "Its conversation was deleted"
                       }
+                      disabled={!data.conversations.some((c) => c.id === r.conversation)}
+                      onClick={() => openTarget({ run: r.id })}
                     >
                       <ArrowUpRight size={19} />
                     </button>
@@ -1865,14 +2080,39 @@ export function App() {
                     )}
                     {h.login && (
                       <>
-                        <code>{h.login}</code>
+                        <span className="harness-copy-row">
+                          <code>{h.login}</code>
+                          <button
+                            type="button"
+                            className="icon-button"
+                            aria-label={`Copy ${h.login}`}
+                            title="Copy the sign-in command"
+                            onClick={() => copyToClipboard(h.login, "the sign-in command")}
+                          >
+                            <Copy size={14} />
+                          </button>
+                        </span>
                         <small>
                           Run this in your terminal to authenticate.
                         </small>
                       </>
                     )}
                     {h.executable && (
-                      <small className="path">{h.executable}</small>
+                      <span className="harness-copy-row">
+                        <small className="path">{h.executable}</small>
+                        {/* The probe's own find on this computer, not bot output. */}
+                        {/^(?:[A-Za-z]:[\\/]|\/)/.test(h.executable) && (
+                          <button
+                            type="button"
+                            className="icon-button"
+                            aria-label={`Show ${h.name}'s program in its folder`}
+                            title="Show in folder"
+                            onClick={() => revealOwnerPath(h.executable)}
+                          >
+                            <FolderOpen size={14} />
+                          </button>
+                        )}
+                      </span>
                     )}
                   </div>
                   {problems > 0 ? (
@@ -1903,6 +2143,10 @@ export function App() {
                 harness={data.harnesses.find((h) => h.id === harnessDetail)}
                 failures={recentHarnessFailures(harnessDetail, data.runs, data.employees)}
                 onClose={() => setHarnessDetail(null)}
+                onOpenRun={(runId) => {
+                  setHarnessDetail(null);
+                  openRunTerminal(runId);
+                }}
               />
             )}
             <div className="info-box">
@@ -1918,6 +2162,10 @@ export function App() {
                   owner-controlled file. Custom launchers run with your local
                   account permissions.
                 </p>
+                <button type="button" className="secondary" onClick={openDataFolder}>
+                  <FolderOpen size={14} />
+                  Open the app data folder
+                </button>
                 <p>
                   A detected executable still needs a supported version and a
                   working login. Your first task will surface any configuration
@@ -2117,6 +2365,9 @@ export function App() {
               data={data}
               onEditEmployee={(employee) => setModal({ type: "employee", preset: employee, editing: true })}
               onOpenHarnesses={() => setView("harnesses")}
+              onOpenTarget={openTarget}
+              onOpenRun={openRunTerminal}
+              onOpenBot={directChat}
             />
             <h2 className="settings-section-title">Runtime & Privacy</h2>
             <div className="settings-card">
@@ -2222,7 +2473,38 @@ export function App() {
                   </p>
                 )}
               </div>
-              <Folder size={22} />
+              <div className="settings-actions">
+                <button type="button" className="secondary" onClick={openDataFolder}>
+                  <Folder size={15} />
+                  Open folder
+                </button>
+                {data.runtime.directory && (
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => copyToClipboard(data.runtime.directory, "the data folder's path")}
+                  >
+                    <Copy size={15} />
+                    Copy path
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="settings-card">
+              <div>
+                <h3>Keyboard shortcuts</h3>
+                <dl className="shortcut-list">
+                  {SHORTCUTS.map((item) => (
+                    <React.Fragment key={item.keys}>
+                      <dt>
+                        <kbd>{item.keys}</kbd>
+                      </dt>
+                      <dd>{item.label}</dd>
+                    </React.Fragment>
+                  ))}
+                </dl>
+              </div>
+              <Keyboard size={22} />
             </div>
             <MobileAccess />
           </div>
@@ -2236,6 +2518,12 @@ export function App() {
               onTab={setOrgTab}
               onMessage={(employee) => directChat(employee)}
               onEdit={(employee) => setModal({ type: "employee", preset: employee, editing: true })}
+              selected={orgSelected}
+              onSelect={setOrgSelected}
+              onOpenTarget={openTarget}
+              onOpenRun={openRunTerminal}
+              onOpenArtifact={openArtifact}
+              onRevealArtifact={revealArtifact}
             />
           </React.Suspense>
         )}
@@ -2261,22 +2549,53 @@ export function App() {
               />
             ) : (
               <div className="run-list">
-                {data.routines.map((r) => (
+                {data.routines.map((r) => {
+                  const bot = data.employees.find((e) => e.id === r.employee);
+                  const home = data.conversations.find((c) => c.id === r.conversation);
+                  const lastRun = r.lastRun && data.runs.find((run) => run.id === r.lastRun);
+                  return (
                   <article className="run-row" key={r.id}>
                     <Clock size={23} />
                     <div className="run-description">
                       <strong>{r.name}</strong>
                       <p>{r.prompt}</p>
                       <small>
-                        {data.employees.find((e) => e.id === r.employee)?.name || "A former bot"} in{" "}
-                        {data.conversations.find((c) => c.id === r.conversation)?.title || "a deleted conversation"} ·{" "}
-                        {every(r.minutes)} ·{" "}
+                        {bot && !bot.archived ? (
+                          <button type="button" className="text-link" title={`Message ${bot.name} directly`} onClick={() => directChat(bot)}>
+                            {bot.name}
+                          </button>
+                        ) : (
+                          bot?.name || "A former bot"
+                        )}{" "}
+                        in{" "}
+                        {home ? (
+                          <button type="button" className="text-link" title={`Open ${home.title}`} onClick={() => openConversation(home)}>
+                            {home.title}
+                          </button>
+                        ) : (
+                          "a deleted conversation"
+                        )}{" "}
+                        · {every(r.minutes)} ·{" "}
                         {r.enabled
                           ? `Next: ${new Date(r.nextRun).toLocaleString()}`
                           : "Paused"}
                       </small>
                       {r.lastOccurrence && (
-                        <small>Last run: {r.lastOccurrence}</small>
+                        <small>
+                          Last run:{" "}
+                          {lastRun ? (
+                            <button
+                              type="button"
+                              className="text-link"
+                              title="Open where it ran, or its terminal"
+                              onClick={() => openTarget({ run: lastRun.id })}
+                            >
+                              {r.lastOccurrence}
+                            </button>
+                          ) : (
+                            r.lastOccurrence
+                          )}
+                        </small>
                       )}
                     </div>
                     <button
@@ -2318,7 +2637,8 @@ export function App() {
                       <Trash2 size={14} />
                     </button>
                   </article>
-                ))}
+                  );
+                })}
               </div>
             )}
             <div className="info-box">

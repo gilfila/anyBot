@@ -231,6 +231,24 @@ const ago = (value) => {
 export { ago as issueAge };
 
 // Plain-text report for pasting into a chat with Claude or a bug tracker.
+// What an issue's context points at that still exists, for the panel's
+// jump buttons: its run (terminal and conversation), else its conversation,
+// its task, and its bot (a direct chat). Ids come from the log; only rows in
+// the snapshot count.
+export function issueTargets(context = {}, { runs = [], conversations = [], tasks = [], employees = [] } = {}) {
+  const run = context.run && runs.find((r) => r.id === context.run);
+  const conversationId = run?.conversation || context.conversation;
+  const conversation = conversationId && conversations.find((c) => c.id === conversationId);
+  const task = context.task && tasks.find((t) => t.id === context.task);
+  const bot = context.employeeId && employees.find((e) => e.id === context.employeeId && !e.archived);
+  return {
+    run: run?.id || null,
+    conversation: conversation ? { id: conversation.id, title: conversation.title } : null,
+    task: task ? { id: task.id, title: task.title } : null,
+    bot: bot || null,
+  };
+}
+
 export function issueReport(groups, { version = "" } = {}) {
   const lines = [`Any Bot diagnostics (v${version}, ${new Date().toISOString()})`, ""];
   if (!groups.length) lines.push("No problems recorded.");

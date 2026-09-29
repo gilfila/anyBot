@@ -158,25 +158,65 @@ function renderInline(text, { mentions = false, people = [], files = null, botLi
     const link = shape && fileRef(files, shape.raw, label);
     return link ? park(link) : label;
   });
-  result = result.replace(BARE_URL_PATTERN, (match) => {
-    const trailing = match.match(TRAILING_URL_PUNCTUATION)?.[0] || "";
-    const href = match.slice(0, match.length - trailing.length);
-    return park(`<a href="${href}" target="_blank" rel="noopener noreferrer">${href}</a>`) + trailing;
-  });
+  result = linkBareUrls(result, park);
   if (files) result = linkFiles(result, files, park);
   result = result.replace(BOLD_PATTERN, "<strong>$1</strong>");
   result = result.replace(ITALIC_PATTERN, "<em>$1</em>");
   return result.replace(/\u0000(\d+)\u0000/g, (_, index) => parked[Number(index)]);
 }
+function linkBareUrls(result, park) {
+  return result.replace(BARE_URL_PATTERN, (match) => {
+    const trailing = match.match(TRAILING_URL_PUNCTUATION)?.[0] || "";
+    const href = match.slice(0, match.length - trailing.length);
+    return park(`<a href="${href}" target="_blank" rel="noopener noreferrer">${href}</a>`) + trailing;
+  });
+}
+
+// A terminal tool call (runtime/terminal.mjs), "⏺ Edit(notes/plan.md)": an
+// argument without spaces may be one path, glued to the tool's name where
+// the general scan can't see it.
+const TOOL_CALL = /^(⏺ [^\s(]{1,80}\()(\S+)\)$/u;
+
+// Plain text with only its links added, for terminal output: escaped, then
+// web URLs and (with `files`, as for renderInline) file paths. No markdown,
+// so * and ` show as the CLI printed them.
+function linkPlain(text, files = null) {
+  const parked = [];
+  const park = (html) => `\u0000${parked.push(html) - 1}\u0000`;
+  let result = escapeHtml(String(text ?? "").replace(/\u0000/g, ""));
+  const call = files && result.match(TOOL_CALL);
+  if (call) {
+    const shape = pathShape(unescapeHtml(call[2]), { platform: files.platform || "win32", bare: true });
+    const link = shape && fileRef(files, shape.raw, call[2]);
+    if (link) result = `${call[1]}${park(link)})`;
+  }
+  result = linkBareUrls(result, park);
+  if (files) result = linkFiles(result, files, park);
+  return result.replace(/\u0000(\d+)\u0000/g, (_, index) => parked[Number(index)]);
+}
+export function linkPlainText(text, { files = null } = {}) {
+  try {
+    return linkPlain(text, files);
+  } catch (error) {
+    try {
+      renderErrorHandler(error);
+    } catch {
+      // The fallback below still renders.
+    }
+    return escapeHtml(String(text ?? ""));
+  }
+}
 
 // The raw paths to ask main about (files.check) for these lines, at most
 // 64: every hit's shortest form first, then the longer space-joined forms.
-export function fileCandidates(lines, platform = "win32") {
+// `plain` scans them the way linkPlainText links them (terminal output).
+export function fileCandidates(lines, platform = "win32", { plain = false } = {}) {
   const collect = new Set();
   const more = new Set();
   for (const line of lines) {
     try {
-      renderInline(String(line ?? ""), { files: { platform, collect, more } });
+      if (plain) linkPlain(line, { platform, collect, more });
+      else renderInline(String(line ?? ""), { files: { platform, collect, more } });
     } catch {
       // A line that can't be scanned just gets no links.
     }

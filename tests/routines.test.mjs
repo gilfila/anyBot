@@ -57,10 +57,13 @@ test("scheduler persists due work once and skips overlapping occurrences", async
   c.routines.tick();
   c.routines.tick();
   assert.equal(c.snapshot().runs.length, 1);
+  // The page links the last occurrence's run.
+  assert.equal(c.snapshot().routines[0].lastRun, c.snapshot().runs[0].id);
   advance(300000);
   c.routines.tick();
   assert.equal(c.snapshot().runs.length, 1);
   assert.equal(c.snapshot().routines[0].lastOccurrence, "skipped-overlap");
+  assert.equal(c.snapshot().routines[0].lastRun, null, "a skipped occurrence started no run");
 });
 
 test("runtime pause and missed occurrence recovery do not cause a catch-up burst", async (t) => {

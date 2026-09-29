@@ -106,6 +106,7 @@ export function ChatMessage({ message: m, employees, bubbles, onOpenPreview, onO
     <div
       className={`message ${m.kind}${m.author === "human" ? " from-you" : m.author === "system" ? " from-system" : " from-bot"}`}
       style={bubbles.get(m.author)}
+      data-message={m.id}
     >
       {m.author === "human" ? (
         <Avatar small employee={{ name: "Y" }} />

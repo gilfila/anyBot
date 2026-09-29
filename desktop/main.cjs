@@ -10,6 +10,7 @@ const {
   shell,
   Notification,
   safeStorage,
+  clipboard,
 } = require("electron");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
@@ -22,6 +23,7 @@ const { DiagnosticsLog, checkPendingUpdate, rememberPendingUpdate } = require(".
 const { createShutdown, createCrashTracker, createRestartBudget, isOfflineError } = require("./lifecycle.cjs");
 const { commandDirectory, killTree } = require("./shell-command.cjs");
 const fileAccess = require("./file-access.cjs");
+const { contextMenuItems, navigationTarget } = require("./window-shell.cjs");
 let diagnostics = null;
 let fileLinks = null;
 let window,
@@ -852,6 +854,12 @@ else {
         const failure = await shell.openPath(diagnostics.directory);
         return { opened: !failure, error: failure || undefined };
       }
+      // Settings → Saved on this computer: the app's own data folder, never a
+      // path from the renderer.
+      if (method === "app.openDataFolder") {
+        const failure = await shell.openPath(app.getPath("userData"));
+        return { opened: !failure, error: failure || undefined };
+      }
       if (method === "mobile.status")
         return {
           enabled: !!mobileGateway,
@@ -1242,13 +1250,15 @@ function startWorker() {
     }
     if (message.type === "attention") {
       // A bot is waiting on the owner (an approval). Say so when the window
-      // isn't in front; clicking the notification brings it back.
+      // isn't in front; clicking the notification brings it back, opened at
+      // the conversation (and thread) that is waiting.
       if ((!window || !window.isFocused()) && Notification.isSupported()) {
         const notice = new Notification({
           title: String(message.notice?.title || "Any Bot").slice(0, 120),
           body: String(message.notice?.body || "").slice(0, 240),
         });
-        notice.on("click", () => showWindow());
+        const target = navigationTarget(message.notice?.target);
+        notice.on("click", () => (target ? navigate(target) : showWindow()));
         notice.show();
       }
       window?.webContents.send("anybot:changed");
@@ -1308,6 +1318,16 @@ function startWorker() {
       });
   });
 }
+// Brings the window forward and asks the renderer to open `target` (ids
+// from navigationTarget); App resolves them against its snapshot.
+function navigate(target) {
+  showWindow();
+  const contents = window?.webContents;
+  if (!contents) return;
+  const send = () => contents.send("anybot:navigate", target);
+  if (contents.isLoading()) contents.once("did-finish-load", send);
+  else send();
+}
 function showWindow(rendererSandbox = app.isPackaged) {
   if (window && !window.isDestroyed()) {
     window.show();
@@ -1340,6 +1360,23 @@ function showWindow(rendererSandbox = app.isPackaged) {
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (isExternalWebUrl(url)) void shell.openExternal(url);
     return { action: "deny" };
+  });
+  // Right-click: Cut, Copy, Paste and Select all in text fields, Copy on a
+  // selection, and web links. The renderer's own menus (file links) call
+  // preventDefault, so Electron doesn't ask for this one there.
+  window.webContents.on("context-menu", (_event, params) => {
+    const items = contextMenuItems(params, isExternalWebUrl);
+    if (!items.length) return;
+    const contents = window.webContents;
+    // openExternal and (in Electron 44) clipboard writes return promises; a
+    // rejection here must not reach the unhandled-rejection error dialog.
+    const click = {
+      replace: (word) => contents.replaceMisspelling(word),
+      openLink: (url) => isExternalWebUrl(url) && Promise.resolve(shell.openExternal(url)).catch(() => {}),
+      copyLink: (url) => Promise.resolve(clipboard.writeText(url)).catch(() => {}),
+    };
+    const template = items.map(({ action, value, ...item }) => (action ? { ...item, click: () => click[action](value) } : item));
+    Menu.buildFromTemplate(template).popup({ window });
   });
   window.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
     if (!isMainFrame) return;

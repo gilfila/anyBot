@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Columns3, FileText, GripVertical, History, Lightbulb, Maximize2, RotateCcw, X } from "lucide-react";
+import { Columns3, FileText, FolderOpen, GripVertical, History, Lightbulb, Maximize2, RotateCcw, X } from "lucide-react";
 import { escapeHtml, renderMarkdownInline } from "../../lib/markdown.js";
+import { ChatContext } from "../chat/ChatContext.js";
 import { RobotAvatar } from "../RobotAvatar.jsx";
 import { Status } from "../Status.jsx";
 import { statusLabel } from "../board/meta.js";
@@ -148,6 +149,8 @@ function DocBlock({ block, number, focused, caret, menu, author, onFocus, onKeyD
 // The canvas: one shared, Slack-style page per conversation. `compact` is the
 // side-panel version beside the chat.
 export function ProjectDoc({ conversation, data, act, onOpenTask, onOpenArtifact, onRevealArtifact, compact = false, onExpand }) {
+  // @bot chips open the bot's direct chat, as @mentions in chat do.
+  const chat = useContext(ChatContext);
   const [doc, setDoc] = useState(null);
   const [blocks, setBlocks] = useState([]);
   const [focus, setFocus] = useState(null); // { id, caret }
@@ -445,6 +448,10 @@ export function ProjectDoc({ conversation, data, act, onOpenTask, onOpenArtifact
           const artifact = files.find((f) => f.id === ref);
           if (artifact) onOpenArtifact(artifact);
         }
+        if (kind === "agent") {
+          const bot = data.employees.find((e) => e.id === ref && !e.archived);
+          if (bot && chat?.onOpenBot) chat.onOpenBot(bot);
+        }
       }}
     >
       <div className="doc-page">
@@ -592,10 +599,23 @@ export function ProjectDoc({ conversation, data, act, onOpenTask, onOpenArtifact
                         <span className="doc-task missing">This task was deleted.</span>
                       ))}
                     {block.type === "file" && (
-                      <button type="button" className="doc-file" disabled={!file} onClick={() => file && onOpenArtifact(file)}>
-                        <FileText size={15} />
-                        {file?.name || block.text || "File no longer available"}
-                      </button>
+                      <div className="doc-file-row">
+                        <button type="button" className="doc-file" disabled={!file} onClick={() => file && onOpenArtifact(file)}>
+                          <FileText size={15} />
+                          {file?.name || block.text || "File no longer available"}
+                        </button>
+                        {file && onRevealArtifact && (
+                          <button
+                            type="button"
+                            className="icon-button"
+                            aria-label={`Show ${file.name} in folder`}
+                            title="Show in folder"
+                            onClick={() => onRevealArtifact(file)}
+                          >
+                            <FolderOpen size={15} />
+                          </button>
+                        )}
+                      </div>
                     )}
                     {block.type === "table" && (
                       <TableBlock
