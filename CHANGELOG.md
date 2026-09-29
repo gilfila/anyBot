@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.36] - 2026-09-29
+
+### Added
+- **Zoom the org chart.** The chart has zoom controls in its corner: minus, plus, the current zoom (click it for 100%) and **Fit**, which shows your whole organization.
+  - Hold Ctrl and scroll, or pinch on a trackpad, to zoom in on the spot under your pointer. Ctrl + plus, minus and 0 work too.
+  - Drag the empty background to move around.
+  - Any Bot remembers your zoom, and the first time it fits the whole org.
+  - Dragging a bot onto a new manager works at any zoom.
+
+### Changed
+- **Big teams stack in a column.** A manager's reports who don't lead teams of their own now stack under the manager, like a classic org chart, instead of spreading into one long row. A 45-bot org is now a few columns wide and fits on screen at a readable size.
+
 ## [0.3.35] - 2026-09-29
 
 ### Added
