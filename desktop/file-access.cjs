@@ -32,15 +32,17 @@ const AUDIO_EXTENSIONS = set("mp3 wav m4a aac flac ogg oga opus wma aiff");
 const DOCUMENT_EXTENSIONS = set("pdf docx xlsx pptx html htm doc xls ppt odt ods odp rtf");
 const ARCHIVE_EXTENSIONS = set("zip 7z rar tar gz tgz bz2 xz");
 // The only types shell.openPath ever gets. Anything else is never opened.
-// Not Office files, HTML or SVG: a bot writes them without Mark-of-the-Web, so
-// Word opens them outside Protected View and a browser runs them as file://
-// pages, and both fetch what they point at (a remote template, a \\host
-// image). Not .zip either: Explorer's zip view draws the icons inside it.
+// Office documents (not the macro kinds) and HTML are included on purpose:
+// bots deliver reports and pages in them, and a bot-written file has no
+// Mark-of-the-Web, so Word skips Protected View and a browser runs the page
+// as file:// — exactly what double-clicking it in Explorer does, which is the
+// only other way the owner could use it. Not SVG (previewed in the app) and
+// not .zip: Explorer's zip view draws the icons inside it.
 const OPEN_EXTENSIONS = new Set([
   ...[...IMAGE_EXTENSIONS].filter((ext) => ext !== ".svg"),
   ...VIDEO_EXTENSIONS,
   ...AUDIO_EXTENSIONS,
-  ...set("pdf txt md csv tsv log json"),
+  ...set("pdf docx xlsx pptx html htm txt md csv tsv log json"),
 ]);
 // Shell pointer files: selecting them in Explorer has itself leaked NTLM
 // hashes (CVE-2025-24054), so they only get Copy path and a text preview.

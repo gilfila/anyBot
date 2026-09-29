@@ -193,12 +193,15 @@ test("each type gets its default click", () => {
   assert.deepEqual(click("main.ts"), ["reveal", "preview", "text"]);
   assert.deepEqual(click("setup.exe"), ["reveal", "reveal", null]);
   assert.deepEqual(click("disk.iso"), ["reveal", "reveal", null]);
-  // Office files, HTML, and SVG fetch what they point at when opened, and
-  // Explorer's zip view draws the icons inside: none of them is opened.
-  assert.deepEqual(click("deck.pptx"), ["reveal", "reveal", null]);
-  assert.deepEqual(click("notes.docx"), ["reveal", "reveal", null]);
-  assert.deepEqual(click("sheet.xlsx"), ["reveal", "reveal", null]);
-  assert.deepEqual(click("page.html"), ["reveal", "preview", "text"]);
+  // Bot reports and pages open like a double-click in Explorer would; the
+  // macro kinds never do. SVG previews in the app, and Explorer's zip view
+  // draws the icons inside, so a zip is only shown in its folder.
+  assert.deepEqual(click("deck.pptx"), ["open", "open", null]);
+  assert.deepEqual(click("notes.docx"), ["open", "open", null]);
+  assert.deepEqual(click("sheet.xlsx"), ["open", "open", null]);
+  assert.deepEqual(click("page.html"), ["open", "open", "text"]);
+  assert.deepEqual(click("macros.docm"), ["reveal", "reveal", null]);
+  assert.deepEqual(click("old.doc"), ["reveal", "reveal", null]);
   assert.deepEqual(click("icon.svg"), ["reveal", "preview", "image"]);
   assert.deepEqual(click("bundle.zip"), ["reveal", "reveal", null]);
 });
