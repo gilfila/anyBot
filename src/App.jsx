@@ -209,6 +209,7 @@ import { SectionToggle } from "./components/SectionToggle.jsx";
 import { AppearancePanel } from "./components/theme/AppearancePanel.jsx";
 import { PhoneLinkPanel } from "./components/PhoneLinkPanel.jsx";
 import { TeamPanel } from "./components/TeamPanel.jsx";
+import { PeopleReviewSettings } from "./components/PeopleReviewSettings.jsx";
 import { TeamBanner, TeamPulse } from "./components/TeamPulse.jsx";
 import { occurrenceLabel } from "./lib/team.js";
 import { SlackPanel } from "./components/SlackPanel.jsx";
@@ -2430,6 +2431,7 @@ export function App() {
               onOpenBot={directChat}
             />
             <TeamPanel data={data} act={act} busy={busy} harnessName={harnessName} />
+            <PeopleReviewSettings />
             <h2 className="settings-section-title">Runtime & Privacy</h2>
             <div className="settings-card">
               <div>

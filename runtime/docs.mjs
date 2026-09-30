@@ -283,50 +283,58 @@ export class Docs {
     if (!markdown.trim()) throw new Error(`${action.type} needs markdown`);
     if (markdown.length > 20000) throw new Error("Doc updates are limited to 20000 characters");
     const added = markdownToBlocks(markdown, run.employee);
-    const { blocks } = this.get(run.conversation);
-    let next;
     if (action.type === "doc.append") {
-      next = [...blocks, ...added];
-    } else {
-      const heading = typeof action.heading === "string" ? action.heading.trim() : "";
-      if (!heading || heading.length > 200) throw new Error("doc.section needs a heading");
-      const same = (b) => HEADING[b.type] && b.text.trim().toLowerCase() === heading.toLowerCase();
-      const start = blocks.findIndex(same);
-      // Bots often start the markdown with the heading itself: drop that
-      // copy (a new section keeps its level).
-      let body = added;
-      let level = start >= 0 ? HEADING[blocks[start].type] : 2;
-      if (body[0] && same(body[0])) {
-        if (start < 0) level = HEADING[body[0].type];
-        body = body.slice(1);
-      }
-      // Headings inside the markdown sit below the section's own, so they
-      // can't end the section early and leave stale content on the next update.
-      body = body.map((b) =>
-        HEADING[b.type] && HEADING[b.type] <= level
-          ? level < 3
-            ? { ...b, type: `h${level + 1}` }
-            : { ...b, type: "p", text: `**${b.text}**` }
-          : b,
-      );
-      if (start < 0) {
-        next = [...blocks, { id: randomUUID(), type: `h${level}`, text: heading, author: run.employee, at: now() }, ...body];
-      } else {
-        // The section runs to the next heading at its level or above. Copies
-        // of this heading right after it (left by earlier updates that
-        // repeated it) belong to the section and are replaced too.
-        let end = start + 1;
-        for (;;) {
-          while (end < blocks.length && !(HEADING[blocks[end].type] && HEADING[blocks[end].type] <= level)) end += 1;
-          if (end < blocks.length && same(blocks[end])) end += 1;
-          else break;
-        }
-        next = [...blocks.slice(0, start + 1), ...body, ...blocks.slice(end)];
-      }
+      const { blocks } = this.get(run.conversation);
+      this.write(run.conversation, normalizeBlocks([...blocks, ...added]), run.employee, run.id);
+      return `added ${added.length} block${added.length === 1 ? "" : "s"} to the canvas`;
     }
-    this.write(run.conversation, normalizeBlocks(next), run.employee, run.id);
-    return action.type === "doc.append"
-      ? `added ${added.length} block${added.length === 1 ? "" : "s"} to the canvas`
-      : `updated the "${action.heading.trim()}" section`;
+    const heading = typeof action.heading === "string" ? action.heading.trim() : "";
+    if (!heading || heading.length > 200) throw new Error("doc.section needs a heading");
+    this.replaceSection(run.conversation, heading, added, { author: run.employee, run: run.id, blockAuthor: run.employee });
+    return `updated the "${action.heading.trim()}" section`;
   }
+  // Replaces what sits under `heading` with `body` blocks, or adds the
+  // heading and body at the end when the page has no such section. A bot's
+  // doc.section and Any Bot's own sections (the daily people review, written
+  // as "system") both come through here; nothing else on the page changes.
+  // `blockAuthor` marks a new heading block as that bot's.
+  replaceSection(conversation, heading, body, { author, run = null, blockAuthor = null }) {
+    const { blocks } = this.get(conversation);
+    this.write(conversation, normalizeBlocks(withSection(blocks, heading, body, blockAuthor)), author, run);
+  }
+}
+
+// The page with `heading`'s section replaced by `added` (see replaceSection).
+function withSection(blocks, heading, added, blockAuthor) {
+  const same = (b) => HEADING[b.type] && b.text.trim().toLowerCase() === heading.toLowerCase();
+  const start = blocks.findIndex(same);
+  // Bots often start the markdown with the heading itself: drop that
+  // copy (a new section keeps its level).
+  let body = added;
+  let level = start >= 0 ? HEADING[blocks[start].type] : 2;
+  if (body[0] && same(body[0])) {
+    if (start < 0) level = HEADING[body[0].type];
+    body = body.slice(1);
+  }
+  // Headings inside the markdown sit below the section's own, so they
+  // can't end the section early and leave stale content on the next update.
+  body = body.map((b) =>
+    HEADING[b.type] && HEADING[b.type] <= level
+      ? level < 3
+        ? { ...b, type: `h${level + 1}` }
+        : { ...b, type: "p", text: `**${b.text}**` }
+      : b,
+  );
+  if (start < 0)
+    return [...blocks, { id: randomUUID(), type: `h${level}`, text: heading, ...(blockAuthor ? { author: blockAuthor, at: now() } : {}) }, ...body];
+  // The section runs to the next heading at its level or above. Copies
+  // of this heading right after it (left by earlier updates that
+  // repeated it) belong to the section and are replaced too.
+  let end = start + 1;
+  for (;;) {
+    while (end < blocks.length && !(HEADING[blocks[end].type] && HEADING[blocks[end].type] <= level)) end += 1;
+    if (end < blocks.length && same(blocks[end])) end += 1;
+    else break;
+  }
+  return [...blocks.slice(0, start + 1), ...body, ...blocks.slice(end)];
 }

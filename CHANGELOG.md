@@ -6,7 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-## [0.3.38] - 2026-09-30
+## [0.3.39] - 2026-09-30
+
+This update adds a **daily people review**: a breakdown of which bots need adjusting, and which you might let go. It only reads your bots' history, uses no tokens and changes nothing, so it's **on** from this update. Turn it off, or change its time, in **Settings → Team**.
+
+### Added
+- **Org → People.** Every bot with a verdict (**OK**, **Watch**, **Adjust**, **Fire candidate** or **Not enough data**), its numbers for the last 14 days and the last 24 hours, the reasons, and one suggested fix (its instructions, model, thinking effort, harness, manager or folder). Sort by any column; click a bot to open its panel. **Run now** reviews again on the spot, and **How verdicts are decided** lists every rule.
+- **What it looks at:** runs that failed through the bot's own fault, tokens per finished task compared with bots on the same harness, model and effort, reviews that sent its work back, work you sent back or stopped, tool requests you declined, cards stuck for over a day, and reviews or bot-to-bot turns that changed nothing.
+- **Fair by design:**
+  - Usage limits, sign-in problems, a missing harness and Any Bot stopping never count against a bot, and a failure with no known cause is left out.
+  - A rate needs at least 10 cases and is judged by the low end of its likely range, so a few bad runs never flag a bot.
+  - Tool requests that expired while you were away don't count.
+  - A bot you changed in the last 7 days is held at Watch while the change settles.
+  - A threshold alone never makes a fire candidate. It takes 14 days at Adjust after a change that didn't help, or, with Team on and work assigned to it, 14 days of doing none of it while a teammate covers the same role.
+- **Every morning at 06:45** (your time), or when Any Bot next starts if it missed it. The first review runs at the next 06:45 after this update; **Run now** gives you one right away. The results go to Org → People and to a **People review** section on the canvas of your HQ room (the project holding the bot at the top of your org; its direct chat if it's in no project), which is replaced each day, never added to. If you have no org chart yet, there's no canvas section. You get one notification only when a bot newly needs adjusting or is a fire candidate.
+- It keeps 14 days of results, as ids, counts and codes only: no names, messages or error text.
+
+### Changed
+- The canvas's version history names Any Bot's own edits "Any Bot".
+
 
 This update adds the brakes for an always-on team: a Team switch, a stop switch, daily limits and a usage-limit brake. **Team is off**, so almost nothing changes until you turn it on in **Settings → Team**. The few things that apply either way are listed under "With Team off, too".
 

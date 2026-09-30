@@ -562,12 +562,14 @@ export class Store {
       }
     }
     // Runs are looked up by root (routine status on every snapshot, delegation
-    // limits, the Slack bridge) and by the message they answer; runs, task
-    // starts and messages are counted per bot and per day (autopilot brakes,
-    // budgets). Plain indexes need no schema bump: an older version reads the
-    // database as before.
+    // limits, the Slack bridge), by the message they answer and by task (the
+    // board, and the daily people review's stuck cards); runs, task starts and
+    // messages are counted per bot and per day (autopilot brakes, budgets).
+    // Plain indexes need no schema bump: an older version reads the database
+    // as before.
     this.db.exec(`CREATE INDEX IF NOT EXISTS runs_root ON runs(root);
       CREATE INDEX IF NOT EXISTS runs_message ON runs(message);
+      CREATE INDEX IF NOT EXISTS runs_task ON runs(task);
       CREATE INDEX IF NOT EXISTS runs_employee_created ON runs(employee, created);
       CREATE INDEX IF NOT EXISTS runs_created ON runs(created);
       CREATE INDEX IF NOT EXISTS task_activity_kind_created ON task_activity(kind, created);

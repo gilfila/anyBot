@@ -422,8 +422,11 @@ export function ProjectDoc({ conversation, data, act, onOpenTask, onOpenArtifact
     setHistory(versions);
   };
 
+  // "system": Any Bot's own sections (the daily people review).
   const who = (author) =>
-    author === "human" ? "You" : data.employees.find((e) => e.id === author)?.name || (author ? "Former employee" : "");
+    author === "human"
+      ? "You"
+      : author === "system" ? "Any Bot" : data.employees.find((e) => e.id === author)?.name || (author ? "Former employee" : "");
   // Files and chat links can be dropped into the page as embeds or cards.
   const insert = (extra) => {
     const created = { ...blankBlock(extra.type), ...extra };

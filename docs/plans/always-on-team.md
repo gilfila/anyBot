@@ -64,6 +64,28 @@ M1 settled these; where the text below disagrees, this section wins.
 - **Getting through to a busy bot:** `snapshot.team.waits` says why each queued run waits (bot-busy, folder-busy, slots, reserve, budget, breaker, paused, stopped). When the owner's queued run waits on non-owner work, the chat offers **Interrupt** (`runs.interrupt {id, for}`): that run is cancelled and queued again as the same piece of work (same message, root, parent, task and thread), and the freed bot and folder are held for the owner's run (`this.preempt`, wait reason `owner-first`) until it starts, so with Team off (FIFO) other queued non-owner work can't take them first. Interrupt refuses when nothing of the owner's waits. Automatic preemption isn't built.
 - **The real ceiling** is Tony's Claude and ChatGPT plans; README, Settings → Team and CHANGELOG say so. The timeout clamp for autonomous runs waits for levels (M3). New owner decision: the share of each plan the team may use (below).
 
+## Amended by P1 (0.3.39, as built)
+
+P1 is the read-only half of M12 ("Daily people review" and M12 below). Where they disagree, this section wins; M12 keeps the rest (manager standups, `people.keep`, escalation, Slack, the subtree hiring check).
+- **No `perf_daily` table, no schema bump.** Each review is kept in metadata `people.day:<YYYY-MM-DD>` (the newest 14 days; ids, counts, codes and times only), settings in `people.review` `{enabled, at, lastSlot}`. M12 may move them to a table.
+- **A coordinator job, not a routine row** (`peopleTick`, the heartbeat's last step). On by default at 06:45; Settings → Team has the switch and the time. It is armed the first time it's seen (a new install or the update waits for the next time), catches up the latest missed time whenever Any Bot next starts (no 180-minute limit), marks a run over 5 minutes after its time `late`, and runs once per local day (moving the time later on a day already reviewed waits for tomorrow). It runs while the team is paused or stopped: it only reads.
+- **Commands:** `people.review` (settings with `next`, `latest`, `history` summaries) and `people.run` (the owner's Run now; no alert), both renderer-allowlisted, plus `people.set {enabled?, at?}`. The spec's `people.runNow`, `people.day` and `people.bot` are these.
+- **Metrics** (runtime/people-review.mjs `RULES`, one table): every rate needs 10 cases and is judged by its Wilson lower bound (95%).
+  - Failures: classifyRunError's codes. timeout, output_limit, no_response and model are the bot's; usage_limit, auth, not_installed, launch and interrupted are the environment's; `exit` is unclear and left out. Watch 15%, Adjust 25%.
+  - Cost: tokens (runs.usage, not cost_usd) of every run on tasks the bot led to Done, per task, against peers on the same harness, model and effort (3 or more peers with 3 or more tasks). Adjust above 2x their median.
+  - Reviews sent back as lead (by its reviewer or the owner): Watch 20%, Adjust 34%. A task at the 3-round cap is Watch.
+  - Redo: the owner's Request changes on a task it led, and the owner's Stop of its running run (a new `run.stopped {run, employee}` event from `runs.cancel` and `tasks.stop`, which the phone's Stop also uses). Out of its finished runs plus those Stops: Watch 10%, Adjust 20%. No wording regex; a retry isn't counted (the failure it follows already is).
+  - Declined tool requests: Watch at 3, Adjust at 30% of 10 or more answered. Expired ones are shown and never count.
+  - Stuck (a snapshot): In progress with nothing running for over a day (its lead), in Review for over a day (a bot reviewer, below the 3-round cap), and Autopilot's bounce notes. A card whose last run was an outage isn't counted. Watch at 2.
+  - Busywork: only runs that exist to act, reviews and turns another bot's message started, in the autonomous lane; one that left no trace (board activity, file, hand-off, memory, fact, report or canvas edit) changed nothing. Watch at 40%. Task runs, routine replies and hand-off answers aren't counted.
+  - Launch failures: Watch at 3, fix "workspace".
+  - Not built yet: the tracker-write metric (waits for M2's detection) and the leader metrics (M12).
+- **Verdicts:** the worst reason wins; OK needs one rule with enough data, otherwise Not enough data. A change in the last 7 days (`employee.updated` or `employee.manager` events, so hiring under a manager counts) holds Adjust at Watch. Fire candidate needs (a) Adjust on each of 14 consecutive days and a change 7 to 14 days ago that didn't improve the main score by 25%, or (b) with Team running on each of those 14 days, work assigned (an enabled routine, or a task in an Autopilot room), not held by limits, no runs, and a teammate under the same (bot) manager whose role words overlap 60% or more. Bots reporting to the owner are never idle-fired. (c) "Tony flagged it" isn't built.
+- **The HQ canvas:** the top-level bot with the most people under it; its open project ranked by how many of its direct reports are members, else its direct chat (created if needed). No org (no bot has reports), no section. `Docs.replaceSection` (shared with bots' `doc.section`) as author `system`, never appended.
+- **Alerts:** one per review, only when a bot is newly Adjust or Fire candidate against the review stored before it.
+- **Index:** `runs(task)` (plain, no schema bump), for the stuck-card lookups.
+- **Timing:** about 150 ms for 45 bots and 121k runs with about 300 a day in the window; about 2 s when 30k runs sit in the window and a third are bot-to-bot turns (each candidate's lane walks to where its work began). It runs synchronously in the coordinator once a day.
+
 ## Overview
 
 WHAT YOU GET

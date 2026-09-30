@@ -133,6 +133,7 @@ The **Organization** page shows who reports to whom, what each bot is working on
 - **Memory:** each bot keeps memories of its own, of the team, and of each project. The most relevant ones come back into its prompt automatically.
 - **Your memory controls:** you can read, add, pin, or delete any memory.
 - **Reports:** when bots finish work, they send reports up the chain. Reports addressed to you land in **Reports**.
+- **People:** a daily review of every bot, at 06:45 or when Any Bot next starts. Each bot gets a verdict (OK, Watch, Adjust, Fire candidate, or Not enough data) with its numbers, the reasons and one suggested fix: its instructions, model, thinking effort, harness, manager or folder. It looks at the last 14 days: failures that were the bot's own (never usage limits or sign-in problems), tokens per finished task against bots on the same harness, model and effort, work sent back or redone, declined tool requests, stuck cards, and busywork. A rate needs 10 cases before it's judged, and a threshold alone never makes a fire candidate. It uses no tokens and changes nothing; the breakdown also replaces a **People review** section on your HQ room's canvas each day. Turn it off or move it in **Settings → Team**.
 
 ![The org chart](docs/screenshots/org-chart.png)
 

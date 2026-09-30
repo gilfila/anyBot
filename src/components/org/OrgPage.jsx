@@ -14,6 +14,7 @@ import {
   SquareTerminal,
   Trash2,
   User,
+  UserCheck,
   Waypoints,
   X,
 } from "lucide-react";
@@ -21,6 +22,7 @@ import { RobotAvatar } from "../RobotAvatar.jsx";
 import { Status } from "../Status.jsx";
 import { renderMarkdownInline } from "../../lib/markdown.js";
 import { KnowledgeGraph } from "./KnowledgeGraph.jsx";
+import { PeopleTab } from "./PeopleTab.jsx";
 import { layoutOrg, linkPath } from "../../lib/org-layout.js";
 import { anchoredScroll, clampZoom, fitZoom, stepZoom, wheelZoom } from "../../lib/zoom.js";
 import "./org.css";
@@ -643,6 +645,10 @@ export function OrgPage({
             Reports
             {data.reportsUnread > 0 && <span className="project-tab-count live">{data.reportsUnread}</span>}
           </button>
+          <button role="tab" aria-selected={tab === "people"} className={tab === "people" ? "active" : ""} onClick={() => onTab("people")}>
+            <UserCheck size={15} />
+            People
+          </button>
         </div>
         {tab === "chart" &&
           (active.length ? (
@@ -685,8 +691,9 @@ export function OrgPage({
             onRevealArtifact={onRevealArtifact}
           />
         )}
+        {tab === "people" && <PeopleTab data={data} selected={selected} onSelect={setSelected} />}
       </div>
-      {employee && tab === "chart" && (
+      {employee && (tab === "chart" || tab === "people") && (
         <AgentPanel
           employee={employee}
           data={data}

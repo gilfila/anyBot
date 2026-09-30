@@ -768,6 +768,9 @@ const methods = new Set([
   "team.stop",
   "team.resume",
   "breaker.reset",
+  "people.review",
+  "people.run",
+  "people.set",
 ]);
 
 if (!app.requestSingleInstanceLock()) app.quit();
