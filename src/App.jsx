@@ -2431,7 +2431,7 @@ export function App() {
               onOpenBot={directChat}
             />
             <TeamPanel data={data} act={act} busy={busy} harnessName={harnessName} />
-            <PeopleReviewSettings />
+            <PeopleReviewSettings stamp={JSON.stringify(data.people ?? null)} />
             <h2 className="settings-section-title">Runtime & Privacy</h2>
             <div className="settings-card">
               <div>

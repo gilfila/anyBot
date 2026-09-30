@@ -86,3 +86,14 @@ export function trendOf(history = [], id) {
     .sort((a, b) => a.day.localeCompare(b.day))
     .map((entry) => ({ day: entry.day, v: entry.verdicts?.[id] ?? null }));
 }
+
+// The rows with one verdict ("all" keeps every row).
+export function filterPeople(rows, verdict = "all") {
+  return verdict === "all" ? rows : rows.filter((row) => row.v === verdict);
+}
+
+// A trend in words, for screen readers (the squares are color only).
+export function trendLabel(days = []) {
+  const words = days.map((day) => (day.v ? VERDICT_LABELS[day.v] || day.v : "not reviewed"));
+  return `Last ${days.length} reviews, oldest first: ${words.join(", ")}`;
+}

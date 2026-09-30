@@ -68,6 +68,7 @@ import {
   readRows as readPeopleRows,
   reviewSummary,
   sectionBlocks,
+  slotOn,
   verdictRank,
 } from "./people-review.mjs";
 import { BuzzBridge } from "./buzz-bridge.mjs";
@@ -279,6 +280,8 @@ export class Coordinator extends EventEmitter {
     this.peopleConfig = peopleSettings(this.store.one("SELECT value FROM metadata WHERE key='people.review'")?.value);
     this.peopleRetryAt = 0;
     this.peopleFailures = new Map(); // message -> when it was last logged
+    // When the latest review ran, for the snapshot (open pages fetch again when it changes).
+    this.peopleAt = this.peopleHistory()[0]?.at ?? null;
     this.timer = setInterval(() => this.tick(), 500);
     this.timer.unref();
   }
@@ -467,6 +470,8 @@ export class Coordinator extends EventEmitter {
       approvals: this.approvals.list(),
       harnesses: this.installations,
       team: this.teamStatus(),
+      // The daily people review changed: Org → People and Settings fetch it again.
+      people: { at: this.peopleAt, enabled: this.peopleConfig.enabled, time: this.peopleConfig.at, lastSlot: this.peopleConfig.lastSlot },
       runtime: {
         paused: this.paused,
         active: this.active.size,
@@ -551,7 +556,8 @@ export class Coordinator extends EventEmitter {
         this.dispatch();
         return this.activity();
       case "runs.cancel":
-        await this.ownerStop(payload.id);
+        // `by`: the mobile gateway says whose phone pressed Stop; the desk sends none.
+        await this.ownerStop(payload.id, payload.by);
         break;
       case "runs.dismiss":
         this.dismissRun(payload.id);
@@ -694,6 +700,10 @@ export class Coordinator extends EventEmitter {
         break;
       case "approvals.decide":
         this.approvals.decide(payload);
+        // Answered outside the desk (the Slack bridge sends `by`): the people
+        // review doesn't count it as the owner's (ids and a code only).
+        if (payload.by !== undefined && payload.by !== "owner")
+          this.store.event("approval.decided", { approval: String(payload.id), by: payload.by === "slack" ? "slack" : "guest" });
         break;
       case "routines.create":
         this.routines.create(payload);
@@ -1133,9 +1143,16 @@ export class Coordinator extends EventEmitter {
       });
     }
   }
-  // Runs Team refuses outright (with Team on): a bot that acts without asking
-  // (unless opted in), and Codex bots until their MCP servers can be switched
-  // off. Cancelled, with one notice per bot and conversation a day.
+  // Why Team (when on) refuses a bot's unattended work, or null: a bot that
+  // acts without asking (unless opted in), and Codex bots until their MCP
+  // servers can be switched off. dispatch and the people review use it.
+  refusalCode(employee) {
+    if (employee.permissionMode === "dontAsk" && !this.team.dontAskAllowed.includes(employee.id)) return "run.dontask_refused";
+    if (employee.harness === "codex" && !CODEX_MCP_OFF_VERIFIED) return "run.codex_mcp_unverified";
+    return null;
+  }
+  // Runs Team refuses outright (with Team on; see refusalCode). Cancelled,
+  // with one notice per bot and conversation a day.
   refuseRuns(refusals) {
     this.store.transaction(() => {
       const stamp = now();
@@ -1250,12 +1267,14 @@ export class Coordinator extends EventEmitter {
       this.store.event("run.preempted", { run: run.id, again });
     });
   }
-  // The owner's Stop, on a run or a task: a run that was working is noted
-  // for the people review as something the owner redid (ids only).
-  async ownerStop(runId) {
+  // A Stop, on a run or a task: a run that was working is noted for the
+  // people review as something the owner redid (ids only), when the owner
+  // pressed it: at the desk (no `by`) or on the owner's phone ("owner"). A
+  // member's phone (`by` "member") stops the run but isn't counted.
+  async ownerStop(runId, by) {
     const running = this.store.one("SELECT id,employee FROM runs WHERE id=? AND status='running'", String(runId ?? ""));
     await this.cancel(runId);
-    if (running) this.store.event("run.stopped", { run: running.id, employee: running.employee });
+    if (running && (by === undefined || by === "owner")) this.store.event("run.stopped", { run: running.id, employee: running.employee });
   }
   // The daily people review -------------------------------------------------
   // Read-only and zero tokens (runtime/people-review.mjs): once a local day at
@@ -1308,7 +1327,11 @@ export class Coordinator extends EventEmitter {
   }
   // What the review reads (ids, counts, codes and times only).
   peopleRows(now) {
-    return readPeopleRows(this.store, { now, laneOf: (run) => this.runInfo(run).lane, team: this.teamState(), waits: this.waits });
+    // Bots whose unattended work Team turns away (dispatch's refusals).
+    const refused = this.team.enabled
+      ? new Set(this.store.all("SELECT * FROM employees WHERE archived=0").filter((e) => this.refusalCode(e)).map((e) => e.id))
+      : new Set();
+    return readPeopleRows(this.store, { now, laneOf: (run) => this.runInfo(run).lane, team: this.teamState(), waits: this.waits, refused });
   }
   // Stored reviews, newest first.
   peopleHistory() {
@@ -1326,9 +1349,16 @@ export class Coordinator extends EventEmitter {
   }
   peopleStatus() {
     const history = this.peopleHistory();
-    const { enabled, at } = this.peopleConfig;
+    const { enabled, at, lastSlot } = this.peopleConfig;
+    // Once a local day (peopleTick): a later time on a day already reviewed is tomorrow's.
+    let next = enabled ? nextSlot(this.clock(), at) : null;
+    if (next !== null && lastSlot !== null && dayKey(next) === dayKey(lastSlot)) {
+      const day = new Date(next);
+      day.setDate(day.getDate() + 1);
+      next = slotOn(day.getTime(), at);
+    }
     return {
-      settings: { enabled, at, next: enabled ? nextSlot(this.clock(), at) : null },
+      settings: { enabled, at, next },
       latest: history[0] || null,
       history: history.map(reviewSummary),
     };
@@ -1352,6 +1382,7 @@ export class Coordinator extends EventEmitter {
       this.store.event("people.reviewed", { day: review.day, manual, late: review.late, counts: review.counts });
     });
     if (slot !== null) this.peopleConfig = { ...this.peopleConfig, lastSlot: slot };
+    this.peopleAt = review.at;
     const hq = this.peopleCanvas(review);
     if (!manual) this.peopleAlert(review, history[0] || null, hq);
     this.notify();
@@ -1360,8 +1391,9 @@ export class Coordinator extends EventEmitter {
   // Where the review's canvas section goes: the org's HQ room, the project
   // holding the top of the chain of command (the bot reporting to the owner
   // with the most people under it, ranked by how many of its direct reports
-  // are in the room), or else that bot's direct chat. With no org (no bot has
-  // anyone under it) there is no section.
+  // are in the room). With no org (no bot has anyone under it), or when that
+  // bot is in no project, there is no section: never its direct chat, where
+  // Slack and Buzz reach it and every run reads the canvas.
   peopleHq() {
     const bots = this.store.all("SELECT id,name,manager FROM employees WHERE archived=0 ORDER BY created, rowid");
     const active = new Set(bots.map((bot) => bot.id));
@@ -1383,19 +1415,30 @@ export class Coordinator extends EventEmitter {
       .map((room) => ({ id: room.id, members: JSON.parse(room.members) }))
       .filter((room) => room.members.length > 1 && room.members.includes(top.id))
       .sort((a, b) => reports(b) - reports(a));
-    return rooms[0]?.id || this.directConversation(top);
+    return rooms[0]?.id || null;
   }
-  // Replaces the canvas section as the system (never appends). Returns the
-  // room it went to, or null.
+  // Replaces the canvas section as the system (never appends): only the
+  // heading and blocks it wrote, so what a bot or the owner adds below stays.
+  // When HQ moves (or the org goes), the section in the room it was in is
+  // removed (metadata `people.canvas`, a conversation id). Returns the room
+  // it went to, or null.
   peopleCanvas(review) {
     try {
       return this.store.transaction(() => {
         const hq = this.peopleHq();
-        if (!hq) return null;
+        const kv = this.metadataKv();
+        const before = kv.get("people.canvas");
+        if (before && before !== hq && this.store.one("SELECT id FROM conversations WHERE id=?", before))
+          this.docs.replaceSection(before, PEOPLE_HEADING, null, { author: "system", owner: "system" });
+        if (!hq) {
+          kv.delete("people.canvas");
+          return null;
+        }
         const bots = this.store.all("SELECT id,name,manager FROM employees");
         const names = new Map(bots.map((bot) => [bot.id, bot.name]));
         const people = Object.fromEntries(bots.map((bot) => [bot.id, { name: bot.name, manager: bot.manager ? names.get(bot.manager) || "" : "" }]));
-        this.docs.replaceSection(hq, PEOPLE_HEADING, sectionBlocks(review, people), { author: "system" });
+        this.docs.replaceSection(hq, PEOPLE_HEADING, sectionBlocks(review, people), { author: "system", owner: "system" });
+        kv.set("people.canvas", hq);
         return hq;
       });
     } catch (error) {
@@ -2839,12 +2882,9 @@ export class Coordinator extends EventEmitter {
       }
       // Refused whoever pressed Run again: it's still unattended work.
       if (managed && info.lane !== "owner") {
-        if (employee.permissionMode === "dontAsk" && !team.dontAskAllowed.includes(employee.id)) {
-          refusals.push({ run, employee, code: "run.dontask_refused" });
-          continue;
-        }
-        if (employee.harness === "codex" && !CODEX_MCP_OFF_VERIFIED) {
-          refusals.push({ run, employee, code: "run.codex_mcp_unverified" });
+        const code = this.refusalCode(employee);
+        if (code) {
+          refusals.push({ run, employee, code });
           continue;
         }
       }

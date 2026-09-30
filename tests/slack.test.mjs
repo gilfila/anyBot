@@ -302,7 +302,8 @@ test("a channel @mention is answered in its thread; failures and approvals are p
   socket.push(click("U9"));
   socket.push(click("U1"));
   await until(() => slack.posts("chat.update").length === 1, "the updated approval");
-  assert.deepEqual(requests.filter((r) => r.method === "approvals.decide").map((r) => r.payload), [{ id: "a1", decision: "allow" }]);
+  // Marked as answered in Slack, so the people review doesn't count it as the owner's.
+  assert.deepEqual(requests.filter((r) => r.method === "approvals.decide").map((r) => r.payload), [{ id: "a1", decision: "allow", by: "slack" }]);
   assert.match(slack.posts("chat.update")[0].args.text, /Approved by Tony/);
 
   result = { status: "failed", error: "Codex exited 1\nstack…", approvals: [] };

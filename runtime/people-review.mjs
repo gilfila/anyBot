@@ -44,7 +44,7 @@ export const FIX_LABELS = Object.freeze({
   effort: "Effort",
   harness: "Harness",
   manager: "Manager",
-  workspace: "Workspace",
+  workspace: "Folder",
 });
 export const FIXES = Object.freeze({
   "failures.timeout": { kind: "effort", text: "Lower its thinking effort, raise its run time limit, or split its tasks smaller." },
@@ -54,6 +54,7 @@ export const FIXES = Object.freeze({
   cost: { kind: "effort", text: "Lower its thinking effort or pick a smaller model: its finished tasks cost over twice what its peers' do." },
   rejections: { kind: "effort", text: "Raise its thinking effort, or have a different manager review its work earlier." },
   reviewCap: { kind: "effort", text: "Raise its thinking effort, and check that the task's brief says what done looks like." },
+  rubberStamp: { kind: "instructions", text: "Say in its instructions what a review must check before it approves, or have its manager review that work instead." },
   redo: { kind: "instructions", text: "Add what you keep correcting to its instructions." },
   denials: { kind: "instructions", text: "Say in its instructions which actions you won't approve, so it stops asking for them." },
   stuck: { kind: "manager", text: "Have its manager (or you) unblock, restart or reassign its stuck cards." },
@@ -121,6 +122,15 @@ export const RULES = Object.freeze([
     why: "Three rounds without agreement means the brief or the work needs a look.",
   },
   {
+    code: "rubberStamp",
+    label: "Approved everything",
+    counts: "Reviews it did as a task's reviewer: it approved every one, and you later reopened a task it had approved.",
+    min: `${MIN_SAMPLE} reviews`,
+    watch: "All approved, and 1 or more reopened by you",
+    adjust: "",
+    why: "A reviewer that passes everything isn't checking, and work you had to reopen got past it.",
+  },
+  {
     code: "redo",
     label: "Work you redid",
     counts: "Your Request changes on tasks it led and your Stops of its running work, out of its finished runs plus those Stops.",
@@ -132,11 +142,11 @@ export const RULES = Object.freeze([
   {
     code: "denials",
     label: "Tool requests you declined",
-    counts: "Tool approvals you declined, out of those you answered.",
+    counts: "Tool approvals you declined, out of those you answered here, and how many it asked for in the last 24 hours.",
     min: `${MIN_SAMPLE} answered requests for Adjust`,
-    watch: "3 or more declined",
+    watch: "3 or more declined, or more than 20 requests in 24 hours",
     adjust: "30% or more",
-    why: "A bot that keeps asking for what you won't allow needs clearer instructions. Requests that expired unanswered never count: nobody was there to answer.",
+    why: "A bot that keeps asking for what you won't allow, or asks all day, needs clearer instructions. Requests that expired unanswered never count (nobody was there to answer), nor do answers from someone else in Slack.",
   },
   {
     code: "stuck",
@@ -145,7 +155,7 @@ export const RULES = Object.freeze([
     min: "None",
     watch: "2 or more",
     adjust: "",
-    why: "A card left after an outage (its last run hit a usage limit, for example) isn't counted, nor is one at the review limit, which is yours to decide.",
+    why: "A card left after an outage (its last run hit a usage limit, for example) or a stop (you, Stop the team or Team turning its run away) isn't counted, nor is one at the review limit, which is yours to decide. A task counts once, however often Autopilot restarted it.",
   },
   {
     code: "busywork",
@@ -169,7 +179,7 @@ export const RULES = Object.freeze([
 export const FIRE_RULES = Object.freeze([
   "A threshold alone never makes a fire candidate, and thin data never does.",
   "Adjust every day for 14 days, and a change to the bot at least 7 days ago didn't improve its main problem by 25%.",
-  "Or: with Team on and work assigned to it (a task in a project on Autopilot, or a routine), it ran nothing for 14 days in a row without being held by limits, and a teammate under the same manager has the same role. Bots that report to you directly are never judged idle this way.",
+  "Or: with Team on and work assigned to it (a Backlog task in a project on Autopilot, or a routine), it ran nothing for 14 days in a row without being held by limits or having its work turned away or stopped, and a teammate under the same manager has the same role. Bots that report to you directly are never judged idle this way.",
   "A bot changed in the last 7 days is held at Watch while the change settles.",
 ]);
 const THRESHOLDS = {
@@ -177,7 +187,7 @@ const THRESHOLDS = {
   cost: { adjust: 2 },
   rejections: { watch: 0.2, adjust: 0.34 },
   redo: { watch: 0.1, adjust: 0.2 },
-  denials: { watch: 3, adjust: 0.3 },
+  denials: { watch: 3, adjust: 0.3, perDay: 20 },
   stuck: { watch: 2 },
   busywork: { watch: 0.4 },
   launch: { watch: 3 },
@@ -306,8 +316,9 @@ const payloadOf = (value) => {
 
 // Everything the review needs, from the last 14 days, as ids, counts, codes
 // and times. `laneOf(run)` is the coordinator's lane (owner, guest or
-// autonomous); `waits` is dispatch's reason each queued run waits.
-export function readRows(store, { now, laneOf = () => "owner", team = "off", waits = new Map() }) {
+// autonomous); `waits` is dispatch's reason each queued run waits; `refused`
+// holds the bots whose unattended work Team turns away (Codex, dontAsk).
+export function readRows(store, { now, laneOf = () => "owner", team = "off", waits = new Map(), refused = new Set() }) {
   const since = new Date(now - WINDOW_DAYS * DAY_MS).toISOString();
   const bots = store.all("SELECT id,role,harness,model,effort,manager,created FROM employees WHERE archived=0 ORDER BY created, rowid");
   // Runs that left a trace: a board change, a file, a hand-off, a canvas,
@@ -326,7 +337,7 @@ export function readRows(store, { now, laneOf = () => "owner", team = "off", wai
     for (const row of store.all(sql, since)) if (typeof row.run === "string") traced.add(row.run);
   const runs = store
     .all(
-      `SELECT r.id,r.employee,r.message,r.parent,r.root,r.task,r.status,r.usage,r.created,r.started,
+      `SELECT r.id,r.employee,r.message,r.parent,r.root,r.task,r.status,r.usage,r.created,r.started,r.ended,
               CASE WHEN r.status='failed' THEN r.error ELSE '' END AS error,
               m.author AS author, m.kind AS kind, t.reviewer AS reviewer
        FROM runs r LEFT JOIN messages m ON m.id=r.message LEFT JOIN tasks t ON t.id=r.task
@@ -350,14 +361,16 @@ export function readRows(store, { now, laneOf = () => "owner", team = "off", wai
         code,
         created: run.created,
         started: run.started,
+        ended: run.ended,
         lane,
         candidate,
         idle: candidate && lane === "autonomous" && !traced.has(run.id),
         tokens: tokensOf(run.usage),
       };
     });
-  // Moves on the board: reviews of a lead's work, the review limit, Autopilot
-  // restarting a task, and tasks reaching Done.
+  // Moves on the board: reviews of a lead's work (and which bot reviewed it),
+  // the review limit, Autopilot restarting a task, the owner reopening a
+  // finished task, and tasks reaching Done.
   const taskEvents = [];
   const done = new Map();
   for (const row of store.all(
@@ -371,9 +384,10 @@ export function readRows(store, { now, laneOf = () => "owner", team = "off", wai
     let type = null;
     if (row.kind === "status" && row.body === "review → done") type = "approved";
     else if (row.kind === "status" && row.body === "review → in_progress") type = "changes";
+    else if (row.kind === "status" && row.body.startsWith("done → ") && by === "owner") type = "reopened";
     else if (row.kind === "notice" && row.body === REVIEW_CAP_NOTE) type = "cap";
     else if (row.kind === "notice" && row.body.startsWith(BOUNCE_NOTE)) type = "bounce";
-    if (type) taskEvents.push({ task: row.task, lead, type, by, at: row.created });
+    if (type) taskEvents.push({ task: row.task, lead, type, by, ...(by === "bot" ? { actor: row.author } : {}), at: row.created });
     if (row.kind === "status" && row.body.endsWith("→ done")) done.set(row.task, { task: row.task, lead, at: row.created });
   }
   const tokens = new Map();
@@ -393,9 +407,10 @@ export function readRows(store, { now, laneOf = () => "owner", team = "off", wai
        AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.task=t.id AND r.status IN ('queued','running','cancelling'))`,
     dayAgo,
   )) {
-    // Left there by an outage (or Any Bot stopping): not the bot's.
+    // Left there by an outage (or Any Bot stopping), or by a stop: the
+    // owner's, Stop the team's, or Team turning the run away. Not the bot's.
     const last = store.one("SELECT status,error FROM runs WHERE task=? ORDER BY rowid DESC LIMIT 1", task.id);
-    if (last && outcomeOf(last.status, last.error).cls === "env") continue;
+    if (last && ["env", "cancelled"].includes(outcomeOf(last.status, last.error).cls)) continue;
     if (task.status === "in_progress") {
       const lead = ids(task.assignees)[0];
       if (lead) stuck.push({ task: task.id, employee: lead, type: "in_progress" });
@@ -405,7 +420,16 @@ export function readRows(store, { now, laneOf = () => "owner", team = "off", wai
       if (rounds < 3) stuck.push({ task: task.id, employee: task.reviewer, type: "review" });
     }
   }
-  const approvals = store.all("SELECT employee,status,created AS at FROM approvals WHERE created >= ?", since);
+  // Answered by someone else (in Slack): not the owner's decision.
+  const guest = new Set(
+    store
+      .all("SELECT payload FROM events WHERE type='approval.decided' AND created >= ?", since)
+      .map((row) => payloadOf(row.payload).approval)
+      .filter((id) => typeof id === "string"),
+  );
+  const approvals = store
+    .all("SELECT id,employee,status,created AS at FROM approvals WHERE created >= ?", since)
+    .map(({ id, employee, status, at }) => ({ employee, status: guest.has(id) ? "guest" : status, at }));
   const stops = store
     .all("SELECT payload,created FROM events WHERE type='run.stopped' AND created >= ?", since)
     .map((row) => ({ employee: payloadOf(row.payload).employee, at: row.created }))
@@ -417,19 +441,24 @@ export function readRows(store, { now, laneOf = () => "owner", team = "off", wai
       return { employee: payload.employeeId || payload.employee, at: row.created };
     })
     .filter((row) => typeof row.employee === "string");
-  // Work that starts without the owner: an enabled routine, or a task in a
-  // project on Autopilot.
+  // Work that starts without the owner: an enabled routine, or a Backlog
+  // task in a project on Autopilot (nothing restarts an In progress card on
+  // its own).
   const assigned = new Set(store.all("SELECT DISTINCT employee FROM routines WHERE enabled=1").map((row) => row.employee));
   for (const row of store.all(
     `SELECT t.assignees FROM tasks t JOIN conversations c ON c.id=t.conversation
-     WHERE t.status IN ('backlog','in_progress') AND c.autopilot=1 AND c.archived=0`,
+     WHERE t.status='backlog' AND c.autopilot=1 AND c.archived=0`,
   ))
     for (const person of ids(row.assignees)) assigned.add(person);
-  // Queued work held by limits, or waiting over an hour.
+  // Work it couldn't do: queued and held by limits (or waiting over an hour),
+  // cancelled before it started in the last day (Team turned it away, or a
+  // stop), or work Team would turn away.
   const hourAgo = new Date(now - 3600_000).toISOString();
   const starved = new Set();
   for (const run of store.all("SELECT id,employee,created FROM runs WHERE status='queued'"))
     if (HELD.has(waits.get(run.id)?.reason) || run.created < hourAgo) starved.add(run.employee);
+  for (const run of runs) if (run.cls === "cancelled" && !run.started && Date.parse(run.ended) >= now - DAY_MS) starved.add(run.employee);
+  for (const id of refused) if (assigned.has(id)) starved.add(id);
   return {
     now,
     team,
@@ -464,10 +493,14 @@ function collect(rows) {
           changes: 0,
           ownerChanges: 0,
           caps: 0,
+          asReviewer: 0,
+          passed: 0,
+          reopened: 0,
           stops: 0,
           approved: 0,
           denied: 0,
           expired: 0,
+          requestsToday: 0,
           stuck: 0,
           lastRun: null,
         },
@@ -503,18 +536,53 @@ function collect(rows) {
     }
     if (run.started && (!entry.w.lastRun || run.started > entry.w.lastRun)) entry.w.lastRun = run.started;
   }
+  // Tasks, not notes: the review limit's note repeats each time a capped task
+  // comes back to Review, Autopilot's bounce note once a day, and a bounced
+  // task may be stuck too.
+  const taskSets = () => {
+    const sets = new Map();
+    return {
+      add: (id, task) => {
+        if (!sets.has(id)) sets.set(id, new Set());
+        sets.get(id).add(task);
+      },
+      size: (id) => sets.get(id)?.size || 0,
+    };
+  };
+  const capped = taskSets();
+  const stuck = taskSets();
+  // Each reviewer's approvals (task → when), and the owner's reopenings.
+  const passedBy = new Map();
+  const reopenings = [];
   for (const event of rows.taskEvents) {
+    if (!inWindow(event.at)) continue;
+    if (event.type === "reopened") reopenings.push(event);
+    const reviewer = event.by === "bot" && metrics.get(event.actor)?.w;
+    if (reviewer && (event.type === "approved" || event.type === "changes")) {
+      reviewer.asReviewer += 1;
+      if (event.type === "approved") {
+        reviewer.passed += 1;
+        if (!passedBy.has(event.actor)) passedBy.set(event.actor, []);
+        passedBy.get(event.actor).push(event);
+      }
+    }
     const w = metrics.get(event.lead)?.w;
-    if (!w || !inWindow(event.at)) continue;
+    if (!w) continue;
     if (event.type === "approved") w.reviews += 1;
     if (event.type === "changes") {
       w.reviews += 1;
       w.changes += 1;
       if (event.by === "owner") w.ownerChanges += 1;
     }
-    if (event.type === "cap") w.caps += 1;
-    if (event.type === "bounce") w.stuck += 1;
+    if (event.type === "cap") capped.add(event.lead, event.task);
+    if (event.type === "bounce") stuck.add(event.lead, event.task);
   }
+  for (const [id, approvals] of passedBy)
+    metrics.get(id).w.reopened = new Set(
+      approvals
+        .filter((a) => reopenings.some((r) => r.task === a.task && Date.parse(r.at) > Date.parse(a.at)))
+        .map((a) => a.task),
+    ).size;
   for (const task of rows.finishedTasks) {
     const w = metrics.get(task.lead)?.w;
     // Tasks whose runs reported no tokens can't be priced.
@@ -522,9 +590,10 @@ function collect(rows) {
     w.tasks += 1;
     w.taskTokens += task.tokens;
   }
-  for (const item of rows.stuck) {
-    const w = metrics.get(item.employee)?.w;
-    if (w) w.stuck += 1;
+  for (const item of rows.stuck) if (metrics.has(item.employee)) stuck.add(item.employee, item.task);
+  for (const [id, { w }] of metrics) {
+    w.caps = capped.size(id);
+    w.stuck = stuck.size(id);
   }
   for (const approval of rows.approvals) {
     const w = metrics.get(approval.employee)?.w;
@@ -532,6 +601,7 @@ function collect(rows) {
     if (approval.status === "approved") w.approved += 1;
     if (approval.status === "denied") w.denied += 1;
     if (approval.status === "expired") w.expired += 1;
+    if (Date.parse(approval.at) >= daySince) w.requestsToday += 1;
   }
   for (const stop of rows.stops) {
     const w = metrics.get(stop.employee)?.w;
@@ -625,12 +695,19 @@ function judge(bot, entry, { rows, peers, history, day, bots }) {
   const rejected = rate("rejections", w.changes, w.reviews);
   if (rejected) add("rejections", rejected);
   if (w.caps >= 1) add("reviewCap", "watch");
+  // A reviewer that approved all it reviewed, when the owner then reopened
+  // some of it.
+  if (w.asReviewer >= MIN_SAMPLE) {
+    enough = true;
+    if (w.passed === w.asReviewer && w.reopened >= 1) add("rubberStamp", "watch");
+  }
   const redone = rate("redo", w.redo, w.ok + w.stops);
   if (redone) add("redo", redone);
   const decided = w.approved + w.denied;
   const declined = decided >= MIN_SAMPLE ? rate("denials", w.denied, decided) : null;
   if (declined === "adjust") add("denials", "adjust");
   else if (w.denied >= THRESHOLDS.denials.watch) add("denials", "watch");
+  else if (w.requestsToday > THRESHOLDS.denials.perDay) add("denials", "watch", "volume");
   if (w.stuck >= THRESHOLDS.stuck.watch) add("stuck", "watch");
   if (rate("busywork", w.idleRuns, w.unattended)) add("busywork", "watch");
   if (w.launch >= THRESHOLDS.launch.watch) add("launch", "watch");
@@ -643,12 +720,14 @@ function judge(bot, entry, { rows, peers, history, day, bots }) {
   const score = primary && scores[primary.code] !== undefined ? scores[primary.code] : null;
 
   // Idle only counts when the bot could have worked on its own: Team on, and
-  // work assigned to it. Held by limits is a capacity note.
-  const eligible = rows.team === "running" && rows.assigned.includes(bot.id);
+  // work assigned to it. Held by limits, turned away or stopped is a
+  // capacity note, never held against it.
+  const assigned = rows.assigned.includes(bot.id);
+  const eligible = rows.team === "running" && assigned;
   const starved = rows.starved.includes(bot.id);
   const idle = eligible && !starved && d.started === 0;
-  if (w.started === 0) notes.push(!eligible ? "not-scheduled" : starved ? "starved" : "idle");
-  else if (starved) notes.push("starved");
+  if (starved) notes.push("starved");
+  else if (w.started === 0) notes.push(!assigned ? "not-scheduled" : !eligible ? "team-off" : "idle");
 
   const recent = entry.adjustments.some((at) => at > now - COOLDOWN_MS && at <= now);
   let verdict = raw;
@@ -761,10 +840,14 @@ export function reasonWords(reason, m, nameOf = () => "a teammate") {
       return `${m.changes} of ${m.reviews} reviews sent its work back`;
     case "reviewCap":
       return `${plural(m.caps, "task")} hit the 3-round review limit`;
+    case "rubberStamp":
+      return `Approved all ${m.asReviewer} reviews it did, and you reopened ${plural(m.reopened, "task")} it had approved`;
     case "redo":
       return `You sent back or stopped ${m.redo} of ${m.ok + m.stops} runs`;
     case "denials":
-      return `You declined ${m.denied} of ${m.approved + m.denied} tool requests you answered`;
+      return reason.detail === "volume"
+        ? `Asked for ${m.requestsToday} tool requests in the last 24 hours`
+        : `You declined ${m.denied} of ${m.approved + m.denied} tool requests you answered`;
     case "stuck":
       return `${plural(m.stuck, "card")} stuck for over a day`;
     case "busywork":
@@ -787,13 +870,14 @@ export function fixWords(fix, nameOf = () => "a teammate") {
 export const NOTE_WORDS = Object.freeze({
   cooldown: "Changed in the last 7 days, so held at Watch while that settles",
   idle: "Had work waiting but ran nothing in 14 days",
-  starved: "Its work was held by the Team's limits",
+  starved: "Some of its work was held by the Team's limits, or turned away or stopped before it started",
   "not-scheduled": "No runs in 14 days, and nothing starts it on its own",
+  "team-off": "No runs in 14 days; it has work that starts on its own, but Team is off, so it isn't judged idle",
 });
 export function totalsLine(review) {
   const c = review.counts;
   const when = new Date(review.at).toLocaleString("en-US", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
-  return `${when}${review.late ? " (ran late)" : ""}: ${c.ok} OK · ${c.watch} Watch · ${c.adjust} Adjust · ${c.fire} Fire candidates · ${c.insufficient} Not enough data`;
+  return `${when}${review.late ? " (ran late)" : ""}: ${c.ok} OK · ${c.watch} Watch · ${c.adjust} Adjust · ${plural(c.fire, "Fire candidate")} · ${c.insufficient} Not enough data`;
 }
 
 // The canvas section: a totals line, then a table of flagged bots. Names are
@@ -807,7 +891,7 @@ export function sectionBlocks(review, people = {}) {
     .slice(0, 99);
   const blocks = [
     { type: "p", text: totalsLine(review) },
-    { type: "p", text: "Read-only: nothing was changed. Org → People has every bot's numbers and how verdicts are decided." },
+    { type: "p", text: "Read-only: nothing was changed. Org → People has every bot's numbers and how verdicts are decided. Any Bot rewrites this section each day; notes you add below it stay." },
   ];
   if (!flagged.length) blocks.push({ type: "p", text: "No bot needs attention today." });
   else

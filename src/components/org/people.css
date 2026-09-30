@@ -51,6 +51,40 @@
   color: var(--ink);
   font-size: 13px;
 }
+.people-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.people-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--card);
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.people-filter span {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.people-filter[aria-pressed="true"] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+.people-filter[aria-pressed="true"] span {
+  color: var(--paper);
+}
+.people-table td.people-none {
+  color: var(--ink-3);
+}
 .people-table-wrap {
   overflow-x: auto;
 }

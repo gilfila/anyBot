@@ -13,6 +13,7 @@ import {
   DEFAULT_SETTINGS,
   FIXES,
   FIX_KINDS,
+  FIX_LABELS,
   MIN_SAMPLE,
   RULES,
   applyPeopleSettings,
@@ -24,6 +25,7 @@ import {
   peopleSettings,
   reasonWords,
   sectionBlocks,
+  totalsLine,
   wilsonLower,
 } from "../runtime/people-review.mjs";
 
@@ -333,7 +335,7 @@ test("idle is a fire candidate only with Team on, assigned work, 14 idle days an
   const off = of(buildReview(base({ team: "off" }), { history: idleDays(DAYS_13) }), "g");
   assert.notEqual(off.v, "fire");
   assert.equal(off.idle, false);
-  assert.ok(off.notes.includes("not-scheduled"));
+  assert.ok(off.notes.includes("team-off"));
   // No assigned work.
   const unassigned = of(buildReview(base({ assigned: [] }), { history: idleDays(DAYS_13) }), "g");
   assert.notEqual(unassigned.v, "fire");
@@ -354,7 +356,7 @@ test("idle is a fire candidate only with Team on, assigned work, 14 idle days an
 // The table, words, settings and slots ------------------------------------------
 
 test("one table holds every rule, with its minimum data, thresholds, reason and fix", () => {
-  const known = ["failures", "cost", "rejections", "reviewCap", "redo", "denials", "stuck", "busywork", "launch"];
+  const known = ["failures", "cost", "rejections", "reviewCap", "rubberStamp", "redo", "denials", "stuck", "busywork", "launch"];
   assert.deepEqual(RULES.map((r) => r.code), known);
   for (const rule of RULES) {
     for (const field of ["label", "counts", "min", "watch", "adjust", "why"]) assert.equal(typeof rule[field], "string", `${rule.code}.${field}`);
@@ -366,7 +368,7 @@ test("one table holds every rule, with its minimum data, thresholds, reason and 
   }
   assert.deepEqual(FIX_KINDS, ["instructions", "model", "effort", "harness", "manager", "workspace"]);
   // Every reason has words, and every fix a sentence.
-  const m = { ok: 10, botFailed: 5, costPerTask: 300_000, peerMedian: 100_000, reviews: 10, changes: 5, caps: 1, redo: 6, stops: 3, denied: 3, approved: 1, stuck: 2, idleRuns: 10, unattended: 12, launch: 3 };
+  const m = { ok: 10, botFailed: 5, costPerTask: 300_000, peerMedian: 100_000, reviews: 10, changes: 5, caps: 1, redo: 6, stops: 3, denied: 3, approved: 1, stuck: 2, idleRuns: 10, unattended: 12, launch: 3, asReviewer: 10, reopened: 1, requestsToday: 21 };
   for (const code of known) assert.ok(reasonWords({ code, level: "watch", detail: "timeout" }, m).length > 10, code);
   assert.match(reasonWords({ code: "fire", level: "fire", detail: "idle" }, m), /14 days/);
   assert.match(fixWords({ kind: "manager", key: "fire.idle", detail: "h" }, (id) => (id === "h" ? "Hana" : id)), /Hana/);
@@ -603,14 +605,14 @@ test("the HQ canvas gets one People review section, replaced each time, never ap
   assert.equal((await c.command("docs.get", { conversation: studio.id })).revision, 0, "other rooms are left alone");
 });
 
-test("the section falls back to the top bot's direct chat, and isn't written without an org", async (t) => {
+test("the section isn't written into the top bot's direct chat, nor without an org", async (t) => {
   const { c, hire } = await office(t);
   const atlas = await hire("Atlas");
   await hire("Nova", { manager: atlas.id });
   await c.command("people.run");
-  const direct = c.directConversationId(atlas.id);
-  assert.ok(direct, "Atlas's direct chat");
-  assert.equal((await c.command("docs.get", { conversation: direct })).blocks[0].text, "People review");
+  // Its direct chat is where Slack and Buzz reach it, and every run there reads the canvas.
+  assert.ok(!c.directConversationId(atlas.id), "no direct chat is created for it");
+  assert.deepEqual(c.snapshot().docs, []);
 
   const other = await office(t);
   const ava = await other.hire("Ava");
@@ -768,4 +770,315 @@ test("your Stop on a running run is counted as a redo signal", async (t) => {
   const { latest } = await c.command("people.run");
   assert.equal(latest.bots.find((b) => b.id === bo.id).m.stops, 1);
   assert.equal(latest.bots.find((b) => b.id === ava.id).m.stops, 1);
+});
+
+// Review repairs (same release) ------------------------------------------------------
+
+test("the review limit and Autopilot's bounce notes count tasks, not notes", () => {
+  const note = (lead, task, type, hoursAgo = 1) => ({ task, lead, type, by: "system", at: iso(NOW - hoursAgo * HOUR) });
+  const review = buildReview(
+    rows({
+      bots: [bot("cap"), bot("bn")],
+      runs: [...runs("cap", 10), ...runs("bn", 10)],
+      // One task sent back and forth after the limit posts the note each time.
+      taskEvents: [note("cap", "t1", "cap", 30), note("cap", "t1", "cap", 5), note("bn", "t2", "bounce", 30), note("bn", "t2", "bounce", 2)],
+      // The bounced task is also stuck In progress: still one card.
+      stuck: [{ employee: "bn", task: "t2", type: "in_progress" }],
+    }),
+  );
+  assert.equal(of(review, "cap").m.caps, 1);
+  assert.match(reasonWords(of(review, "cap").reasons[0], of(review, "cap").m), /^1 task hit/);
+  assert.equal(of(review, "bn").m.stuck, 1);
+  assert.equal(of(review, "bn").v, "ok", "one stuck card is below Watch's 2");
+});
+
+test("a reviewer that passes everything, when you later reopen work it passed, is Watch", () => {
+  const verdict = (reviewer, type, task, hoursAgo) => ({ task, lead: "lead", type, by: "bot", actor: reviewer, at: iso(NOW - hoursAgo * HOUR) });
+  const passes = (reviewer, n) => repeat(n, (i) => verdict(reviewer, "approved", `${reviewer}-${i}`, 10));
+  const reopened = (task, hoursAgo = 2) => ({ task, lead: "lead", type: "reopened", by: "owner", at: iso(NOW - hoursAgo * HOUR) });
+  const review = buildReview(
+    rows({
+      bots: [bot("lead"), bot("rs"), bot("fair"), bot("few"), bot("early")],
+      runs: runs("lead", 10),
+      taskEvents: [
+        ...passes("rs", 10),
+        reopened("rs-3"),
+        // Sends some back: not a rubber stamp, even when you reopen one.
+        ...passes("fair", 9),
+        verdict("fair", "changes", "fair-x", 10),
+        reopened("fair-2"),
+        // Too few reviews to judge.
+        ...passes("few", 9),
+        reopened("few-1"),
+        // Reopened before it approved: not a sign it passed bad work.
+        ...passes("early", 10),
+        reopened("early-1", 20),
+      ],
+    }),
+  );
+  const rs = of(review, "rs");
+  assert.equal(rs.v, "watch");
+  assert.deepEqual(codes(rs), ["rubberStamp"]);
+  assert.equal(rs.m.asReviewer, 10);
+  assert.equal(rs.m.reopened, 1);
+  assert.equal(rs.fix.kind, "instructions");
+  assert.match(reasonWords(rs.reasons[0], rs.m), /all 10 reviews/);
+  assert.equal(of(review, "fair").v, "ok");
+  assert.equal(of(review, "few").v, "insufficient");
+  assert.equal(of(review, "early").v, "ok");
+  // The lead's own numbers are its reviews as lead.
+  assert.equal(of(review, "lead").m.reviews, 39);
+});
+
+test("more than 20 tool requests in 24 hours is Watch, even when you allow them", () => {
+  const asks = (employee, status, n, ago = HOUR) => repeat(n, () => ({ employee, status, at: iso(NOW - ago) }));
+  const review = buildReview(
+    rows({
+      bots: [bot("q1"), bot("q2")],
+      runs: [...runs("q1", 10), ...runs("q2", 10)],
+      approvals: [...asks("q1", "approved", 21), ...asks("q2", "approved", 20), ...asks("q2", "approved", 30, 3 * DAY)],
+    }),
+  );
+  const q1 = of(review, "q1");
+  assert.equal(q1.v, "watch");
+  assert.deepEqual(q1.reasons, [{ code: "denials", level: "watch", detail: "volume" }]);
+  assert.match(reasonWords(q1.reasons[0], q1.m), /21 tool requests in the last 24 hours/);
+  assert.equal(of(review, "q2").v, "ok", "20 a day, or more on older days, is fine");
+});
+
+test("with Team off, a bot with work that starts on its own isn't told nothing starts it", () => {
+  const team = [bot("r1"), bot("r2")];
+  const review = buildReview(rows({ bots: team, team: "off", assigned: ["r1"] }));
+  assert.deepEqual(of(review, "r1").notes, ["team-off"]);
+  assert.deepEqual(of(review, "r2").notes, ["not-scheduled"]);
+  const running = buildReview(rows({ bots: team, team: "running", assigned: ["r1"], starved: ["r1"] }));
+  assert.deepEqual(of(running, "r1").notes, ["starved"]);
+});
+
+test("words: one Fire candidate, the folder fix, and totals", () => {
+  const review = { at: iso(NOW), late: false, counts: { ok: 1, watch: 0, adjust: 0, fire: 1, insufficient: 0 } };
+  assert.match(totalsLine(review), /· 1 Fire candidate ·/);
+  assert.match(totalsLine({ ...review, counts: { ...review.counts, fire: 2 } }), /· 2 Fire candidates ·/);
+  assert.equal(FIX_LABELS.workspace, "Folder");
+});
+
+test("content added below the People review section survives the next review: a bot's append and your own lines", async (t) => {
+  const { c, hire, room } = await office(t);
+  const atlas = await hire("Atlas");
+  const nova = await hire("Nova", { manager: atlas.id });
+  const mara = await hire("Mara", { manager: atlas.id });
+  const hq = await room("HQ", [atlas, nova, mara]);
+  await c.command("people.run");
+  let doc = await c.command("docs.get", { conversation: hq.id });
+  assert.equal(doc.blocks[0].text, "People review");
+  assert.ok(doc.blocks.every((b) => b.author === "system"), "the heading and every block it wrote are Any Bot's");
+  // Atlas appends (doc.append always adds at the end), then you type a line at the bottom.
+  c.docs.applyAgentAction(
+    { type: "doc.append", markdown: "Atlas brief: hire a designer\n\n### Decisions\n- Keep Nova on video" },
+    { id: "run-atlas", employee: atlas.id, conversation: hq.id },
+  );
+  doc = await c.command("docs.get", { conversation: hq.id });
+  await c.command("docs.save", { conversation: hq.id, revision: doc.revision, blocks: [...doc.blocks, { type: "p", text: "Owner: call the accountant" }] });
+  // Your edit inside the review's own text is the review's, and is replaced.
+  doc = await c.command("docs.get", { conversation: hq.id });
+  const totals = doc.blocks.findIndex((b) => b.author === "system" && b.type === "p");
+  await c.command("docs.save", {
+    conversation: hq.id,
+    revision: doc.revision,
+    blocks: doc.blocks.map((b, i) => (i === totals ? { ...b, text: `${b.text} (edited)` } : b)),
+  });
+  for (let i = 0; i < 2; i++) await c.command("people.run");
+  doc = await c.command("docs.get", { conversation: hq.id });
+  const texts = doc.blocks.map((b) => b.text);
+  for (const kept of ["Atlas brief: hire a designer", "Decisions", "Keep Nova on video", "Owner: call the accountant"]) assert.ok(texts.includes(kept), kept);
+  assert.equal(texts.filter((text) => text === "People review").length, 1);
+  assert.ok(!texts.some((text) => text.endsWith("(edited)")));
+  // The review stays where it was, above what was added after it.
+  const firstAdded = texts.indexOf("Atlas brief: hire a designer");
+  assert.ok(doc.blocks.slice(0, firstAdded).every((b) => b.author === "system"));
+  assert.ok(doc.blocks.slice(firstAdded).every((b) => b.author !== "system"));
+});
+
+test("the section moves with HQ, is removed when there's no org, and never goes into a direct chat", async (t) => {
+  const { c, hire, room } = await office(t);
+  const atlas = await hire("Atlas");
+  const nova = await hire("Nova", { manager: atlas.id });
+  // Atlas is in no project: its direct chat is where Slack and Buzz reach it.
+  await c.command("people.run");
+  assert.deepEqual(c.snapshot().docs, []);
+  const hq = await room("HQ", [atlas, nova]);
+  await c.command("docs.save", { conversation: hq.id, revision: 0, blocks: [{ type: "h2", text: "Goals" }, { type: "p", text: "Ship it" }] });
+  await c.command("people.run");
+  const has = async (conversation) => (await c.command("docs.get", { conversation })).blocks.some((b) => b.text === "People review");
+  assert.ok(await has(hq.id));
+  // A room with more of Atlas's direct reports becomes HQ: the old section goes.
+  const mara = await hire("Mara", { manager: atlas.id });
+  const studio = await room("Studio", [atlas, nova, mara]);
+  await c.command("people.run");
+  assert.ok(await has(studio.id));
+  assert.ok(!(await has(hq.id)));
+  assert.ok((await c.command("docs.get", { conversation: hq.id })).blocks.some((b) => b.text === "Ship it"), "the owner's content stays");
+  // No org any more: no section anywhere.
+  for (const id of [nova.id, mara.id]) {
+    const bot = c.snapshot().employees.find((e) => e.id === id);
+    await c.command("employees.setArchived", { id, revision: bot.revision, archived: true });
+  }
+  await c.command("people.run");
+  assert.ok(!(await has(studio.id)));
+});
+
+test("with Team on, a bot whose work Team turns away (a Codex bot) is held, not idle, and its card isn't stuck", async (t) => {
+  const { c, hire, room } = await office(t);
+  const atlas = await hire("Atlas");
+  const cody = await hire("Cody", { harness: "codex", manager: atlas.id, role: "video editor" });
+  await hire("Cora", { manager: atlas.id, role: "video editor" });
+  const studio = await room("Studio", [atlas, cody]);
+  await c.command("team.set", { enabled: true });
+  await c.command("conversations.setAutopilot", { conversation: studio.id, enabled: true });
+  await c.command("tasks.create", { conversation: studio.id, title: "Cut the trailer", assignees: [cody.id], reviewer: "" });
+  c.tick(); // Autopilot starts it; Team refuses the Codex run.
+  const task = c.snapshot().tasks.find((x) => x.title === "Cut the trailer");
+  const refused = c.snapshot().runs.find((r) => r.employee === cody.id);
+  assert.equal(refused.status, "cancelled");
+  assert.equal(refused.started, null);
+  assert.equal(task.status, "in_progress");
+  let rows = c.peopleRows(Date.now());
+  assert.ok(rows.starved.includes(cody.id));
+  // Hired weeks ago, idle 13 days before today, a teammate in the same role: still not a fire candidate.
+  c.store.run("UPDATE events SET created=? WHERE type IN ('employee.updated','employee.manager')", iso(Date.now() - 20 * DAY));
+  const idleHistory = Array.from({ length: 13 }, (_, i) => ({
+    day: dayKey(Date.now() - (i + 1) * DAY),
+    team: "running",
+    bots: [{ id: cody.id, v: "insufficient", raw: "insufficient", idle: true }],
+  }));
+  const judged = buildReview({ ...c.peopleRows(Date.now()), assigned: [cody.id] }, { history: idleHistory }).bots.find((b) => b.id === cody.id);
+  assert.equal(judged.idle, false);
+  assert.notEqual(judged.v, "fire");
+  assert.deepEqual(judged.notes, ["starved"]);
+  // Two days later the card is still In progress: Team turned its run away, so it isn't stuck.
+  const before = iso(Date.now() - 2 * DAY);
+  c.store.run("UPDATE tasks SET updated=? WHERE id=?", before, task.id);
+  c.store.run("UPDATE runs SET created=?,ended=? WHERE id=?", before, before, refused.id);
+  rows = c.peopleRows(Date.now());
+  assert.ok(!rows.stuck.some((s) => s.task === task.id));
+  assert.ok(!rows.assigned.includes(cody.id), "an In progress card isn't work anything starts on its own");
+  // An enabled routine Team would refuse: held, whether or not it came due yet.
+  await c.command("routines.create", { name: "Check in", prompt: "Check in", minutes: 60, conversation: studio.id, employee: cody.id });
+  assert.ok(c.peopleRows(Date.now()).starved.includes(cody.id));
+});
+
+test("a card whose last run was stopped (by you, Stop the team or a refusal) isn't stuck", async (t) => {
+  const { c, hire, room } = await office(t);
+  const lead = await hire("Lead");
+  const other = await hire("Other");
+  const desk = await room("Desk", [lead, other]);
+  const card = async (title, status, error = "") => {
+    await c.command("tasks.create", { conversation: desk.id, title, assignees: [lead.id], reviewer: "" });
+    const task = c.snapshot().tasks.find((x) => x.title === title);
+    const run = c.addRun(desk.id, lead.id, c.addMessage(desk.id, "system", "task", "lorem"), null, null, 0, task.id, null);
+    const old = iso(Date.now() - 2 * DAY);
+    c.store.run("UPDATE runs SET status=?,error=?,created=?,started=?,ended=? WHERE id=?", status, error, old, old, old, run);
+    c.store.run("UPDATE tasks SET status='in_progress',updated=? WHERE id=?", old, task.id);
+    return task.id;
+  };
+  const stopped = await card("Stopped", "cancelled", "Run cancelled");
+  const stalled = await card("Stalled", "failed", TIMEOUT);
+  const { stuck } = c.peopleRows(Date.now());
+  assert.deepEqual(stuck.map((s) => s.task), [stalled]);
+  assert.ok(!stuck.some((s) => s.task === stopped));
+});
+
+test("a Stop from someone else's phone isn't counted as yours", async (t) => {
+  const aborted = ({ signal }) =>
+    new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("Run cancelled")), { once: true }));
+  const { c, hire, room } = await office(t, { runner: aborted });
+  const bo = await hire("Bo");
+  const ava = await hire("Ava");
+  const desk = await room("Desk", [bo, ava]);
+  const until = async (check) => {
+    for (let i = 0; !check(); i++) {
+      if (i > 500) throw new Error("timed out");
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  };
+  const running = () => c.snapshot().runs.find((r) => r.status === "running");
+  const idle = () => !c.snapshot().runs.some((r) => ["running", "cancelling"].includes(r.status));
+  await c.command("messages.send", { requestId: "m1", conversation: desk.id, body: "@Bo draft it" });
+  await until(running);
+  await c.command("runs.cancel", { id: running().id, by: "member" });
+  await until(idle);
+  await c.command("messages.send", { requestId: "m2", conversation: desk.id, body: "@Ava draft it" });
+  await until(running);
+  await c.command("runs.cancel", { id: running().id, by: "owner" });
+  await until(idle);
+  const { latest } = await c.command("people.run");
+  assert.equal(latest.bots.find((b) => b.id === bo.id).m.stops, 0);
+  assert.equal(latest.bots.find((b) => b.id === ava.id).m.stops, 1, "the owner's phone counts, like the desk");
+});
+
+test("tool requests answered from Slack aren't counted as yours", async (t) => {
+  const { c, hire, room } = await office(t);
+  const bo = await hire("Bo");
+  const ava = await hire("Ava");
+  const desk = await room("Desk", [bo, ava]);
+  const ask = () => {
+    const run = insertRun(c, { employee: bo.id, conversation: desk.id, at: Date.now() - HOUR });
+    const id = `ap-${Math.random().toString(36).slice(2)}`;
+    c.store.run(
+      "INSERT INTO approvals(id,run,conversation,employee,tool,summary,status,created) VALUES (?,?,?,?,?,?,?,?)",
+      id,
+      run,
+      desk.id,
+      bo.id,
+      "Bash",
+      "lorem",
+      "pending",
+      iso(Date.now() - HOUR),
+    );
+    return id;
+  };
+  for (let i = 0; i < 3; i++) await c.command("approvals.decide", { id: ask(), decision: "deny", by: "slack" });
+  await c.command("approvals.decide", { id: ask(), decision: "deny" });
+  const { latest } = await c.command("people.run");
+  const b = latest.bots.find((x) => x.id === bo.id);
+  assert.equal(b.m.denied, 1, "only the desk's answer is yours");
+  assert.ok(!b.reasons.some((r) => r.code === "denials"));
+});
+
+test("from the database: which bot approved a review, and your reopening of a finished task", async (t) => {
+  const { c, hire, room } = await office(t);
+  const lead = await hire("Lead");
+  const rev = await hire("Rev");
+  const desk = await room("Desk", [lead, rev]);
+  await c.command("tasks.create", { conversation: desk.id, title: "Draft", assignees: [lead.id], reviewer: rev.id });
+  const task = c.snapshot().tasks.find((x) => x.title === "Draft");
+  c.store.run("UPDATE tasks SET status='review' WHERE id=?", task.id);
+  c.board.move({ id: task.id, status: "done" }, rev.id);
+  await c.command("tasks.move", { id: task.id, status: "in_progress" });
+  const { taskEvents } = c.peopleRows(Date.now());
+  const approved = taskEvents.find((e) => e.type === "approved");
+  assert.equal(approved.actor, rev.id);
+  assert.equal(approved.lead, lead.id);
+  const reopened = taskEvents.find((e) => e.type === "reopened");
+  assert.equal(reopened.by, "owner");
+  assert.equal(reopened.task, task.id);
+  assert.equal(reopened.actor, undefined);
+});
+
+test("the next review time skips a day already reviewed, and the snapshot says when a review ran", async (t) => {
+  let clock = new Date(2026, 9, 5, 6, 0).getTime();
+  const { c } = await office(t, { clock: () => clock });
+  c.tick();
+  const stamp = () => JSON.stringify(c.snapshot().people);
+  const before = stamp();
+  clock = new Date(2026, 9, 5, 6, 45).getTime();
+  c.tick();
+  assert.notEqual(stamp(), before, "a review changes the snapshot, so open pages fetch it again");
+  assert.equal(c.snapshot().people.at, (await c.command("people.review")).latest.at);
+  clock = new Date(2026, 9, 5, 8, 0).getTime();
+  const later = await c.command("people.set", { at: "09:00" });
+  assert.equal(later.settings.next, new Date(2026, 9, 6, 9, 0).getTime(), "today was reviewed, so tomorrow");
+  const ran = stamp();
+  await c.command("people.run");
+  assert.notEqual(stamp(), ran);
 });

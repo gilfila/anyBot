@@ -295,19 +295,34 @@ export class Docs {
   }
   // Replaces what sits under `heading` with `body` blocks, or adds the
   // heading and body at the end when the page has no such section. A bot's
-  // doc.section and Any Bot's own sections (the daily people review, written
-  // as "system") both come through here; nothing else on the page changes.
-  // `blockAuthor` marks a new heading block as that bot's.
-  replaceSection(conversation, heading, body, { author, run = null, blockAuthor = null }) {
+  // doc.section and Any Bot's own sections (the daily people review) both
+  // come through here; nothing else on the page changes. `blockAuthor` marks
+  // a new heading block as that bot's.
+  //
+  // `owner` ("system", Any Bot's own sections): the section is only the
+  // heading and the blocks it wrote, all marked as its own, so whatever a bot
+  // appends or the owner types below it stays when it is replaced. A `body`
+  // of null removes that section (nothing is written when there's none).
+  replaceSection(conversation, heading, body, { author, run = null, blockAuthor = null, owner = null }) {
     const { blocks } = this.get(conversation);
-    this.write(conversation, normalizeBlocks(withSection(blocks, heading, body, blockAuthor)), author, run);
+    const next = withSection(blocks, heading, body, { blockAuthor, owner });
+    if (next === blocks) return false;
+    this.write(conversation, normalizeBlocks(next), author, run);
+    return true;
   }
 }
 
-// The page with `heading`'s section replaced by `added` (see replaceSection).
-function withSection(blocks, heading, added, blockAuthor) {
+// The page with `heading`'s section replaced by `added`, or removed when
+// `added` is null (see replaceSection). Returns `blocks` itself when nothing
+// changes.
+function withSection(blocks, heading, added, { blockAuthor = null, owner = null } = {}) {
   const same = (b) => HEADING[b.type] && b.text.trim().toLowerCase() === heading.toLowerCase();
-  const start = blocks.findIndex(same);
+  // Any Bot's section is its own heading, never one a bot or the owner wrote.
+  const start = blocks.findIndex((b) => same(b) && (!owner || b.author === owner));
+  if (added === null) {
+    if (start < 0) return blocks;
+    return [...blocks.slice(0, start), ...blocks.slice(sectionEnd(blocks, start, same, owner))];
+  }
   // Bots often start the markdown with the heading itself: drop that
   // copy (a new section keeps its level).
   let body = added;
@@ -325,16 +340,29 @@ function withSection(blocks, heading, added, blockAuthor) {
         : { ...b, type: "p", text: `**${b.text}**` }
       : b,
   );
-  if (start < 0)
-    return [...blocks, { id: randomUUID(), type: `h${level}`, text: heading, ...(blockAuthor ? { author: blockAuthor, at: now() } : {}) }, ...body];
-  // The section runs to the next heading at its level or above. Copies
-  // of this heading right after it (left by earlier updates that
-  // repeated it) belong to the section and are replaced too.
+  const at = now();
+  if (owner) body = body.map((b) => ({ ...b, author: owner, at }));
+  const by = owner || blockAuthor;
+  if (start < 0) return [...blocks, { id: randomUUID(), type: `h${level}`, text: heading, ...(by ? { author: by, at } : {}) }, ...body];
+  return [...blocks.slice(0, start + 1), ...body, ...blocks.slice(sectionEnd(blocks, start, same, owner))];
+}
+
+// Where the section whose heading is at `start` ends. It runs to the next
+// heading at its level or above; copies of its heading right after it (left
+// by earlier updates that repeated it) belong to it. An `owner`'s section
+// also ends at the first block the owner didn't write.
+function sectionEnd(blocks, start, same, owner) {
+  const level = HEADING[blocks[start].type];
+  const ends = (b) => HEADING[b.type] && HEADING[b.type] <= level && !same(b);
   let end = start + 1;
+  if (owner) {
+    while (end < blocks.length && blocks[end].author === owner && !ends(blocks[end])) end += 1;
+    return end;
+  }
   for (;;) {
     while (end < blocks.length && !(HEADING[blocks[end].type] && HEADING[blocks[end].type] <= level)) end += 1;
     if (end < blocks.length && same(blocks[end])) end += 1;
     else break;
   }
-  return [...blocks.slice(0, start + 1), ...body, ...blocks.slice(end)];
+  return end;
 }

@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { describeIssue } from "../src/lib/diagnostics.js";
-import { peopleRows, sortPeople, trendOf } from "../src/lib/people.js";
+import { filterPeople, peopleRows, sortPeople, trendLabel, trendOf } from "../src/lib/people.js";
 
 const employees = [
   { id: "a", name: "Atlas", role: "Chief of staff", archived: 0 },
@@ -112,4 +112,36 @@ test("Org has a People tab, the Settings row is in place, and the styles use tok
   assert.ok(!/rgba?\(|hsla?\(/i.test(css), "no rgb or hsl colors");
   // The canvas names Any Bot's own edits.
   assert.match(await read("src/components/doc/ProjectDoc.jsx"), /"system" \? "Any Bot"/);
+});
+
+test("People rows filter by verdict, and a trend has words for screen readers", () => {
+  const rows = peopleRows(latest, employees);
+  assert.deepEqual(filterPeople(rows, "all").map((r) => r.id), ["a", "n", "h", "z"]);
+  assert.deepEqual(filterPeople(rows, "adjust").map((r) => r.id), ["n"]);
+  assert.deepEqual(filterPeople(rows, "fire").map((r) => r.id), ["h"]);
+  assert.deepEqual(filterPeople(rows, "watch"), []);
+  const days = trendOf(
+    [
+      { day: "2026-09-30", verdicts: { n: "adjust" } },
+      { day: "2026-09-29", verdicts: { n: "watch" } },
+      { day: "2026-09-28", verdicts: {} },
+    ],
+    "n",
+  );
+  assert.equal(trendLabel(days), "Last 3 reviews, oldest first: not reviewed, Watch, Adjust");
+});
+
+test("Org → People and the Settings row fetch again when a review runs, and say when they can't load", async () => {
+  const read = (file) => readFile(new URL(`../${file}`, import.meta.url), "utf8");
+  const tab = await read("src/components/org/PeopleTab.jsx");
+  assert.match(tab, /data\.people/, "the tab follows the snapshot's people stamp");
+  assert.match(tab, /role="img"/);
+  assert.match(tab, /aria-pressed/, "verdict filters");
+  assert.match(tab, /outages don't count/);
+  const settings = await read("src/components/PeopleReviewSettings.jsx");
+  assert.match(settings, /stamp/);
+  assert.match(settings, /Try again/, "a failed load keeps the card, with a way to retry");
+  assert.match(settings, /onSubmit/, "Enter saves the time");
+  assert.doesNotMatch(settings, /if \(!state\) return null/);
+  assert.match(await read("src/App.jsx"), /<PeopleReviewSettings stamp=/);
 });
