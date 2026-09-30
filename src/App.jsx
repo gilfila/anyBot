@@ -210,6 +210,10 @@ import { AppearancePanel } from "./components/theme/AppearancePanel.jsx";
 import { PhoneLinkPanel } from "./components/PhoneLinkPanel.jsx";
 import { TeamPanel } from "./components/TeamPanel.jsx";
 import { PeopleReviewSettings } from "./components/PeopleReviewSettings.jsx";
+import { VoicePanel } from "./components/VoicePanel.jsx";
+import { VoiceBar } from "./components/VoiceBar.jsx";
+import { useVoice } from "./lib/useVoice.js";
+import { findHq } from "../runtime/hq.mjs";
 import { TeamBanner, TeamPulse } from "./components/TeamPulse.jsx";
 import { occurrenceLabel } from "./lib/team.js";
 import { SlackPanel } from "./components/SlackPanel.jsx";
@@ -315,9 +319,6 @@ export function App() {
   );
   const setDraft = useCallback((next) => setDraftFor(conversationId, next), [conversationId, setDraftFor]);
   const [sidebarSearch, setSidebarSearch] = useState("");
-  const [dictating, setDictating] = useState(false),
-    [voiceAgent, setVoiceAgent] = useState(null);
-  const recognition = useRef(null);
   const [showArchived, setShowArchived] = useState(false);
   const [lastSeenMessages, setLastSeenMessages] = useState(() => {
     try {
@@ -384,7 +385,7 @@ export function App() {
   const [openThread, setOpenThread] = useState(null);
   const [orgTab, setOrgTab] = useState("chart");
   const end = useRef(null);
-  // Voice replies are awaited inside long-lived callbacks; read live data.
+  // Long-lived callbacks (a clicked notification) read live data.
   const dataRef = useRef(data);
   dataRef.current = data;
   
@@ -587,67 +588,21 @@ export function App() {
     });
     return Boolean(result);
   }
-  function startDictation(onText) {
-    const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Speech) {
-      setError("Dictation is unavailable in this build. Install the Flow companion or enable microphone speech recognition.");
-      return;
-    }
-    if (recognition.current) {
-      recognition.current.stop();
-      recognition.current = null;
-      setDictating(false);
-      return;
-    }
-    const next = new Speech();
-    next.continuous = true;
-    next.interimResults = false;
-    next.lang = navigator.language || "en-US";
-    next.onresult = (event) => {
-      const text = [...event.results]
-        .slice(event.resultIndex)
-        .filter((result) => result.isFinal)
-        .map((result) => result[0].transcript.trim())
-        .filter(Boolean)
-        .join(" ");
-      if (text) onText(text);
-    };
-    next.onerror = (event) => {
-      if (event.error !== "aborted") setError(`Dictation stopped: ${event.error}`);
-    };
-    next.onend = () => {
-      recognition.current = null;
-      setDictating(false);
-    };
-    recognition.current = next;
-    setDictating(true);
-    next.start();
-  }
-  async function startVoiceChat() {
-    if (!conversation || conversation.members.length !== 1) return;
-    const employee = data.employees.find((item) => item.id === conversation.members[0]);
-    if (!employee) return;
-    setVoiceAgent(employee);
-    startDictation(async (text) => {
-      const before = new Set(dataRef.current.messages.filter((message) => message.conversation === conversationId).map((message) => message.id));
-      await act("messages.send", {
-        conversation: conversationId,
-        body: text,
-        recipients: [employee.id],
-        requestId: crypto.randomUUID(),
-      });
-      for (let attempt = 0; attempt < 30; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        const snapshot = await window.anybot.request("snapshot");
-        setData(snapshot);
-        const reply = snapshot.messages.find((message) => message.conversation === conversationId && message.author === employee.id && !before.has(message.id));
-        if (reply) {
-          window.speechSynthesis?.speak(new SpeechSynthesisUtterance(reply.body));
-          break;
-        }
-      }
-    });
-  }
+  // Voice chat and dictation (src/lib/useVoice.js). A spoken turn is sent
+  // like a typed message, from the owner at the desk.
+  const conversationRef = useRef(conversationId);
+  conversationRef.current = conversationId;
+  const voice = useVoice({
+    send: async (payload) => Boolean(await act("messages.send", payload)),
+    onError: setError,
+    // A voice chat in a project talks in one thread: open it when it starts.
+    onThread: (conversation, thread) => {
+      if (conversationRef.current === conversation) setOpenThread(thread);
+    },
+  });
+  // HQ (runtime/hq.mjs): the room where the chief of the org can be talked to.
+  const hq = useMemo(() => findHq(data.employees, data.conversations), [data.employees, data.conversations]);
+  const hqChief = hq?.conversation ? data.employees.find((employee) => employee.id === hq.employee) : null;
   async function directChat(employee) {
     const existing = data.conversations.find(
       (c) => directChats.has(c.id) && c.members[0] === employee.id,
@@ -930,6 +885,7 @@ export function App() {
     <FileLinkContext.Provider value={fileLinks}>
     <ChatContext.Provider value={chatLinks}>
     <div className="app-shell">
+      <VoiceBar state={voice.state} pushToTalk={voice.pushToTalk} onStop={voice.stop} onPress={voice.press} onRelease={voice.release} />
       <aside className={`sidebar ${leftSidebarOpen ? "" : "collapsed"}`}>
         <div className="brand">
           <BrandMark />
@@ -1702,24 +1658,38 @@ export function App() {
                     </button>
                   )}
                 </div>
-                {conversation.members.length === 1 && (
-                  <button
-                    type="button"
-                    className={voiceAgent ? "secondary voice-active" : "secondary"}
-                    aria-label={voiceAgent ? "Stop voice chat" : "Voice chat"}
-                    title={voiceAgent ? "Stop voice chat" : "Voice chat"}
-                    onClick={() => {
-                      if (voiceAgent) {
-                        recognition.current?.stop();
-                        window.speechSynthesis?.cancel();
-                        setVoiceAgent(null);
-                      } else startVoiceChat();
-                    }}
-                  >
-                    <Volume2 size={15} />
-                    {voiceAgent ? "Stop voice chat" : "Voice chat"}
-                  </button>
-                )}
+                {(() => {
+                  const target =
+                    conversation.members.length === 1
+                      ? data.employees.find((employee) => employee.id === conversation.members[0])
+                      : hqChief && hq.conversation === conversation.id
+                        ? hqChief
+                        : null;
+                  if (!target) return null;
+                  const on = voice.state.mode === "chat" && voice.state.conversation === conversation.id;
+                  const label = conversation.members.length === 1 ? "Voice chat" : `Talk to ${target.name}`;
+                  return (
+                    <button
+                      type="button"
+                      className={on ? "secondary voice-active" : "secondary"}
+                      aria-label={on ? "Stop voice chat" : label}
+                      title={on ? "Stop voice chat (Esc)" : `${label}: speak, and hear the answer`}
+                      disabled={Boolean(conversation.archived)}
+                      onClick={() =>
+                        on
+                          ? voice.stop()
+                          : voice.startChat({
+                              conversation: conversation.id,
+                              employee: { id: target.id, name: target.name },
+                              project: conversation.members.length > 1,
+                            })
+                      }
+                    >
+                      <Volume2 size={15} />
+                      {on ? "Stop voice chat" : label}
+                    </button>
+                  );
+                })()}
               </div>
               {conversation && (
                 <div className="project-tabs" role="tablist" aria-label="Conversation views">
@@ -1902,8 +1872,8 @@ export function App() {
                 mode={isProject ? "project" : "direct"}
                 busy={busy}
                 connected={connected}
-                dictating={dictating}
-                onDictate={() => startDictation((text) => setDraft((current) => `${current}${current && !current.endsWith(" ") ? " " : ""}${text}`))}
+                dictating={voice.state.mode === "dictate"}
+                onDictate={() => voice.dictate((text) => setDraft((current) => `${current}${current && !current.endsWith(" ") ? " " : ""}${text}`))}
               />
               )}
               <div className="composer-note">
@@ -2396,6 +2366,7 @@ export function App() {
             )}
             <AppearancePanel />
             <PhoneLinkPanel />
+            <VoicePanel />
             <div className="settings-nav">
               <button
                 className="settings-nav-item"

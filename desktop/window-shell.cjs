@@ -72,4 +72,18 @@ function fileRequestBlocked(url, root, platform = process.platform) {
   }
 }
 
-module.exports = { contextMenuItems, fileRequestBlocked, navigationTarget };
+// The window's permissions (main.cjs guardMedia, for both the request and
+// the check handler). The microphone is for voice chat on the app's own page
+// only: never the camera or the screen, and never a frame inside the page
+// (bot HTML in a preview, a site in the rail browser). Every other
+// permission keeps Electron's default, allowed.
+function permissionAllowed(permission, details = {}, page) {
+  if (permission === "display-capture") return false;
+  if (permission !== "media") return true;
+  const url = String(details.requestingUrl || "").split("#")[0];
+  if (details.isMainFrame !== true || url !== page) return false;
+  const types = [...(details.mediaTypes || []), details.mediaType].filter(Boolean);
+  return types.every((type) => type === "audio");
+}
+
+module.exports = { contextMenuItems, fileRequestBlocked, navigationTarget, permissionAllowed };

@@ -105,3 +105,26 @@ test("HTML previews never combine allow-scripts with allow-same-origin on local 
     }
   }
 });
+
+// Voice (V1): speech-to-text and API keys live in main (desktop/voice.cjs),
+// reached through explicit voice.* branches before the allowlist, like
+// slack.*; the coordinator never sees them. The renderer follows its own
+// messages with messages.follow, which is allowlisted.
+test("voice.* is handled in main before the allowlist, and messages.follow reaches the coordinator", async () => {
+  const main = await read("desktop/main.cjs");
+  const allowlist = main.match(/const methods = new Set\(\[([\s\S]*?)\]\)/)[1];
+  assert.ok(allowlist.includes('"messages.follow"'), "messages.follow is allowlisted");
+  assert.ok(!allowlist.includes('"voice.'), "no voice.* method goes to the coordinator");
+  const route = main.indexOf('if (method.startsWith("voice.")) return voiceRequest(method, payload || {});');
+  assert.ok(route > 0, "voice.* is routed to voiceRequest");
+  assert.ok(route < main.indexOf('if (!methods.has(method)) throw new Error("Operation not allowed");'), "before the allowlist check");
+  for (const method of ["voice.status", "voice.start", "voice.setProvider", "voice.setKey", "voice.set", "voice.download", "voice.cancelDownload", "voice.remove", "voice.transcribe"])
+    assert.ok(main.includes(`method === "${method}"`), `${method} has its own branch`);
+  // The media permission handlers are set before the window opens.
+  assert.match(main, /session\.defaultSession\.setPermissionRequestHandler\(/);
+  assert.match(main, /session\.defaultSession\.setPermissionCheckHandler\(/);
+  assert.match(main, /guardMedia\(\);[\s\S]*showWindow\(\);/);
+  const coordinator = await read("runtime/coordinator.mjs");
+  assert.ok(coordinator.includes('case "messages.follow":'));
+  assert.ok(!coordinator.includes('case "voice.'), "the coordinator has no voice commands");
+});

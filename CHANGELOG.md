@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.40] - 2026-09-30
+
+Voice works now. Talk to a bot and hear the answer, however long the work takes, or dictate a message. Choose how Any Bot turns your speech into text in the new **Settings → Voice**; nothing is set up or downloaded until you do.
+
+### Added
+- **Settings → Voice.** Pick one way to turn speech into text:
+  - **On this computer** (Windows): whisper.cpp, private and offline. One download of about 156 MB (or about 496 MB for the more accurate Small model), only when you press **Download**, with a progress bar and **Cancel**. Every file is checked against its known fingerprint before it's used, and **Remove** deletes it again.
+  - **Groq** or **OpenAI**, with your own API key. The key is kept encrypted with your Windows account and never shown again. Each spoken turn's audio goes to that service.
+  - Also here: the voice replies are read in (with **Try it**), and **push to talk** (hold Space, or the button on the voice bar, instead of pausing).
+- **Talk to your chief.** Your HQ room (the project with the bot at the top of your org) has a **Talk to …** button next to **Manage bots**. The voice chat stays in one thread there.
+
+### Changed
+- **Voice chat** (in a bot's own chat) and **dictation** (the mic in the message box) use the speech-to-text you chose, instead of the built-in recognizer that stopped with "network" in Any Bot. That one is still offered if **Check it** in Settings → Voice finds that it works.
+- **A whole spoken turn is one message.** Short pauses stay inside it; about 1.3 seconds of quiet ends it (or letting go of Space with push to talk). A turn is at most 60 seconds.
+- **The answer is always read out, however long the work takes**, not only when it came within about 24 seconds. If the bot hands the work on or needs your approval, it says so once, then reads the final answer. A bar at the top of the window shows what's happening ("Atlas is working · 2m"); **Stop** or Esc ends the voice chat.
+- **Replies are read without markdown:** no code, tables or Any Bot's own blocks, links are read as "the link" and file paths as their file name. After about 600 characters it says "The rest is in the chat."
+- **The microphone is off while the bot works and while it talks**, so it never hears itself, and it turns on again after the last sentence. The mic in the message box adds one turn to your message.
+
+### Security
+- **Only Any Bot's own window can use the microphone**, and only for voice. Pages and bot-made HTML shown inside it (previews, the browser panel) can no longer get the microphone or the camera, and nothing can capture the screen.
+- Recordings and transcripts are deleted as soon as the text is back, and problems are logged in Diagnostics without anything you said.
+
 ## [0.3.39] - 2026-09-30
 
 This update adds a **daily people review**: a breakdown of which bots need adjusting, and which you might let go. It only reads your bots' history, uses no tokens and changes nothing, so it's **on** from this update. Turn it off, or change its time, in **Settings → Team**.
