@@ -30,6 +30,13 @@ contextBridge.exposeInMainWorld("anybot", {
     ipcRenderer.on("anybot:navigate", listener);
     return () => ipcRenderer.removeListener("anybot:navigate", listener);
   },
+  // The window was hidden (closed to the tray) or minimized: end any voice
+  // chat (window-shell.cjs stopVoiceWhenHidden).
+  onVoiceStop: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on("anybot:voice-stop", listener);
+    return () => ipcRenderer.removeListener("anybot:voice-stop", listener);
+  },
   listDirectory: (path) => ipcRenderer.invoke("anybot:listDirectory", path),
   revealPath: (path) => ipcRenderer.invoke("anybot:revealPath", path),
   // The context rail's Terminal. `cwd` is the folder to run in (main falls

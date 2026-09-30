@@ -5,22 +5,32 @@
 //   it takes (messages.follow on every change push, plus a slow fallback) →
 //   hand-offs and approvals are said once each, then the reply → only when
 //   the last sentence has been spoken does the mic open again.
+// A voice chat is bounded: it never sends what speech-to-text hears in
+// noise (noiseTranscript), it ends after 3 minutes of listening with
+// nothing sent, and after 20 turns, saying why each time. (Closing the
+// window to the tray and the team's brakes end it too: useVoice.js, App.jsx.)
 // Dictation hears one turn, hands its text back and ends.
 // The browser parts (microphone, speech-to-text, speech synthesis) come in
 // as functions, so this runs under node:test with fakes.
 import { speakable } from "../../runtime/speakable.mjs";
-import { followReducer, initialFollow } from "./voice.js";
+import { followReducer, initialFollow, noiseTranscript } from "./voice.js";
 
 const OFF = { mode: "off", phase: "off" };
 // A message that never shows up in follow (it was never sent) stops waiting.
 const UNKNOWN_MS = 60_000;
+export const IDLE_MS = 3 * 60_000;
+export const MAX_TURNS = 20;
+const IDLE_NOTE = "Voice chat stopped: nothing was said for 3 minutes.";
+const TURNS_NOTE = `Voice chat stopped after ${MAX_TURNS} turns. Start it again to keep talking.`;
 
 export class VoiceSession {
   // deps: hear({pushToTalk, onPhase, onLevel}) → {result: Promise<text|null>,
-  //   stop(), finish(), press(), release()}; send(payload) → Promise<bool>;
+  //   stop(), finish(), press(), release(), hearing()?: a turn is under
+  //   way}; send(payload) → Promise<bool>;
   //   follow(requestIds) → Promise<items>; subscribe(fn) → unsubscribe;
   //   speak(sentences) → Promise (the last sentence ended); cancelSpeech();
-  //   onState(state); onError(error); onThread(messageId).
+  //   onState(state); onError(error); onThread(messageId); onNotice(text)
+  //   (why a voice chat ended on its own). idleMs, maxTurns: the bounds.
   // target: {mode: "chat", conversation, employee: {id, name}, project?,
   //   thread?} or {mode: "dictate", onText}.
   constructor(deps, target) {
@@ -29,6 +39,8 @@ export class VoiceSession {
       pollMs: 5000,
       timers: globalThis,
       pushToTalk: false,
+      idleMs: IDLE_MS,
+      maxTurns: MAX_TURNS,
       ...deps,
     };
     this.target = target;
@@ -72,19 +84,40 @@ export class VoiceSession {
   finish() {
     this.handle?.finish?.();
   }
-  async hearOnce() {
+  // `until`: a voice chat's idle limit (a clock time). Reached while the mic
+  // just listens, the turn ends empty; while the owner is talking, holds the
+  // key, or the turn is being turned into text, it waits for that to finish.
+  async hearOnce(until = null) {
     this.set({ phase: "listening", level: 0 });
-    this.handle = this.deps.hear({
+    const handle = this.deps.hear({
       pushToTalk: this.deps.pushToTalk,
       onPhase: (phase) => this.set({ phase }),
       onLevel: (level) => this.set({ level }),
     });
+    this.handle = handle;
+    const { timers, clock } = this.deps;
+    let timer = null;
+    const arm = (ms) => {
+      timer = timers.setTimeout(() => {
+        if (this.state.phase === "listening" && !handle.hearing?.()) handle.stop();
+        else arm(1000);
+      }, Math.max(0, ms));
+    };
+    if (until !== null) arm(until - clock());
     try {
-      const text = await this.handle.result;
+      const text = await handle.result;
       return typeof text === "string" ? text.trim() : "";
     } finally {
+      if (timer !== null) timers.clearTimeout(timer);
       this.handle = null;
     }
+  }
+  // Says why the voice chat ends, then ends it.
+  async end(note) {
+    this.deps.onNotice?.(note);
+    this.set({ phase: "speaking" });
+    await Promise.resolve(this.deps.speak([note])).catch(() => {});
+    this.stop();
   }
   async loop() {
     if (this.target.mode === "dictate") {
@@ -94,10 +127,16 @@ export class VoiceSession {
       return;
     }
     const { conversation, employee } = this.target;
+    const { clock, idleMs, maxTurns } = this.deps;
+    let turns = 0;
+    let since = clock();
     while (!this.stopped) {
-      const text = await this.hearOnce();
+      const text = await this.hearOnce(since + idleMs);
       if (this.stopped) return;
-      if (!text) continue;
+      if (!text || noiseTranscript(text)) {
+        if (clock() - since >= idleMs) return this.end(IDLE_NOTE);
+        continue;
+      }
       this.set({ phase: "sending" });
       const requestId = globalThis.crypto?.randomUUID?.() || `voice-${this.deps.clock()}-${Math.random().toString(36).slice(2)}`;
       const sent = await this.deps.send({ conversation, body: text, recipients: [employee.id], thread: this.thread, requestId });
@@ -106,7 +145,11 @@ export class VoiceSession {
         this.stop();
         return;
       }
+      turns += 1;
       await this.followUntilDone(requestId);
+      if (this.stopped) return;
+      if (turns >= maxTurns) return this.end(TURNS_NOTE);
+      since = clock();
     }
   }
   // Resolves once the work has ended and everything about it has been said.

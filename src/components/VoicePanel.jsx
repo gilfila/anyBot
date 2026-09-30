@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import { AudioLines, Check, Download, KeyRound, Trash2, Volume2, X } from "lucide-react";
 import { probeWebSpeech, speakSentences } from "../lib/useVoice.js";
+import { showsLocalSetup } from "../lib/voice.js";
 import "./voice.css";
 
 // Settings → Voice: how voice chat and dictation turn speech into text
-// (desktop/voice.cjs), the voice replies are read in, and push-to-talk.
+// (desktop/voice.cjs), which voice reads the replies, and push-to-talk.
 // Nothing downloads until the owner presses Download; keys never come back
 // from main once saved.
 const clean = (message) => String(message || "").replace(/^Error invoking remote method '[^']+': Error: /, "");
@@ -142,7 +143,7 @@ export function VoicePanel() {
           ))}
         </fieldset>
 
-        {status.provider === "whisper-local" || (!status.chosen && !local.installed) ? (
+        {showsLocalSetup(status) ? (
           <div className="voice-section">
             {!local.supported ? (
               <p className="voice-note">Speech-to-text on this computer is available on Windows. Use Groq or OpenAI here.</p>
@@ -181,7 +182,8 @@ export function VoicePanel() {
                     <select value={model} onChange={(event) => setModel(event.target.value)}>
                       {Object.entries(local.models).map(([id, m]) => (
                         <option key={id} value={id}>
-                          {m.label} ({mb(m.size)}){m.installed ? ", installed" : ""}
+                          {m.label}
+                          {m.note ? `: ${m.note}` : ""} ({mb(m.size)}){m.installed ? ", installed" : ""}
                         </option>
                       ))}
                     </select>

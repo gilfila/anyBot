@@ -31,8 +31,8 @@ const {
 } = require("./lifecycle.cjs");
 const { commandDirectory, killTree } = require("./shell-command.cjs");
 const fileAccess = require("./file-access.cjs");
-const { contextMenuItems, fileRequestBlocked, navigationTarget, permissionAllowed } = require("./window-shell.cjs");
-const { createVoice } = require("./voice.cjs");
+const { contextMenuItems, fileRequestBlocked, navigationTarget, permissionAllowed, stopVoiceWhenHidden } = require("./window-shell.cjs");
+const { clearVoiceTemp, createVoice } = require("./voice.cjs");
 const { teamTrayItems, teamTrayTooltip, traySignature, trayRefreshDelay } = require("./team-tray.cjs");
 let diagnostics = null;
 let fileLinks = null;
@@ -779,6 +779,8 @@ if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on("second-instance", () => showWindow());
   app.whenReady().then(() => {
+    // A recording left by a quit or crash mid-turn (desktop/voice.cjs).
+    clearVoiceTemp(app.getPath("userData"));
     const startupPreference = loadStartupPreference();
     applyStartupPreference(startupPreference.launchAtLogin);
     applyTrayPreference(startupPreference.keepRunningInTray);
@@ -1564,6 +1566,8 @@ function showWindow(rendererSandbox = app.isPackaged) {
   window.webContents.on("will-navigate", (event, url) => {
     if (url !== page) event.preventDefault();
   });
+  // Closing to the tray or minimizing ends a voice chat (window-shell.cjs).
+  stopVoiceWhenHidden(window);
   window.loadURL(page);
   window.on("close", (event) => {
     if (!quitting) {

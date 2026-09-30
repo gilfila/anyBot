@@ -213,6 +213,7 @@ import { PeopleReviewSettings } from "./components/PeopleReviewSettings.jsx";
 import { VoicePanel } from "./components/VoicePanel.jsx";
 import { VoiceBar } from "./components/VoiceBar.jsx";
 import { useVoice } from "./lib/useVoice.js";
+import { haltKey } from "./lib/voice.js";
 import { findHq } from "../runtime/hq.mjs";
 import { TeamBanner, TeamPulse } from "./components/TeamPulse.jsx";
 import { occurrenceLabel } from "./lib/team.js";
@@ -221,7 +222,7 @@ import { BuzzPanel } from "./components/BuzzPanel.jsx";
 import { AttentionIcon } from "./components/AttentionIcon.jsx";
 import { botAttention } from "./lib/attention.js";
 import { attentionTarget, resolveTarget } from "./lib/navigation.js";
-import { SHORTCUTS, nextApproval, shortcutFor, shortcutKeys } from "./lib/shortcuts.js";
+import { SHORTCUTS, closeOnEscape, nextApproval, shortcutFor, shortcutKeys } from "./lib/shortcuts.js";
 import { plainNotes } from "./lib/update-notes.js";
 import { RunTerminal } from "./components/RunTerminal.jsx";
 import { UsageToday } from "./components/UsageToday.jsx";
@@ -550,9 +551,8 @@ export function App() {
   useEffect(() => {
     if (!openBotMenu) return;
     const handleClickOutside = () => setOpenBotMenu(null);
-    const handleEscape = (e) => {
-      if (e.key === "Escape") setOpenBotMenu(null);
-    };
+    // Marks Esc as used, so it closes the menu and not a voice chat too.
+    const handleEscape = closeOnEscape(() => setOpenBotMenu(null));
     document.addEventListener("click", handleClickOutside);
     document.addEventListener("keydown", handleEscape);
     return () => {
@@ -599,7 +599,19 @@ export function App() {
     onThread: (conversation, thread) => {
       if (conversationRef.current === conversation) setOpenThread(thread);
     },
+    // Why a voice chat ended on its own (3 quiet minutes, 20 turns).
+    onNotice: setNotice,
   });
+  // Stop the team, a Pause or Stop everything ends a voice chat too: pulling
+  // a brake means no more work, and an open mic would keep making some.
+  const halted = haltKey(data);
+  const haltedBefore = useRef(halted);
+  const stopVoice = voice.stop;
+  useEffect(() => {
+    const before = haltedBefore.current;
+    haltedBefore.current = halted;
+    if (halted && halted !== before) stopVoice();
+  }, [halted, stopVoice]);
   // HQ (runtime/hq.mjs): the room where the chief of the org can be talked to.
   const hq = useMemo(() => findHq(data.employees, data.conversations), [data.employees, data.conversations]);
   const hqChief = hq?.conversation ? data.employees.find((employee) => employee.id === hq.employee) : null;

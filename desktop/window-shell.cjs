@@ -86,4 +86,17 @@ function permissionAllowed(permission, details = {}, page) {
   return types.every((type) => type === "audio");
 }
 
-module.exports = { contextMenuItems, fileRequestBlocked, navigationTarget, permissionAllowed };
+// A voice chat ends when the window is hidden (closed to the tray) or
+// minimized: nobody can see its bar or press Esc there, and an open mic
+// would keep sending whatever the room says as the owner's messages. The
+// window stops voice on this message (src/lib/useVoice.js), and on
+// visibilitychange when Chromium reports one.
+function stopVoiceWhenHidden(window) {
+  const stop = () => {
+    if (!window.isDestroyed()) window.webContents.send("anybot:voice-stop");
+  };
+  window.on("hide", stop);
+  window.on("minimize", stop);
+}
+
+module.exports = { contextMenuItems, fileRequestBlocked, navigationTarget, permissionAllowed, stopVoiceWhenHidden };

@@ -13,13 +13,15 @@ import { createRequire } from "node:module";
 import { Coordinator } from "../runtime/coordinator.mjs";
 import { speakable, SPEAK_LIMIT, REST_OF_IT } from "../runtime/speakable.mjs";
 import { findHq } from "../runtime/hq.mjs";
-import { encodeWav, resample, Segmenter, followReducer, initialFollow, workingLabel } from "../src/lib/voice.js";
+import { encodeWav, resample, Segmenter, followReducer, initialFollow, workingLabel, noiseTranscript, haltKey, voiceKey, pushToTalkFor, showsLocalSetup } from "../src/lib/voice.js";
 import { VoiceSession } from "../src/lib/voice-session.js";
+import { hearAudio, openMic, speakSentences } from "../src/lib/voice-io.js";
 import { describeIssue } from "../src/lib/diagnostics.js";
+import { closeOnEscape } from "../src/lib/shortcuts.js";
 
 const require = createRequire(import.meta.url);
-const { createVoice, parseWav } = require("../desktop/voice.cjs");
-const { permissionAllowed } = require("../desktop/window-shell.cjs");
+const { createVoice, parseWav, clearVoiceTemp } = require("../desktop/voice.cjs");
+const { permissionAllowed, stopVoiceWhenHidden } = require("../desktop/window-shell.cjs");
 
 const RATE = 16000;
 const tone = (seconds, amplitude = 0.3) =>
@@ -619,4 +621,452 @@ test("HQ is the top-level bot with the most people under it, in its project with
   assert.deepEqual(findHq(bots, rooms), { employee: "atlas", conversation: "hq" });
   assert.deepEqual(findHq(bots, rooms.slice(0, 1)), { employee: "atlas", conversation: null });
   assert.equal(findHq(bots.map((b) => ({ ...b, manager: "" })), rooms), null, "no org, no HQ");
+});
+
+// ------------------------------------------------------------- Review repairs
+
+// The browser's microphone, faked: getUserMedia answers only when the test
+// says so, each stream's track records whether it was stopped, and frames go
+// to every worklet node still listening.
+function fakeMic(t) {
+  const pending = [];
+  const tracks = [];
+  const nodes = [];
+  const saved = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      mediaDevices: {
+        getUserMedia: () =>
+          new Promise((resolve) => {
+            const track = { readyState: "live", stop() {
+              this.readyState = "ended";
+            } };
+            tracks.push(track);
+            pending.push(() => resolve({ getTracks: () => [track] }));
+          }),
+      },
+    },
+  });
+  globalThis.AudioContext = class {
+    sampleRate = RATE;
+    state = "running";
+    audioWorklet = { addModule: async () => {} };
+    createMediaStreamSource() {
+      return { connect() {}, disconnect() {} };
+    }
+    async resume() {}
+    async close() {}
+  };
+  globalThis.AudioWorkletNode = class {
+    constructor() {
+      this.port = { onmessage: null };
+      nodes.push(this);
+    }
+  };
+  t.after(() => {
+    if (saved) Object.defineProperty(globalThis, "navigator", saved);
+    delete globalThis.AudioContext;
+    delete globalThis.AudioWorkletNode;
+  });
+  return {
+    pending,
+    tracks,
+    // 20 ms frames to every node that still listens.
+    play(samples) {
+      for (let at = 0; at < samples.length; at += 320) for (const node of nodes) node.port.onmessage?.({ data: samples.subarray(at, at + 320) });
+    },
+  };
+}
+const settleSoon = async () => {
+  for (let i = 0; i < 5; i++) await tick();
+};
+
+test("push-to-talk: pressing again while the mic is still opening leaves no microphone on and records the turn once", async (t) => {
+  const mic = fakeMic(t);
+  const recordings = [];
+  const handle = hearAudio({
+    pushToTalk: true,
+    open: (onFrames) => openMic(onFrames, { workletUrl: "pcm-worklet.js" }),
+    transcribe: async (wav) => {
+      recordings.push(parseWav(wav));
+      return { text: "Plan the launch" };
+    },
+  });
+  // A tap, then a real press, both before the first mic has started.
+  handle.press();
+  handle.release();
+  handle.press();
+  await settleSoon();
+  assert.equal(mic.pending.length, 2, "two opens are in flight");
+  mic.pending[0]();
+  await settleSoon();
+  mic.pending[1]();
+  await settleSoon();
+  assert.equal(mic.tracks.filter((track) => track.readyState === "live").length, 1, "only the newest microphone stays on");
+  mic.play(tone(0.5));
+  handle.release();
+  assert.equal(await handle.result, "Plan the launch");
+  assert.equal(recordings.length, 1);
+  assert.equal(recordings[0].seconds, 0.5, "the held turn is recorded once, not from two microphones");
+  handle.stop();
+  assert.deepEqual(mic.tracks.map((track) => track.readyState), ["ended", "ended"], "every microphone is off after the turn");
+
+  // Stopped while a press is still opening the mic: that mic is closed as soon as it starts.
+  const late = fakeMic(t);
+  const stopped = hearAudio({ pushToTalk: true, open: (onFrames) => openMic(onFrames, { workletUrl: "pcm-worklet.js" }), transcribe: async () => ({ text: "" }) });
+  stopped.press();
+  await settleSoon();
+  stopped.stop();
+  late.pending[0]();
+  await settleSoon();
+  assert.equal(await stopped.result, null);
+  assert.deepEqual(late.tracks.map((track) => track.readyState), ["ended"]);
+});
+
+// Steady room noise (a fan, a hum) at a given RMS: seeded, so every run is the same.
+function noiseBed(seconds, rms, seed = 7) {
+  const amplitude = rms * Math.sqrt(3);
+  let state = seed;
+  return Float32Array.from({ length: Math.round(seconds * RATE) }, () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return amplitude * (2 * (state / 2 ** 32) - 1);
+  });
+}
+const mix = (a, b) => a.map((value, i) => value + (b[i] || 0));
+
+test("the Segmenter learns steady room noise: it never becomes a 60-second turn, and speech over it is one turn", () => {
+  for (const rms of [0.008, 0.015, 0.03]) {
+    const segmenter = new Segmenter();
+    const turns = feed(segmenter, noiseBed(65, rms));
+    assert.deepEqual(turns.map((turn) => turn.length / RATE), [], `noise at RMS ${rms} alone is no turn`);
+    assert.equal(segmenter.inTurn, false, `not stuck in a turn at RMS ${rms}`);
+  }
+  // Speech over the noise, the mic opening half a second before it: one turn,
+  // the pause inside it.
+  const speech = join(quiet(0.5), tone(1), quiet(0.8), tone(1), quiet(1.5));
+  const turns = feed(new Segmenter(), mix(speech, noiseBed(speech.length / RATE, 0.015)));
+  assert.equal(turns.length, 1, "one turn over the noise");
+  const seconds = turns[0].length / RATE;
+  assert.ok(seconds >= 2.8 && seconds <= 3.8, `the turn is the whole utterance (${seconds}s)`);
+  // Noise that starts later (a fan switched on) ends any turn it opens within seconds.
+  const later = new Segmenter();
+  const fan = feed(later, join(noiseBed(1, 0.002, 3), noiseBed(30, 0.03)));
+  assert.ok(fan.every((turn) => turn.length / RATE < 5), `short at most (${fan.map((turn) => turn.length / RATE)})`);
+  assert.equal(later.inTurn, false);
+  // Speech right as the mic opens still has its start.
+  const early = feed(new Segmenter(), join(tone(1), quiet(1.5)));
+  assert.equal(early.length, 1);
+  assert.ok(early[0].length / RATE >= 0.95, `the first word isn't clipped (${early[0].length / RATE}s)`);
+});
+
+test("speakable stays quick on a huge reply or a long unbroken token, and reads paths as before", () => {
+  const huge = [
+    ["a long token", "a".repeat(200_000)],
+    ["a sentence then a long token", `Hello. ${"a".repeat(200_000)}`],
+    ["unfenced base64", `Here it is: ${"QUJDRA==".repeat(25_000)}`],
+    ["minified JSON", JSON.stringify(Array.from({ length: 150_000 }, (_, i) => ({ id: i, v: "x" })))],
+    ["blank lines", `Done.${"\n".repeat(200_000)}`],
+    ["half a link, over and over", "[a](".repeat(50_000)],
+  ];
+  for (const [what, reply] of huge) {
+    const began = performance.now();
+    const { sentences } = speakable(reply);
+    const took = performance.now() - began;
+    assert.ok(took < 250, `${what} (${reply.length} characters) took ${Math.round(took)} ms`);
+    assert.ok(sentences.join(" ").length <= SPEAK_LIMIT + REST_OF_IT.length + 1, what);
+  }
+  // Only the start of a long reply is read, and it says the rest is in the chat.
+  const long = `The summary is short.\n${"More detail here that goes on.\n".repeat(2000)}`;
+  assert.equal(speakable(long).sentences.at(-1), REST_OF_IT);
+  const cut = speakable(`${"x".repeat(7990)}\nNot read.`);
+  assert.ok(!cut.text.includes("Not read"), "text past the start isn't looked at");
+  // A code block that runs past the part that is read is still left out.
+  assert.deepEqual(speakable(`Done.\n\`\`\`\n${"let a = 1;\n".repeat(2000)}\`\`\`\nAfter.`).sentences, ["Done.", REST_OF_IT]);
+  // Paths with spaces read as they did.
+  assert.equal(speakable("See C:\\My Files\\a.txt and x\\y.").text, "See My a.txt and y.");
+  assert.equal(speakable("Open \\\\server\\share\\a b\\c.mp4 now.").text, "Open a c.mp4 now.");
+  assert.equal(speakable("The log is at C:\\Program Files\\Any Bot\\logs\\diagnostics.jsonl today.").text, "The log is at Program Any diagnostics.jsonl today.");
+});
+
+// Timers the test moves by hand (VoiceSession's idle limit).
+function fakeTimers() {
+  let now = 0;
+  const due = new Map();
+  let next = 1;
+  return {
+    clock: () => now,
+    timers: {
+      setTimeout: (fn, ms) => {
+        due.set(next, { fn, at: now + ms });
+        return next++;
+      },
+      clearTimeout: (id) => due.delete(id),
+      setInterval: () => 0,
+      clearInterval: () => {},
+    },
+    advance(ms) {
+      now += ms;
+      for (const [id, timer] of [...due]) if (timer.at <= now) {
+        due.delete(id);
+        timer.fn();
+      }
+    },
+  };
+}
+
+test("a voice chat ends after 3 minutes with nothing said, and never sends what speech-to-text hears in noise", async () => {
+  const time = fakeTimers();
+  // The room: a hallucinated "Thank you." and silence, then nothing more.
+  const d = fakes({ heard: ["Thank you.", " you ", "..."] });
+  const notices = [];
+  const session = new VoiceSession(
+    { ...d, clock: time.clock, timers: time.timers, onNotice: (text) => notices.push(text) },
+    { mode: "chat", conversation: "c1", employee: { id: "e1", name: "Atlas" } },
+  );
+  session.start();
+  await until(() => d.log.filter((l) => l.startsWith("hear")).length === 4, "three noise turns heard, listening again");
+  assert.deepEqual(d.sent, [], "noise is never sent");
+  assert.equal(session.state.phase, "listening");
+  time.advance(2 * 60_000);
+  await tick();
+  assert.equal(session.state.phase, "listening", "still listening at 2 minutes");
+  time.advance(60_000);
+  await until(() => d.spoken.length === 1, "the reason is said");
+  assert.match(d.spoken[0][0], /nothing was said for 3 minutes/);
+  d.finishSpeech();
+  await until(() => session.state.phase === "off", "the voice chat ends");
+  assert.equal(notices.length, 1);
+  assert.deepEqual(d.sent, []);
+
+  // The owner talking right at the limit isn't cut off: the turn is sent, and
+  // the 3 minutes start again.
+  const late = fakeTimers();
+  let talking = false;
+  let finishTurn;
+  const owner = fakes({ follows: [[{ requestId: "x", message: "m", status: "succeeded", reply: "OK.", handoffs: [], approvals: [] }]] });
+  owner.hear = () => {
+    owner.log.push("hear");
+    let stop;
+    const result = new Promise((resolve) => {
+      stop = () => resolve(null);
+      finishTurn = () => resolve("Plan the launch");
+    });
+    return { result, stop, hearing: () => talking, finish() {}, press() {}, release() {} };
+  };
+  const chat = new VoiceSession({ ...owner, clock: late.clock, timers: late.timers }, { mode: "chat", conversation: "c1", employee: { id: "e1", name: "Atlas" } });
+  chat.start();
+  const hears = () => owner.log.filter((line) => line === "hear").length;
+  await until(() => hears() === 1, "listening");
+  talking = true;
+  late.advance(3 * 60_000);
+  late.advance(1000);
+  await tick();
+  assert.equal(chat.state.phase, "listening", "not stopped mid-turn");
+  talking = false;
+  finishTurn();
+  await until(() => owner.sent.length === 1, "the turn is sent");
+  await until(() => owner.spoken.length === 1, "the reply");
+  owner.finishSpeech();
+  await until(() => hears() === 2, "listening again");
+  late.advance(2 * 60_000);
+  await tick();
+  assert.equal(chat.state.phase, "listening", "a new 3 minutes after the turn");
+  chat.stop();
+  for (const noise of ["Thank you.", "you", "Thanks for watching!", "  ", "...", "♪", "Subtitles by the Amara.org community"]) assert.equal(noiseTranscript(noise), true, noise);
+  for (const words of ["Thanks", "Yes.", "Plan the launch", "Thank you, now send it"]) assert.equal(noiseTranscript(words), false, words);
+});
+
+test("a voice chat stops after 20 turns, saying so; a spoken turn restarts the 3 minutes", async () => {
+  const time = fakeTimers();
+  const done = [{ requestId: "x", message: "m", status: "succeeded", reply: "OK.", handoffs: [], approvals: [] }];
+  const d = fakes({ heard: Array.from({ length: 25 }, (_, i) => `Turn ${i + 1}`), follows: [done] });
+  const notices = [];
+  const session = new VoiceSession(
+    { ...d, clock: time.clock, timers: time.timers, onNotice: (text) => notices.push(text) },
+    { mode: "chat", conversation: "c1", employee: { id: "e1", name: "Atlas" } },
+  );
+  session.start();
+  for (let turn = 1; turn <= 20; turn++) {
+    await until(() => d.spoken.length === turn, `reply ${turn}`);
+    // Each turn comes 2 minutes after the last: never 3 minutes idle.
+    time.advance(2 * 60_000);
+    d.finishSpeech();
+  }
+  await until(() => d.spoken.length === 21, "the reason is said");
+  assert.match(d.spoken[20][0], /20 turns/);
+  d.finishSpeech();
+  await until(() => session.state.phase === "off", "the voice chat ends");
+  assert.equal(d.sent.length, 20);
+  assert.equal(notices.length, 1);
+});
+
+test("Esc that closed something else, or was typed in a field, leaves the voice chat running", () => {
+  const key = (props) => {
+    const event = { type: "keydown", target: { tagName: "DIV" }, defaultPrevented: false, ...props };
+    event.preventDefault = () => (event.defaultPrevented = true);
+    return event;
+  };
+  assert.equal(voiceKey(key({ key: "Escape" })).action, "stop", "a plain Esc ends voice");
+  // The preview, the open task and the bot menu close on Esc and mark it used.
+  let closed = 0;
+  const preview = closeOnEscape(() => closed++);
+  const esc = key({ key: "Escape" });
+  preview(esc);
+  assert.equal(closed, 1);
+  assert.equal(voiceKey(esc).action, null, "the layer used it, so voice goes on");
+  const other = key({ key: "Enter" });
+  preview(other);
+  assert.equal(closed, 1, "only Esc closes");
+  assert.equal(other.defaultPrevented, false);
+  // A layer can let fields keep their Esc (the task's own fields).
+  const peek = closeOnEscape(() => closed++, { skip: (event) => event.target.tagName === "INPUT" });
+  const inField = key({ key: "Escape", target: { tagName: "INPUT" } });
+  peek(inField);
+  assert.equal(closed, 1);
+  // Esc in a text field or the canvas editor belongs to the field.
+  assert.equal(voiceKey(inField).action, null);
+  assert.equal(voiceKey(key({ key: "Escape", target: { tagName: "DIV", isContentEditable: true } })).action, null);
+  assert.equal(voiceKey(key({ key: "Escape", target: { tagName: "TEXTAREA" } })).action, null);
+  // Push-to-talk: Space outside a field talks; a held key's repeats don't press again.
+  assert.deepEqual(voiceKey(key({ code: "Space" }), { pushToTalk: true }), { action: "press", prevent: true });
+  assert.deepEqual(voiceKey(key({ code: "Space", repeat: true }), { pushToTalk: true }), { action: null, prevent: true });
+  assert.deepEqual(voiceKey(key({ type: "keyup", code: "Space" }), { pushToTalk: true }), { action: "release", prevent: true });
+  assert.deepEqual(voiceKey(key({ code: "Space", target: { tagName: "TEXTAREA" } }), { pushToTalk: true }), { action: null, prevent: false });
+  assert.deepEqual(voiceKey(key({ code: "Space" })), { action: null, prevent: false }, "no push-to-talk, Space is Space");
+});
+
+test("closing the window to the tray or minimizing it ends voice, and so do the team's brakes", () => {
+  const sent = [];
+  const handlers = {};
+  const window = { on: (name, fn) => (handlers[name] = fn), isDestroyed: () => false, webContents: { send: (channel) => sent.push(channel) } };
+  stopVoiceWhenHidden(window);
+  handlers.hide();
+  handlers.minimize();
+  assert.deepEqual(sent, ["anybot:voice-stop", "anybot:voice-stop"]);
+  window.isDestroyed = () => true;
+  handlers.hide();
+  assert.equal(sent.length, 2, "nothing is sent to a closed window");
+
+  // Stop the team, Pause and Stop everything each change the key; nothing halted is "".
+  const running = { team: { state: "running", pausedUntil: 0 }, runtime: { paused: false } };
+  assert.equal(haltKey(running), "");
+  assert.equal(haltKey({ team: { state: "off" }, runtime: {} }), "");
+  const stopped = haltKey({ ...running, team: { state: "stopped" } });
+  const paused = haltKey({ ...running, team: { state: "paused", pausedUntil: 5 } });
+  const pausedAgain = haltKey({ ...running, team: { state: "paused", pausedUntil: 9 } });
+  const everything = haltKey({ ...running, runtime: { paused: true } });
+  for (const key of [stopped, paused, pausedAgain, everything]) assert.notEqual(key, "");
+  assert.equal(new Set([stopped, paused, pausedAgain, everything]).size, 4);
+  assert.equal(haltKey(undefined), "");
+});
+
+test("push-to-talk is for the microphone; the built-in recognizer listens by itself", () => {
+  assert.equal(pushToTalkFor("chat", { pushToTalk: true, provider: "groq" }), true);
+  assert.equal(pushToTalkFor("chat", { pushToTalk: true, provider: "webspeech" }), false);
+  assert.equal(pushToTalkFor("dictate", { pushToTalk: true, provider: "groq" }), false);
+  assert.equal(pushToTalkFor("chat", { pushToTalk: false, provider: "groq" }), false);
+});
+
+test("the chosen voice reads the very first reply, even before the system has listed its voices", async (t) => {
+  const listeners = new Set();
+  let voices = [];
+  const spoken = [];
+  globalThis.window = {
+    speechSynthesis: {
+      getVoices: () => voices,
+      addEventListener: (name, fn) => name === "voiceschanged" && listeners.add(fn),
+      removeEventListener: (name, fn) => listeners.delete(fn),
+      speak: (utterance) => {
+        spoken.push([utterance.text, utterance.voice?.name || "default"]);
+        setImmediate(() => utterance.onend());
+      },
+    },
+  };
+  globalThis.SpeechSynthesisUtterance = class {
+    constructor(text) {
+      this.text = text;
+    }
+  };
+  t.after(() => {
+    delete globalThis.window;
+    delete globalThis.SpeechSynthesisUtterance;
+  });
+  // Right after launch the list is empty; it arrives with voiceschanged.
+  const first = speakSentences(["Hello.", "Bye."], "Zira");
+  await tick();
+  voices = [{ name: "David" }, { name: "Zira" }];
+  for (const fn of [...listeners]) fn();
+  await first;
+  assert.deepEqual(spoken, [
+    ["Hello.", "Zira"],
+    ["Bye.", "Zira"],
+  ]);
+  assert.equal(listeners.size, 0, "stops listening once the voices are in");
+  // A voice that isn't there (removed from Windows) doesn't hold speech up.
+  spoken.length = 0;
+  await speakSentences(["Hi."], "Gone");
+  assert.deepEqual(spoken, [["Hi.", "default"]]);
+});
+
+test("a recording left behind by a crash or a quit is deleted at the next start, and Remove clears it too", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "anybot-voice-tmp-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const tmp = path.join(dir, "voice", "tmp");
+  const seed = async () => {
+    await mkdir(tmp, { recursive: true });
+    await writeFile(path.join(tmp, "left-behind.wav"), "RIFF");
+    await writeFile(path.join(tmp, "left-behind.txt"), "what the owner said");
+  };
+  // main clears it when the app starts, before voice is ever used.
+  await seed();
+  clearVoiceTemp(dir);
+  assert.equal(existsSync(tmp), false);
+  // And the voice service does when it starts.
+  await seed();
+  const voice = createVoice({ dir, platform: "win32" });
+  assert.equal(existsSync(tmp), false);
+  await seed();
+  voice.remove();
+  assert.equal(existsSync(tmp), false, "Remove deletes leftovers too");
+  clearVoiceTemp(path.join(dir, "missing"));
+});
+
+test("Diagnostics give each voice failure its own remedy", () => {
+  const hint = (code, context) => describeIssue({ code, context }).hint;
+  assert.match(hint("voice.stt_failed", { provider: "groq", reason: "key" }), /Enter it again in Settings → Voice/);
+  assert.doesNotMatch(hint("voice.stt_failed", { provider: "groq", reason: "key" }), /connection/);
+  assert.match(hint("voice.stt_failed", { provider: "whisper-local", reason: "timeout" }), /shorter.*Base model/);
+  assert.doesNotMatch(hint("voice.stt_failed", { provider: "whisper-local", reason: "timeout" }), /download it again/);
+  assert.match(hint("voice.stt_failed", { provider: "openai", reason: "format" }), /wasn't understood/);
+  assert.match(hint("voice.stt_failed", { provider: "openai", reason: "network" }), /connection/);
+  assert.match(hint("voice.stt_failed", { provider: "whisper-local", exit: 3 }), /download it again/);
+  for (const reason of ["extract", "missing"]) assert.match(hint("voice.download_failed", { item: "program", reason }), /incomplete or not the file/, reason);
+  assert.match(hint("voice.download_failed", { item: "model", reason: "http" }), /server/);
+  assert.match(hint("voice.download_failed", { item: "model", reason: "network" }), /connection/);
+});
+
+test("Settings → Voice names models plainly, keeps a running download in view, and styles with tokens", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "anybot-voice-labels-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const { models } = createVoice({ dir, platform: "win32" }).status().local;
+  assert.deepEqual(
+    Object.values(models).map(({ label, note }) => [label, note]),
+    [
+      ["Base (English)", "quick"],
+      ["Small (English)", "more accurate, slower"],
+    ],
+    "a name for 'Installed: …' and 'In use: …', and a note for the list",
+  );
+  const status = (patch) => ({ provider: "", chosen: "", ...patch, local: { installed: false, download: { state: "idle" }, ...patch.local } });
+  assert.equal(showsLocalSetup(status({ provider: "whisper-local", chosen: "whisper-local" })), true);
+  assert.equal(showsLocalSetup(status({})), true, "nothing chosen or installed yet");
+  assert.equal(showsLocalSetup(status({ provider: "groq", chosen: "groq" })), false);
+  assert.equal(
+    showsLocalSetup(status({ provider: "groq", chosen: "groq", local: { download: { state: "downloading" } } })),
+    true,
+    "a download started before switching to Groq keeps its progress and Cancel",
+  );
+  const css = readFileSync(new URL("../src/components/voice.css", import.meta.url), "utf8");
+  assert.doesNotMatch(css, /oklch\(/, "colors come from the theme's tokens");
 });

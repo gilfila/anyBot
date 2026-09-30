@@ -104,6 +104,17 @@ V1 shipped as 0.3.40 (after P1). Where the Voice section and V1 below disagree, 
 - **Speech:** Electron 44 on Windows speaks with the SAPI voices (checked live: David, Mark, Zira); `getVoices()` is empty until `voiceschanged`.
 - **webspeech:** Settings → Voice's **Check it** listens up to 8 s; any error but `no-speech` fails it.
 - **Tests:** the Electron e2e plays a looping WAV through Chromium's fake microphone (`--use-file-for-fake-audio-capture`) and runs a 26 s fake run (past the old 24 s wait) rather than a 3-minute one; the five-minute wait is the node test's, with a fake clock. `npm run test:e2e` builds the renderer first.
+- **Where the Voice section's details differ:** `voice.json` holds `{provider, keys, model, voice, pushToTalk, webspeech}` (the Voice section's `voiceName` is `voice`). There is a third diagnostic, `voice.download_failed {item, reason}`. `speakable` doesn't drop URLs and paths: a bare URL is read as "the link", a markdown link by its text, and a path as its file name.
+- **Version numbers:** V1 shipped as 0.3.40 (the ORDER list and the V1 heading say 0.3.39), so M2 and every later milestone move up at least one patch (M2 is 0.3.41 or later); the milestone headings' numbers are the original plan's.
+- **Review repair (same version):** a voice chat is bounded, since every turn is an unbudgeted owner-lane message and, with Groq or OpenAI, a paid request:
+  - it ends after 3 minutes of listening with nothing sent (a turn under way is never cut off) and after 20 turns, saying why (`VoiceSession`, `IDLE_MS`, `MAX_TURNS`);
+  - it never sends a turn that is only a known speech-to-text invention in noise ("Thank you.", "you", "Bye."; `noiseTranscript`); one-word answers such as "Yes" are kept, so there is no two-word minimum;
+  - it ends when the window is hidden to the tray or minimized (main's `stopVoiceWhenHidden` → preload `onVoiceStop`, plus `visibilitychange`) and when the owner pulls a brake: team stopped, paused, or the runtime paused (`haltKey` in App.jsx). The owner's typed messages still go through a halted team as before;
+  - the Segmenter learns the room over the first 300 ms of non-silent audio (its quietest frame), then tracks the noise on every frame, in a turn too (down at once, up 1% a frame, at most 0.05 RMS), so steady noise can't hold a turn open for 60 s;
+  - `speakable` reads only the first 8,000 characters of a reply, and its patterns are linear on long tokens and blank lines (a 2 MB reply used to freeze the window for minutes);
+  - push-to-talk keeps only the newest mic open (a tap and a quick re-press used to leave one on), and the built-in recognizer never gets push-to-talk;
+  - Esc typed in a text field, or used by a layer that closes on it (`closeOnEscape` in shortcuts.js: the HTML preview, the task peek, the bot menu), no longer ends the voice chat;
+  - a recording left in `<userData>/voice/tmp` by a crash is deleted at the next start (`clearVoiceTemp`) and by Remove.
 
 ## Overview
 

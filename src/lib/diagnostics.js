@@ -152,9 +152,15 @@ export function describeIssue(issue) {
           ? "The API key was refused. Check it, or enter a new one, in Settings → Voice."
           : c.status === 429
             ? "The service says you've hit a rate or usage limit. Wait a while, or switch provider in Settings → Voice."
-            : c.provider === "whisper-local"
-              ? "Try again. If it keeps failing, remove speech-to-text in Settings → Voice and download it again. Nothing you said was kept."
-              : "Check your connection and try again. Nothing you said was kept.",
+            : c.reason === "key"
+              ? "The saved key can't be read on this computer (for example after a Windows account change). Enter it again in Settings → Voice."
+              : c.reason === "timeout" && c.provider === "whisper-local"
+                ? "It took over a minute, so it was stopped. Keep turns shorter, or switch to the Base model in Settings → Voice. Nothing you said was kept."
+                : c.reason === "format"
+                  ? "The service's answer wasn't understood. Try again; if it keeps happening, switch provider in Settings → Voice. Nothing you said was kept."
+                  : c.provider === "whisper-local"
+                    ? "Try again. If it keeps failing, remove speech-to-text in Settings → Voice and download it again. Nothing you said was kept."
+                    : "Check your connection and try again. Nothing you said was kept.",
     },
     "voice.download_failed": {
       title: "The speech-to-text download didn't finish",
@@ -163,7 +169,11 @@ export function describeIssue(issue) {
           ? "The downloaded file didn't match the one Any Bot expects, so it was deleted before anything used it. Try again in Settings → Voice."
           : c.reason === "space"
             ? "There isn't enough free disk space. Free some up, then try again in Settings → Voice."
-            : "Check your connection, then try again in Settings → Voice.",
+            : c.reason === "extract" || c.reason === "missing"
+              ? "The download was incomplete or not the file Any Bot expects, so nothing was installed. Try again in Settings → Voice."
+              : c.reason === "http"
+                ? "The download server didn't hand over the file. Try again later in Settings → Voice."
+                : "Check your connection, then try again in Settings → Voice.",
     },
     "people.review_failed": {
       title: "The daily people review couldn't run",

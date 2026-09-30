@@ -1,8 +1,9 @@
 # Voice in Any Bot
 
-Desktop voice (0.3.40). The phone's voice is not covered here yet: it still
-uses the old behaviour described in `docs/mobile.md` until V2 (the always-on
-team plan, `docs/plans/always-on-team.md`).
+Desktop voice (0.3.40). On the phone, voice doesn't work yet: the Android
+app has no microphone permission, and a reply is read out only if it comes
+within about 24 seconds. V2 of the always-on team plan
+(`docs/plans/always-on-team.md`) fixes both.
 
 ## What you get
 
@@ -14,17 +15,24 @@ team plan, `docs/plans/always-on-team.md`).
   draft. Press it again to end the turn early.
 - A bar at the top of the window says what is happening ("Listening",
   "Turning that into text", "Atlas is working · 2m", "Atlas is answering"),
-  with a level meter while the mic is open. **Stop** or Esc ends it.
+  with a level meter while the mic is open. **Stop** or Esc ends it (see
+  "When a voice chat ends" below).
 
 How a voice chat goes (`src/lib/voice-session.js`):
 
 1. The mic opens and listens for one whole turn. Short pauses stay inside the
    turn; about 1.3 seconds of quiet ends it (`TURN.hangoverMs`). A turn needs
    300 ms of speech (a click or a cough isn't one) and is cut at 60 seconds.
+   The first 300 ms the mic hears learn the room's steady noise (a fan, a
+   hum), and the noise level keeps following the room, so steady noise never
+   passes for talking for more than a moment (`Segmenter`).
    With **push to talk** on, the mic is open only while you hold Space
-   (outside a text field) or the bar's **Hold to talk** button.
-2. The mic closes, and the turn is turned into text (below). Silence, or a
-   turn that comes back empty, isn't sent; the mic just opens again.
+   (outside a text field) or the bar's **Hold to talk** button. Built-in
+   speech recognition listens by itself, so it has no push to talk.
+2. The mic closes, and the turn is turned into text (below). Silence, a turn
+   that comes back empty, or one that is only what speech-to-text tends to
+   "hear" in noise ("Thank you.", "you", "Bye."; `noiseTranscript`) isn't
+   sent; the mic just opens again.
 3. The text is sent as one ordinary message from you at the desk (so it has
    your owner lane, like typing it).
 4. Any Bot follows that message's work to its end, however long it takes: on
@@ -32,12 +40,29 @@ How a voice chat goes (`src/lib/voice-session.js`):
    closed the whole time. A hand-off ("Handed to Nova.") and an approval the
    work is waiting on are said once each.
 5. The answer is read out (`runtime/speakable.mjs`): no code blocks, tables,
-   HTML or Any Bot's own `anybot` blocks; links are "the link" and file paths
-   their file name; markdown marks are dropped. After about 600 characters,
-   cut at the end of a sentence, it says "The rest is in the chat." Each
-   sentence is its own utterance. A run that failed or was stopped says so.
+   HTML or Any Bot's own `anybot` blocks; a web address is "the link" (a
+   named link is read by its name) and a file path its file name; markdown
+   marks are dropped. After about 600 characters, cut at the end of a
+   sentence, it says "The rest is in the chat." Only the first 8,000
+   characters of a reply are looked at, so a huge one can't hold the window
+   up. Each sentence is its own utterance. A run that failed or was stopped
+   says so.
 6. Only after the last sentence has been spoken does the mic open again, so a
    bot never hears itself.
+
+## When a voice chat ends
+
+- **Stop** on the bar, or Esc. Esc typed in a text field, or one that closes
+  something else first (an HTML preview, the open task, a menu), is left to
+  that and the voice chat goes on.
+- After 3 minutes of listening with nothing sent, and after 20 turns. It
+  says why, out loud and in a note in the window.
+- When you close the window to the tray, or minimize it: there is no bar to
+  see there, and an open mic would keep sending what the room says.
+- When you pull a brake: Stop the team, Pause, or Stop everything.
+
+A turn you started is never cut off by the 3 minutes: it waits for you to
+finish, or let go of Space.
 
 ## Speech to text (Settings → Voice)
 
@@ -75,9 +100,9 @@ or the mic before you choose says where to set it up (and logs
   In Any Bot it has always stopped with "network", so it is offered only
   after **Check it** in Settings → Voice finds that it works on this PC.
 
-Settings → Voice also picks the voice replies are read in (the system's
-voices, with **Try it**) and turns push to talk on or off; both are kept in
-`voice.json`.
+Settings → Voice also picks which voice reads the replies (the system's
+voices, with **Try it**; it is used from the first reply after Any Bot
+starts) and turns push to talk on or off; both are kept in `voice.json`.
 
 For the Electron e2e only, `ANYBOT_FAKE_STT` (in a copy run from source,
 never a packaged app) answers every turn with that text.
@@ -90,7 +115,8 @@ never a packaged app) answers every turn with that text.
   in the browser panel can't get the microphone or the camera, and nothing
   can capture the screen. Other permissions keep Electron's default.
 - Recordings and transcripts are never stored: the WAV and whisper's text
-  file are deleted as soon as the text is back. Diagnostics
+  file are deleted as soon as the text is back, and one left by a quit or a
+  crash in the middle of a turn is deleted when Any Bot next starts. Diagnostics
   (`voice.stt_failed`, `voice.provider_missing`, `voice.download_failed`)
   carry the provider, an HTTP status or exit code and a reason code, never
   words, keys or paths.
@@ -99,15 +125,23 @@ never a packaged app) answers every turn with that text.
 
 ## Tests
 
-- `tests/voice.test.mjs`: `speakable`, the Segmenter (a pause inside a turn,
-  the 60-second cut, a click), `encodeWav`, the follow reducer, `messages.follow`
-  across a fake five-minute run, the half-duplex session, `desktop/voice.cjs`
-  (keys, providers, the pinned-hash download, whisper's arguments, WAV
-  checks, diagnostics) and the microphone permission rule.
+- `tests/voice.test.mjs`: `speakable` (and how fast it is on a huge reply),
+  the Segmenter (a pause inside a turn, the 60-second cut, a click, steady
+  room noise), `encodeWav`, the follow reducer, `messages.follow` across a
+  fake five-minute run, the half-duplex session and its limits (3 quiet
+  minutes, 20 turns, noise transcripts), push to talk pressed again while the
+  mic starts (`src/lib/voice-io.js` with a fake microphone), Esc and the
+  brakes, `desktop/voice.cjs` (keys, providers, the pinned-hash download,
+  whisper's arguments, WAV checks, diagnostics, leftover recordings) and the
+  microphone permission rule. `tests/desktop-ipc.test.mjs` runs main's own
+  `voiceRequest` with a stand-in.
 - `tests/electron-threads.cjs` (`npm run test:e2e`): the built renderer with
   Chromium's fake microphone playing a WAV on a loop. One spoken turn with a
   pause in it is one recording and one message; the reply of a 26-second run
   (past the old 24-second wait) is read without markdown; the mic is closed
-  while the bot works and talks, and nothing is sent again meanwhile.
+  while the bot works and talks, and nothing is sent again meanwhile. Esc in
+  the message box leaves the voice chat on, Esc ends it, and hiding the
+  window (main's rule, `stopVoiceWhenHidden`) ends a voice chat that has
+  just started.
 - Not tested by hand yet: a real microphone and real speech on Tony's PC, the
   real whisper.cpp download and its speed, and a real Groq or OpenAI key.

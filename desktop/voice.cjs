@@ -46,14 +46,16 @@ const MODELS = {
     url: `${MODEL_REPO}/ggml-base.en.bin`,
     size: 147964211,
     sha256: "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002",
-    label: "Base (English): quick",
+    label: "Base (English)",
+    note: "quick",
   },
   "small.en": {
     file: "ggml-small.en.bin",
     url: `${MODEL_REPO}/ggml-small.en.bin`,
     size: 487614201,
     sha256: "c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d",
-    label: "Small (English): more accurate, slower",
+    label: "Small (English)",
+    note: "more accurate, slower",
   },
 };
 // OpenAI-compatible transcription endpoints (multipart file + model; the
@@ -122,6 +124,12 @@ const rm = (target) => {
     // Left for the next download to replace.
   }
 };
+// Recordings and whisper's text only live in <userData>/voice/tmp while a
+// turn is turned into text; one left by a quit, an update or a crash in the
+// middle is deleted when Any Bot next starts (main.cjs) and when voice does.
+function clearVoiceTemp(dir) {
+  rm(path.join(dir, "voice", "tmp"));
+}
 const downloadError = (item, reason, message) => Object.assign(new Error(message), { item, reason, owner: message });
 
 function createVoice({
@@ -147,6 +155,7 @@ function createVoice({
   const downloads = path.join(root, "downloads");
   const unpack = path.join(root, "whisper-unpack");
   const supported = platform === "win32";
+  clearVoiceTemp(dir);
   let settings = load();
   let download = { state: "idle" };
   let job = Promise.resolve();
@@ -231,7 +240,7 @@ function createVoice({
         programSize: assets.whisper.size,
         model: localModel() || settings.model,
         models: Object.fromEntries(
-          Object.entries(assets.models).map(([id, model]) => [id, { label: model.label || id, size: model.size, installed: modelInstalled(id) }]),
+          Object.entries(assets.models).map(([id, model]) => [id, { label: model.label || id, note: model.note || "", size: model.size, installed: modelInstalled(id) }]),
         ),
         download: { ...download },
       },
@@ -412,6 +421,7 @@ function createVoice({
     if (controller) throw new Error("Wait for the download to finish, or cancel it first.");
     rm(programDir);
     rm(modelsDir);
+    rm(tmpDir);
     download = { state: "idle" };
     if (settings.provider === "whisper-local") settings.provider = "";
     save();
@@ -525,4 +535,4 @@ function createVoice({
   };
 }
 
-module.exports = { createVoice, parseWav, cleanText, WHISPER, MODELS, APIS };
+module.exports = { createVoice, clearVoiceTemp, parseWav, cleanText, WHISPER, MODELS, APIS };

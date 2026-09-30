@@ -166,7 +166,8 @@
   border-radius: 999px;
   background: var(--card);
   color: var(--ink);
-  box-shadow: 0 10px 30px oklch(0.2 0.02 60 / 0.16);
+  /* --block stays dark in every theme, so this is a shadow, never a glow. */
+  box-shadow: 0 10px 30px color-mix(in oklch, var(--block) 16%, transparent);
   font-size: 13px;
 }
 .voice-bar-icon {

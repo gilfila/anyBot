@@ -84,7 +84,7 @@ Bots can **report to other bots**. A manager can hand work down its chain and re
 - **Easy to follow.** Each bot's replies sit in its own colored bubble, so you can tell who said what at a glance, even over the animated backgrounds.
 - **Hand-offs.** Bots pass work to each other on their own, and each result comes back to the bot that asked for it. Delegated work runs in the team's own project room, so your chat stays clean.
 - **Watch the work.** Live output streams in while a bot works. You can stop one bot or everything at once.
-- **Voice.** Press **Voice chat** in a bot's chat (or **Talk to …** in your HQ room) and just talk: each whole turn becomes one message, the bot's answer is read aloud when its work is done, however long that takes, and the mic stays off while it works and talks. The mic in the message box dictates. Set it up once in **Settings → Voice**: speech-to-text on this computer (whisper.cpp, a one-time 156 MB download, Windows) or your Groq or OpenAI key. See [docs/voice.md](docs/voice.md).
+- **Voice.** Press **Voice chat** in a bot's chat (or **Talk to …** in your HQ room) and just talk: each whole turn becomes one message, the bot's answer is read aloud when its work is done, however long that takes, and the mic stays off while it works and talks. It stops by itself after 3 quiet minutes or 20 turns, and when you close the window to the tray. The mic in the message box dictates. Set it up once in **Settings → Voice**: speech-to-text on this computer (whisper.cpp, a one-time 156 MB download, Windows) or your Groq or OpenAI key. See [docs/voice.md](docs/voice.md).
 
 ### Stay in control
 

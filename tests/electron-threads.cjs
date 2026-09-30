@@ -7,7 +7,8 @@
 //   one spoken turn (with a pause inside it) is one recording and one
 //   message; the reply of a run that outlasts the old 24 s wait is spoken
 //   without markdown; the mic is shut while the bot works and while it talks,
-//   so nothing is sent again meanwhile.
+//   so nothing is sent again meanwhile. Esc in a text field leaves the voice
+//   chat running; Esc ends it; closing the window to the tray ends it too.
 //   npm run test:e2e
 const { app, BrowserWindow, ipcMain, session, utilityProcess } = require("electron");
 const { mkdtemp, rm, writeFile, readFile } = require("node:fs/promises");
@@ -18,7 +19,7 @@ const assert = require("node:assert/strict");
 const { existsSync, mkdirSync, mkdtempSync, writeFileSync } = require("node:fs");
 const { pathToFileURL } = require("node:url");
 const { createVoice, parseWav } = require("../desktop/voice.cjs");
-const { permissionAllowed } = require("../desktop/window-shell.cjs");
+const { permissionAllowed, stopVoiceWhenHidden } = require("../desktop/window-shell.cjs");
 const profileRoot = path.join(__dirname, "../.anybot/test-profiles");
 app.commandLine.appendSwitch("disable-gpu");
 app.commandLine.appendSwitch("in-process-gpu");
@@ -126,6 +127,11 @@ contextBridge.exposeInMainWorld("anybot", {
     ipcRenderer.on("anybot:navigate", listener);
     return () => ipcRenderer.removeListener("anybot:navigate", listener);
   },
+  onVoiceStop: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on("anybot:voice-stop", listener);
+    return () => ipcRenderer.removeListener("anybot:voice-stop", listener);
+  },
   chooseDirectory: async () => null,
   chooseAttachments: async () => [],
   getPathForFile: () => "",
@@ -172,6 +178,8 @@ async function voiceChat() {
     height: 900,
     webPreferences: { preload: path.join(directory, "preload.cjs"), sandbox: true, contextIsolation: true, backgroundThrottling: false },
   });
+  // main.cjs's rule: hiding or minimizing the window ends voice.
+  stopVoiceWhenHidden(win);
   await win.loadFile(dist);
   const js = (code) => win.webContents.executeJavaScript(code);
   // Speech is recorded, not played: each sentence "takes" 2.5 s, longer in
@@ -225,12 +233,23 @@ async function voiceChat() {
   await onPage("window.__spoken.length === 3 && window.__talking === 0", "the reply to finish", 150);
   assert.deepEqual(await js("window.__spoken"), ["All set.", "The launch plan is in plan.md.", "See the link for more."]);
   assert.equal(humans(await request("snapshot")).length, 1, "nothing was sent again while Vox talked");
-  // Then the mic opens again for the next turn; Esc ends the voice chat.
+  // Then the mic opens again for the next turn. Esc typed in the message box
+  // belongs to the box; a plain Esc ends the voice chat.
   await onPage("window.__micOpen()", "the mic to open again", 50);
+  await js(`document.querySelector("textarea").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
+  await sleep(300);
+  assert.equal(await js(`Boolean(document.querySelector(".voice-bar")) && window.__micOpen()`), true, "Esc in a text field leaves the voice chat on");
   await js(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))`);
   await onPage(`!document.querySelector(".voice-bar") && !window.__micOpen()`, "Esc to end the voice chat", 50);
   await sleep(1000);
   assert.equal(humans(await request("snapshot")).length, 1);
+  // Closing the window to the tray (main hides it) ends a voice chat too.
+  await js(`document.querySelector('button[aria-label="Voice chat"]').click()`);
+  await onPage("window.__micOpen()", "the mic to open for a new voice chat", 50);
+  win.emit("hide");
+  await onPage(`!document.querySelector(".voice-bar") && !window.__micOpen()`, "hiding the window to end the voice chat", 50);
+  await sleep(3000);
+  assert.equal(humans(await request("snapshot")).length, 1, "nothing was sent after the window was hidden");
   const vox_run = (await request("snapshot")).runs.find((r) => r.employee === vox.id);
   const took = Date.parse(vox_run.ended) - Date.parse(vox_run.started);
   assert.ok(took >= VOX_RUN_MS - 1000, `the run really took longer than the old 24 s wait (${took} ms)`);
@@ -295,7 +314,7 @@ app
       console.log("PASS: project thread collaboration end to end (Electron utility process, fake harness, @mention hand-off)");
 
       await voiceChat();
-      console.log("PASS: desktop voice chat end to end (one turn, one message, the long reply spoken, mic shut while the bot works and talks)");
+      console.log("PASS: desktop voice chat end to end (one turn, one message, the long reply spoken, mic shut while the bot works and talks, Esc and closing to the tray end it)");
 
       win.destroy();
       win = null;

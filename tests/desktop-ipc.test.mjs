@@ -128,3 +128,80 @@ test("voice.* is handled in main before the allowlist, and messages.follow reach
   assert.ok(coordinator.includes('case "messages.follow":'));
   assert.ok(!coordinator.includes('case "voice.'), "the coordinator has no voice commands");
 });
+
+// main.cjs's own voiceRequest, run with a stand-in for createVoice (main.cjs
+// can't load without Electron): each voice.* method reaches the matching
+// call with the payload fields main passes on, and ANYBOT_FAKE_STT works
+// only in a copy run from source.
+test("main's voiceRequest hands each voice.* method its own payload fields, and fake speech-to-text never runs packaged", async () => {
+  const main = (await read("desktop/main.cjs")).replace(/\r\n/g, "\n");
+  const from = main.indexOf("function voiceRequest(method, payload) {");
+  assert.ok(from > 0, "voiceRequest not found");
+  const body = main.slice(from, main.indexOf("\n}\n", from) + 2);
+  const load = ({ packaged, env = {} }) => {
+    const made = [];
+    const calls = [];
+    const names = ["status", "start", "setProvider", "setKey", "set", "download", "cancelDownload", "remove", "transcribe"];
+    const createVoice = (options) => {
+      made.push(options);
+      return Object.fromEntries(names.map((name) => [name, (...args) => calls.push([name, ...args])]));
+    };
+    const app = { isPackaged: packaged, getPath: () => "C:/userData" };
+    const make = new Function(
+      "createVoice",
+      "app",
+      "protectSecret",
+      "unprotectSecret",
+      "diagnostics",
+      "notifyRenderer",
+      "process",
+      `let voice = null;\n${body}\nreturn voiceRequest;`,
+    );
+    return { voiceRequest: make(createVoice, app, (t) => t, (t) => t, null, () => {}, { env }), made, calls };
+  };
+  const { voiceRequest, made, calls } = load({ packaged: true, env: { ANYBOT_FAKE_STT: "hello" } });
+  const wav = new Uint8Array([1, 2, 3]);
+  voiceRequest("voice.status", { extra: 1 });
+  voiceRequest("voice.start", {});
+  voiceRequest("voice.setProvider", { provider: "groq", key: "no" });
+  voiceRequest("voice.setKey", { provider: "openai", key: "sk-test", other: true });
+  voiceRequest("voice.set", { voice: "Zira", pushToTalk: true });
+  voiceRequest("voice.download", { model: "small.en", url: "https://elsewhere.example" });
+  voiceRequest("voice.cancelDownload", {});
+  voiceRequest("voice.remove", {});
+  voiceRequest("voice.transcribe", { wav, provider: "groq" });
+  assert.throws(() => voiceRequest("voice.runAnything", {}), /Operation not allowed/);
+  assert.equal(made.length, 1, "one voice service for the app");
+  assert.equal(made[0].dir, "C:/userData");
+  assert.equal(made[0].fakeStt, null, "no fake speech-to-text in a packaged app");
+  assert.deepEqual(calls, [
+    ["status"],
+    ["start"],
+    ["setProvider", "groq"],
+    ["setKey", { provider: "openai", key: "sk-test" }],
+    ["set", { voice: "Zira", pushToTalk: true }],
+    ["download", { model: "small.en" }],
+    ["cancelDownload"],
+    ["remove"],
+    ["transcribe", { wav }],
+  ]);
+  const source = load({ packaged: false, env: { ANYBOT_FAKE_STT: "hello" } });
+  source.voiceRequest("voice.status", {});
+  assert.equal(source.made[0].fakeStt, "hello", "the e2e's fake speech-to-text, from source only");
+  const plain = load({ packaged: false });
+  plain.voiceRequest("voice.status", {});
+  assert.equal(plain.made[0].fakeStt, null);
+});
+
+// Closing the window to the tray or minimizing it ends a voice chat: main
+// hooks the window (window-shell.cjs stopVoiceWhenHidden) and the preload
+// passes the message on as onVoiceStop.
+test("a hidden or minimized window stops voice through main and the preload", async () => {
+  const main = await read("desktop/main.cjs");
+  assert.match(main, /stopVoiceWhenHidden\(window\);[\s\S]*?window\.loadURL\(page\);/, "createWindow hooks the window before loading the page");
+  const preload = await read("desktop/preload.cjs");
+  assert.match(preload, /onVoiceStop: \(callback\) => \{[\s\S]*?ipcRenderer\.on\("anybot:voice-stop", listener\);[\s\S]*?removeListener\("anybot:voice-stop", listener\)/);
+  const hook = await read("src/lib/useVoice.js");
+  assert.match(hook, /window\.anybot\?\.onVoiceStop\?\.\(stop\)/);
+  assert.match(hook, /addEventListener\("visibilitychange"/);
+});

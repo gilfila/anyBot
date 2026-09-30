@@ -5,16 +5,22 @@
 // Dropped: Any Bot's machine blocks (anybot, anybot-actions,
 // anybot-artifacts), every other code block, tables, HTML tags, images,
 // rules. Kept as words: link text, emphasis and headings without their
-// marks, list items and quotes as sentences. A URL is read as "the link"
-// and a file path as its file name. Then up to about 600 characters, cut at
-// the end of a sentence, and "The rest is in the chat."
+// marks, list items and quotes as sentences. A bare URL is read as "the
+// link" and a file path as its file name. Then up to about 600 characters,
+// cut at the end of a sentence, and "The rest is in the chat."
+//
+// Replies are bot output of any size, and this runs on the window's main
+// thread: only the first READ_LIMIT characters are looked at (plenty for
+// 600 spoken ones), and no pattern below rescans a long line from every
+// position.
 
 export const SPEAK_LIMIT = 600;
+export const READ_LIMIT = 8000;
 export const REST_OF_IT = "The rest is in the chat.";
 export const ONLY_DETAILS = "The details are in the chat.";
 
 // A fence left open runs to the end of the reply.
-const FENCE = /^(\s*)(`{3,}|~{3,})[^\n]*(?:\n[\s\S]*?(?:\n\s*\2[^\n]*|(?![\s\S]))|(?![\s\S]))/gm;
+const FENCE = /^([ \t]*)(`{3,}|~{3,})[^\n]*(?:\n[\s\S]*?(?:\n[ \t]*\2[^\n]*|(?![\s\S]))|(?![\s\S]))/gm;
 const URL = /\b(?:https?|ftp|file):\/\/[^\s<>()"'`]+|\bwww\.[^\s<>()"'`]+/gi;
 const PATHS = [
   // C:\x or C:/x
@@ -27,8 +33,9 @@ const PATHS = [
   /(?<![\w.])\.{1,2}[\\/][^\s"'`<>|*?]*/g,
   // src/app.js, docs/voice.md: a relative path that ends in a file name
   /(?<![\w.:/\\-])[\w.-]+(?:\/[\w.-]+)*\/[\w-]+\.[A-Za-z][A-Za-z0-9]{0,5}\b/g,
-  // What's left of a path with spaces in it (C:\My Files\a.txt)
-  /\S*\\\S+/g,
+  // What's left of a path with spaces in it (C:\My Files\a.txt). Whole
+  // tokens only: from any position it would rescan the rest of a long one.
+  /(?<!\S)\S*\\\S+/g,
 ];
 // Not after e.g., Mr. and the like.
 const SENTENCE_END = /(?<!\b(?:e\.g|i\.e|etc|vs|Mr|Mrs|Ms|Dr|St|No|approx)\.)(?<=[.!?…]["')\]]?)\s+(?=\S)/i;
@@ -103,17 +110,27 @@ function cutWords(sentence, limit) {
   return `${(space > room / 2 ? head.slice(0, space) : head).replace(/[\s.,;:!?-]+$/, "")}…`;
 }
 
+// The start of a long reply, ending on a whole line when it can.
+function start(markdown) {
+  const text = String(markdown || "");
+  if (text.length <= READ_LIMIT) return { text, cut: false };
+  const head = text.slice(0, READ_LIMIT);
+  const line = head.lastIndexOf("\n");
+  return { text: line > 0 ? head.slice(0, line) : head, cut: true };
+}
+
 // { sentences: one utterance each, text, clipped }.
 export function speakable(markdown, { limit = SPEAK_LIMIT } = {}) {
-  const { lines, dropped } = plainLines(markdown);
+  const { text: read, cut } = start(markdown);
+  const { lines, dropped } = plainLines(read);
   const all = sentencesOf(lines);
   if (!all.length) {
-    const sentences = dropped ? [ONLY_DETAILS] : [];
+    const sentences = dropped || cut ? [ONLY_DETAILS] : [];
     return { sentences, text: sentences.join(" "), clipped: false };
   }
   const sentences = [];
   let length = 0;
-  let clipped = false;
+  let clipped = cut;
   for (const sentence of all) {
     const extra = (sentences.length ? 1 : 0) + sentence.length;
     if (length + extra > limit) {

@@ -57,14 +57,29 @@ const rms = (frame) => {
 };
 
 // Energy-based turns. Audio comes in 20 ms frames; a frame is speech when
-// it is well above the room's noise (tracked while nobody speaks) and above
-// a floor. A turn starts with the first speech frame (plus 300 ms before it,
-// so the first word isn't clipped) and ends after `hangoverMs` of silence:
-// speech that resumes sooner is the same turn. Turns with less than
-// `minSpeechMs` of speech (a click, a cough) are dropped; a turn reaching
-// `maxMs` is cut there. push() returns the turns it finished.
+// it is well above the room's noise and above a floor. The first 300 ms the
+// mic hears (exact digital silence aside) only learn the room: its quietest
+// frame is the noise. After that the noise follows every frame, in a turn
+// too: straight down to a quieter frame, and slowly up (1% a frame, so
+// steady noise stops passing for speech within a couple of seconds, while
+// the dips between words keep it down for real speech). A turn starts with
+// the first speech frame (plus 300 ms before it, so the first word isn't
+// clipped) and ends after `hangoverMs` of silence: speech that resumes
+// sooner is the same turn. Turns with less than `minSpeechMs` of speech (a
+// click, a cough) are dropped; a turn reaching `maxMs` is cut there. push()
+// returns the turns it finished.
 export class Segmenter {
-  constructor({ sampleRate = SAMPLE_RATE, hangoverMs = TURN.hangoverMs, minSpeechMs = TURN.minSpeechMs, maxMs = TURN.maxMs, floor = 0.012, ratio = 3 } = {}) {
+  constructor({
+    sampleRate = SAMPLE_RATE,
+    hangoverMs = TURN.hangoverMs,
+    minSpeechMs = TURN.minSpeechMs,
+    maxMs = TURN.maxMs,
+    floor = 0.012,
+    ratio = 3,
+    calibrateMs = 300,
+    rise = 1.01,
+    maxNoise = 0.05,
+  } = {}) {
     this.frame = Math.round(sampleRate / 50);
     this.frameMs = 20;
     this.hangover = hangoverMs;
@@ -73,7 +88,12 @@ export class Segmenter {
     this.preroll = Math.round(0.3 * sampleRate);
     this.floor = floor;
     this.ratio = ratio;
-    this.noise = floor / ratio;
+    this.minNoise = floor / ratio;
+    this.maxNoise = maxNoise;
+    this.rise = rise;
+    this.noise = this.minNoise;
+    this.calibrating = Math.round(calibrateMs / this.frameMs);
+    this.quietest = Infinity;
     this.level = 0;
     this.pending = new Float32Array(0);
     this.reset();
@@ -104,14 +124,20 @@ export class Segmenter {
   step(frame) {
     const level = rms(frame);
     this.level = level;
+    if (this.calibrating > 0) {
+      if (level > 0) {
+        this.calibrating -= 1;
+        this.quietest = Math.min(this.quietest, level);
+        if (!this.calibrating) this.noise = Math.min(this.maxNoise, Math.max(this.minNoise, this.quietest));
+      }
+      this.remember(frame);
+      return null;
+    }
     const speech = level > Math.max(this.floor, this.noise * this.ratio);
+    this.noise = level < this.noise ? Math.max(this.minNoise, level) : Math.min(this.maxNoise, level, this.noise * this.rise);
     if (!this.inTurn) {
       if (!speech) {
-        // The room's noise, slowly, and the last 300 ms before a turn.
-        this.noise = Math.min(0.05, this.noise * 0.95 + level * 0.05);
-        this.before.push(frame);
-        this.beforeLength += frame.length;
-        while (this.beforeLength - this.before[0].length >= this.preroll) this.beforeLength -= this.before.shift().length;
+        this.remember(frame);
         return null;
       }
       for (const chunk of this.before) this.add(chunk);
@@ -130,6 +156,12 @@ export class Segmenter {
     if (this.length >= this.max) return this.finish(false);
     if (this.silenceMs >= this.hangover) return this.finish(true);
     return null;
+  }
+  // The last 300 ms before a turn.
+  remember(frame) {
+    this.before.push(frame);
+    this.beforeLength += frame.length;
+    while (this.beforeLength - this.before[0].length >= this.preroll) this.beforeLength -= this.before.shift().length;
   }
   add(frame) {
     const room = this.max - this.length;
@@ -213,6 +245,69 @@ export function followReducer(state, items = []) {
   }
   return { state: next, events, done: next.done };
 }
+
+// What speech-to-text tends to hear in noise or silence (Whisper's usual
+// inventions) when it is the whole turn. A voice chat never sends those,
+// nor a turn with no words at all. "Thanks" and "Yes" are real answers.
+const NOISE_TURNS = new Set([
+  "you",
+  "thank you",
+  "thank you so much",
+  "thank you for watching",
+  "thanks for watching",
+  "please subscribe",
+  "subtitles by the amara org community",
+  "bye",
+  "so",
+  "uh",
+  "um",
+  "hmm",
+]);
+export function noiseTranscript(text) {
+  const words = String(text || "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s']+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return !words || NOISE_TURNS.has(words);
+}
+
+// A change in the snapshot that ends a voice chat: Stop the team, a Pause,
+// or Stop everything (the runtime paused). "" while nothing is halted; a
+// new value means the owner just pulled a brake (App.jsx).
+export function haltKey(snapshot) {
+  const team = snapshot?.team;
+  const parts = [];
+  if (team?.state === "stopped") parts.push("stopped");
+  if (team?.state === "paused") parts.push(`paused:${team.pausedUntil}`);
+  if (snapshot?.runtime?.paused) parts.push("runtime");
+  return parts.join("|");
+}
+
+export const typingIn = (target) =>
+  Boolean(target && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)));
+
+// What a key does while voice is on (useVoice.js): Esc ends it, unless a
+// text field, a dialog or a menu used the key first (they call
+// preventDefault; shortcuts.js closeOnEscape); with push-to-talk, Space
+// outside a text field talks. {action: "stop" | "press" | "release" | null,
+// prevent}.
+export function voiceKey(event, { pushToTalk = false } = {}) {
+  const field = typingIn(event.target);
+  if (event.type === "keydown" && event.key === "Escape") return { action: event.defaultPrevented || field ? null : "stop", prevent: false };
+  if (pushToTalk && event.code === "Space" && !field) return { action: event.type === "keyup" ? "release" : event.repeat ? null : "press", prevent: true };
+  return { action: null, prevent: false };
+}
+
+// Push-to-talk holds the microphone open; the window's own recognizer
+// (webspeech) listens by itself, so it never has push-to-talk.
+export const pushToTalkFor = (mode, start) => mode === "chat" && start?.pushToTalk === true && start?.provider !== "webspeech";
+
+// Settings → Voice shows the local download's section when local whisper is
+// the provider, when nothing is set up yet, and while a download runs (its
+// progress and Cancel stay in view after switching to Groq or OpenAI).
+export const showsLocalSetup = (status) =>
+  status.local?.download?.state === "downloading" || status.provider === "whisper-local" || (!status.chosen && !status.local?.installed);
 
 // "Atlas is working · 2m" (seconds under a minute).
 export function workingLabel(name, since, now = Date.now()) {
