@@ -5,8 +5,10 @@
 //
 // Lanes:
 // - owner: work the owner started at the desktop (a message, a task start,
-//   Run again, Run now) and everything handed on from it. Never budgeted or
-//   held, and it may use the slots kept for the owner.
+//   a routine's Run now, or Run again on a routine's run) and everything
+//   handed on from it. Never budgeted or held, and it may use the slots kept
+//   for the owner. Run again on anyone else's run keeps that run's lane: the
+//   coordinator only lets that one run through as the owner's (ownerRetry).
 // - guest: work people started through a bridge (Slack, Buzz, a phone).
 //   Budgeted and unattended with Team on, like autonomous work, but it is
 //   people's work, so the breaker lets it try (it fails with the reason).
@@ -370,11 +372,22 @@ export class Breaker {
     const state = value.state === "open" && this.clock() >= value.openUntil ? "half" : value.state;
     return { harness, ...value, state };
   }
-  list() {
+  // Every breaker that isn't plainly closed. `probing`: a half-open one's
+  // probe is running now (`isActive(runId)`), so a run really is checking
+  // whether the limit has lifted; otherwise the next autonomous run will.
+  list(isActive = () => false) {
     return this.kv
       .list("breaker:")
       .map(({ key }) => this.get(key.slice("breaker:".length)))
-      .map(({ harness, state, openUntil, code, failures, openedAt }) => ({ harness, state, openUntil, code, failures: failures.length, openedAt }))
+      .map(({ harness, state, openUntil, code, failures, openedAt, probeRun }) => ({
+        harness,
+        state,
+        openUntil,
+        code,
+        failures: failures.length,
+        openedAt,
+        probing: state === "half" && Boolean(probeRun) && isActive(probeRun),
+      }))
       .sort((a, b) => a.harness.localeCompare(b.harness));
   }
   open(harness, value, step, code, resetAt) {
@@ -435,6 +448,11 @@ export class Breaker {
 
 // Budgets -------------------------------------------------------------------------
 
+// Metadata `preempted:<run id>`: a run the owner's Interrupt or Stop the team
+// cut off and queued again as the same work. Its rerun counts toward the
+// day's runs instead of it (its tokens still count).
+export const preemptedKey = (runId) => `preempted:${runId}`;
+
 // Runs started today (local day), counted when dispatch starts them: per bot,
 // per project and for the whole team, plus their tokens, for work nobody at
 // the desk started. The owner's runs are counted, never capped. Kept in memory
@@ -455,11 +473,15 @@ export class Budget {
   }
   recount(day) {
     this.day = day;
-    const counts = { day, org: 0, owner: 0, tokens: 0, bots: new Map(), projects: new Map(), started: new Set() };
+    const counts = { day, org: 0, owner: 0, tokens: 0, bots: new Map(), projects: new Map(), started: new Set(), refunded: new Set() };
     const since = new Date(day).toISOString();
-    for (const row of this.store.all("SELECT * FROM runs WHERE started >= ? ORDER BY rowid", since)) {
+    for (const row of this.store.all(
+      "SELECT runs.*, EXISTS(SELECT 1 FROM metadata WHERE key='preempted:'||runs.id) AS preempted FROM runs WHERE started >= ? ORDER BY rowid",
+      since,
+    )) {
       const lane = this.lane(row);
       this.add(counts, row, lane);
+      if (row.preempted) this.take(counts, row, lane);
       if (lane !== "owner") counts.tokens += tokensOf(row.usage);
     }
     this.counts = counts;
@@ -474,9 +496,27 @@ export class Budget {
     counts.bots.set(run.employee, (counts.bots.get(run.employee) || 0) + 1);
     counts.projects.set(run.conversation, (counts.projects.get(run.conversation) || 0) + 1);
   }
+  take(counts, run, lane) {
+    if (counts.refunded.has(run.id)) return;
+    counts.refunded.add(run.id);
+    const less = (map, key) => map.set(key, Math.max(0, (map.get(key) || 0) - 1));
+    if (lane === "owner") {
+      counts.owner = Math.max(0, counts.owner - 1);
+      return;
+    }
+    counts.org = Math.max(0, counts.org - 1);
+    less(counts.bots, run.employee);
+    less(counts.projects, run.conversation);
+  }
   started(run, lane) {
     const counts = this.today();
     if (!counts.started.has(run.id)) this.add(counts, run, lane);
+  }
+  // A run that was cut off and queued again (preemptedKey): its rerun counts
+  // instead. Its tokens, reported when it ends, still count.
+  refund(run, lane) {
+    const counts = this.today();
+    if (counts.started.has(run.id)) this.take(counts, run, lane);
   }
   // A run's tokens, once the harness reported them.
   usage(run, lane, usage) {

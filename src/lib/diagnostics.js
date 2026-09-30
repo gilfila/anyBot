@@ -135,12 +135,12 @@ export function describeIssue(issue) {
       hint: "With Team on, work nobody at the desk started (routines, Autopilot, hand-offs, and messages from Slack, Buzz or a phone) has daily limits. That work now waits in the queue until midnight; nothing was lost, and your own messages still go through. To allow more today, raise the limit in Settings → Team.",
     },
     "breaker.opened": {
-      title: `${tool(c)} hit a ${c.reason === "auth" ? "sign-in problem" : "usage limit"}, so its unattended work is waiting`,
-      hint: "Two runs on this harness were refused by the provider within 10 minutes, so work nobody at the desk started on it waits instead of failing again and again: 15 minutes at first, then 30, 60 and 120, or until the reset time the provider gave. One run then tries; if it works, everything goes on. Your own messages still try. Settings → Team has Try now. Your Claude and ChatGPT plans' own limits are the real ceiling for everything your bots do.",
+      title: `${tool(c)} hit a ${c.reason === "auth" ? "sign-in problem" : "usage limit"}, so its routines, Autopilot and hand-offs are waiting`,
+      hint: "Two runs on this harness were refused by the provider within 10 minutes, so its routines, Autopilot tasks and hand-offs wait instead of failing again and again: 15 minutes at first, then 30, 60 and 120, or until the reset time the provider gave. Then one of them tries; as soon as the provider answers it, the rest go on. Messages from you, Slack, Buzz or your phone still try, so whoever sent them sees the reason. Settings → Team has Try now. Your Claude and ChatGPT plans' own limits are the real ceiling for everything your bots do.",
     },
     "breaker.closed": {
       title: `${tool(c)} is answering again`,
-      hint: "A run on this harness worked (or you pressed Try now), so its waiting work goes on.",
+      hint: "The provider answered a run on this harness (or you pressed Try now), so its waiting work goes on.",
     },
     "run.dontask_refused": {
       title: `${who(c)} didn't take unattended work`,

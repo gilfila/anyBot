@@ -270,3 +270,23 @@ test("tokensOf counts input and output tokens from a run's stored usage", () => 
   assert.equal(tokensOf(JSON.stringify({ "gen_ai.usage.input_tokens": 10, "gen_ai.usage.output_tokens": 5 })), 15);
   for (const empty of [null, "", "{}", "nonsense", { "gen_ai.usage.input_tokens": -3 }]) assert.equal(tokensOf(empty), 0);
 });
+
+test("breaker: the list says whether a half-open breaker's probe is actually running", () => {
+  let now = Date.parse("2026-09-30T10:00:00Z");
+  const breaker = new Breaker(memory(), () => now);
+  const active = new Set();
+  const isActive = (run) => active.has(run);
+  breaker.record("claude", { code: "usage_limit", run: "a" });
+  breaker.record("claude", { code: "usage_limit", run: "b" });
+  assert.deepEqual(breaker.list(isActive).map((b) => [b.state, b.probing]), [["open", false]]);
+  now += 16 * 60_000;
+  assert.deepEqual(breaker.list(isActive).map((b) => [b.state, b.probing]), [["half", false]], "time is up, but nothing is checking");
+  now += 5 * 3600_000;
+  assert.deepEqual(breaker.list(isActive).map((b) => [b.state, b.probing]), [["half", false]], "still nothing");
+  breaker.probeStarted("claude", "probe");
+  active.add("probe");
+  assert.deepEqual(breaker.list(isActive).map((b) => [b.state, b.probing]), [["half", true]]);
+  active.delete("probe");
+  assert.deepEqual(breaker.list(isActive).map((b) => [b.state, b.probing]), [["half", false]], "a probe that ended isn't checking");
+  assert.equal(breaker.list()[0].probing, false, "without a way to tell, nothing is said to be checking");
+});

@@ -11,5 +11,5 @@ import { createContext } from "react";
 //   onDetails(run)             the harness's problems, or Settings → Diagnostics
 //   waits                      why each queued run waits (snapshot.team.waits)
 //   harnessName(id)            a harness's display name
-//   onInterrupt(runId)         runs.interrupt, so the owner's queued message goes first
+//   onInterrupt(runId, waiting) runs.interrupt, so the owner's queued run `waiting` goes first
 export const ChatContext = createContext(null);

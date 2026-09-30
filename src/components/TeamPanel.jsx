@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { CirclePause, OctagonX, Play, RotateCcw, Users } from "lucide-react";
-import { breakerTitle, clockTime, openBreakers, teamLine } from "../lib/team.js";
+import { breakerNote, openBreakers, resumeChoices, teamLine } from "../lib/team.js";
 import "./team.css";
 
 // Settings → Team: the always-on team's switch, pause and kill switch, how
@@ -89,17 +89,12 @@ export function TeamPanel({ data, act, busy, harnessName = (id) => id }) {
       </div>
       <div className="team-actions">
         {halted ? (
-          <>
-            <button type="button" className="secondary" disabled={busy} onClick={() => act("team.resume")}>
-              <Play size={14} />
-              Resume the team
+          resumeChoices(team).map(({ label, payload }) => (
+            <button key={label} type="button" className="secondary" disabled={busy} onClick={() => act("team.resume", payload)}>
+              {payload?.enabled !== false && <Play size={14} />}
+              {label === "Resume" ? "Resume the team" : label}
             </button>
-            {team.state === "stopped" && team.resumeEnabled && (
-              <button type="button" className="secondary" disabled={busy} onClick={() => act("team.resume", { enabled: false })}>
-                Resume with Team off
-              </button>
-            )}
-          </>
+          ))
         ) : (
           <>
             <button type="button" className="secondary" disabled={busy} onClick={() => act("team.pause", { minutes: 60 })}>
@@ -117,9 +112,12 @@ export function TeamPanel({ data, act, busy, harnessName = (id) => id }) {
         )}
       </div>
       <p className="team-note">
-        <strong>Stop the team</strong> works with Team on or off. Nothing starts on its own: routines are skipped, Autopilot
-        turns off in every project, work nobody at the desk started that is waiting is cancelled, and running work can't hand
-        anything on. Your own messages still go through. Turning Team off does the same.
+        <strong>Stop the team</strong> works with Team on or off, and turning Team off does the same. Work nobody at the desk
+        started stops, including work that is running: tasks, hand-offs and messages from Slack, Buzz or your phone wait until
+        you resume, and the rest (routine runs, for example) is cancelled. Routines are skipped and Autopilot turns off in every
+        project. Your own messages, and hand-offs and @mentions in your own threads, still go through; <strong>Stop
+        everything</strong> stops those too. <strong>Pause</strong> holds waiting work without cancelling it, lets running work
+        finish (it can't hand anything on), and skips routines that come due.
       </p>
 
       <form
@@ -165,12 +163,7 @@ export function TeamPanel({ data, act, busy, harnessName = (id) => id }) {
           <ul className="team-breakers">
             {breakers.map((breaker) => (
               <li key={breaker.harness}>
-                <span>
-                  <strong>{breakerTitle(breaker, harnessName)}</strong>
-                  {breaker.state === "half"
-                    ? ": one run is checking whether it has lifted."
-                    : `: work nobody at the desk started waits until ${clockTime(breaker.openUntil)}.`}
-                </span>
+                <span>{breakerNote(breaker, harnessName)}</span>
                 <button type="button" className="secondary" disabled={busy} onClick={() => act("breaker.reset", { harness: breaker.harness })}>
                   <RotateCcw size={14} />
                   Try now
@@ -179,7 +172,11 @@ export function TeamPanel({ data, act, busy, harnessName = (id) => id }) {
             ))}
           </ul>
         ) : (
-          <p>No harness is waiting on a usage limit. After two limit or sign-in refusals in 10 minutes, a harness's unattended work waits (15 minutes, then 30, 60 and 120) instead of failing again and again.</p>
+          <p>
+            No harness is waiting on a usage limit. After two limit or sign-in refusals in 10 minutes, a harness's routines,
+            Autopilot tasks and hand-offs wait (15 minutes, then 30, 60 and 120) instead of failing again and again. Messages from
+            you, Slack, Buzz or your phone still try.
+          </p>
         )}
       </div>
 

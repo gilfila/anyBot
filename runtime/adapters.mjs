@@ -626,6 +626,9 @@ export function extractEvent(harness, value, state = {}) {
       return {};
     }
     if (value.type === "assistant") {
+      // The model's own turn (not the CLI's API-error message standing in
+      // for one): the provider answered (`state.answered`, runHarness's onAnswer).
+      if (!value.is_api_error_message) state.answered = true;
       if (value.is_api_error_message)
         state.apiError = {
           status: Number.isInteger(value.api_error_status) ? value.api_error_status : undefined,
@@ -651,8 +654,12 @@ export function extractEvent(harness, value, state = {}) {
       value.type === "item.started" ||
       value.type === "turn.completed" ||
       (value.type === "item.completed" && value.item?.type !== "error")
-    )
+    ) {
       delete state.lastError;
+      // The model is working (an item that isn't one of Codex's warnings):
+      // the provider answered.
+      if (value.item?.type !== "error") state.answered = true;
+    }
     // Each agent_message is a whole message ("I'll run ls." then the answer),
     // so later ones start a new paragraph instead of running on.
     if (value.type === "item.completed" && value.item?.type === "agent_message") {
@@ -952,7 +959,7 @@ export async function codexMcpServerNames(env = process.env) {
 // is watching (Team on), `disallowedTools` are blocked in Claude Code and
 // `codexMcpOff` switches off Codex's configured MCP servers.
 export async function runHarness(
-  { harness, model, workspace, prompt, signal, onText, onTerminal, onUsage, timeoutMs = 600000, permissionMode = "auto", approvals, addDirs, images, effort, waitedMs, disallowedTools, codexMcpOff = false },
+  { harness, model, workspace, prompt, signal, onText, onTerminal, onUsage, onAnswer, timeoutMs = 600000, permissionMode = "auto", approvals, addDirs, images, effort, waitedMs, disallowedTools, codexMcpOff = false },
   { resolve = resolveExecutable, args, outputFormat, pipeGraceMs = 2000, limits = {} } = {},
 ) {
   const limit = { ...OUTPUT_LIMITS, ...limits };
@@ -990,6 +997,7 @@ export async function runHarness(
     final;
   const decoder = new StringDecoder("utf8");
   const eventState = {};
+  let answered = false;
   // Token counts from the harness's result events, reported however the run ends.
   const usage = usageState();
   const started = Date.now();
@@ -1015,6 +1023,17 @@ export async function runHarness(
     }
     try {
       const event = extractEvent(harness, value ?? JSON.parse(text), eventState);
+      // Once, when the provider first answers (Claude Code and Codex): the
+      // coordinator closes that harness's usage-limit breaker then, instead
+      // of waiting for the whole run to finish.
+      if (eventState.answered && !answered) {
+        answered = true;
+        try {
+          onAnswer?.();
+        } catch {
+          // Only a signal; it never changes how the run goes.
+        }
+      }
       if (event.text) append(event.text);
       // The result event's reply is kept under the same cap as a streamed one.
       if (event.final !== undefined)

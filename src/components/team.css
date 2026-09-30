@@ -162,6 +162,7 @@
 }
 .team-pulse-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   gap: 6px;
 }
@@ -213,9 +214,25 @@
   font-weight: 600;
 }
 
+/* The strip's state for screen readers only (the counts change too often to announce). */
+.team-pulse .visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* A stopped team's banner in chat reads as danger; the rest as warn. */
 .team-banner > svg {
   color: var(--warn);
+}
+.team-banner.is-stopped {
+  border-color: var(--danger);
+}
+.team-banner.is-stopped > svg {
+  color: var(--danger);
 }
 
 /* A queued run's reason and Interrupt (LiveRun in ChatMessage.jsx). */

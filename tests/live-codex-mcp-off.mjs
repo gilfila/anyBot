@@ -6,10 +6,12 @@
 // unattended Codex runs (CODEX_MCP_OFF_VERIFIED in runtime/budget.mjs) until
 // it can prove they are switched off. This runs Codex twice, with and without
 // `-c mcp_servers.<name>.enabled=false` for every server in ~/.codex/config.toml
-// (what unattended runs pass), and asks it to name the tools it has from
-// those servers. Before flipping CODEX_MCP_OFF_VERIFIED, also check Codex
-// plugins (for example a mail plugin), which are not MCP servers and aren't
-// switched off by this.
+// (what unattended runs pass), and asks it to call one harmless tool from
+// each of those servers. The verdict comes from Codex's own --json events
+// (`mcp_tool_call` items and the server each one went to), never from what
+// the model says about its tools. Before flipping CODEX_MCP_OFF_VERIFIED,
+// also check Codex plugins (for example a mail plugin), which are not MCP
+// servers and aren't switched off by this.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp } from "node:fs/promises";
@@ -36,28 +38,35 @@ function codex(mcpOff) {
     child.on("error", fail);
     child.on("close", () => done(out));
     child.stdin.end(
-      `List the exact names of every tool you can call that comes from an MCP server named ${names.join(" or ")}, one per line. If there are none, reply NONE. Do not call any tool.`,
+      `For each of these MCP servers: ${names.join(", ")}, call exactly one of its tools that only reads or computes something harmless (for node_repl, evaluate 1+1). Don't write files or use the network. If you have no tool from a server, skip it and say so.`,
     );
   });
 }
-const text = (out) =>
-  out
-    .split(/\r?\n/)
-    .map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        return null;
-      }
-    })
-    .filter((e) => e?.type === "item.completed" && e.item?.type === "agent_message")
-    .map((e) => e.item.text)
-    .join("\n");
-const on = text(await codex([]));
-const off = text(await codex(names));
-console.log("With the servers on:\n", on);
-console.log("With them switched off:\n", off);
-const mentions = (reply) => names.filter((name) => reply.toLowerCase().includes(name.toLowerCase()));
-assert.ok(mentions(on).length, "with them on, Codex names their tools (otherwise this check proves nothing)");
-assert.deepEqual(mentions(off), [], "with them off, none are left");
+// The MCP servers Codex actually called, from its --json item events.
+const called = (out) => {
+  const servers = new Set();
+  for (const line of out.split(/\r?\n/)) {
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (/^item\./.test(event?.type || "") && event.item?.type === "mcp_tool_call") servers.add(String(event.item.server || "?"));
+  }
+  return [...servers];
+};
+const on = called(await codex([]));
+const off = called(await codex(names));
+console.log("MCP servers called with them on:", on);
+console.log("MCP servers called with them switched off:", off);
+assert.ok(
+  on.some((server) => names.includes(server)),
+  "with them on, Codex called a tool on at least one of them (otherwise this check proves nothing; run it again)",
+);
+assert.deepEqual(
+  off.filter((server) => names.includes(server) || server === "?"),
+  [],
+  "with them off, no tool call reached any of them",
+);
 console.log("PASS: every configured MCP server was switched off. Check Codex plugins before flipping CODEX_MCP_OFF_VERIFIED.");

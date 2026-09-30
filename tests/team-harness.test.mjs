@@ -183,3 +183,33 @@ test("unattended Codex runs switch off each configured MCP server", async (t) =>
   assert.equal(args.at(-1), "-", "the prompt still comes from stdin");
   assert.ok(!args.join(" ").includes("bad name"));
 });
+
+test("a run says when the provider first answers; an API error message isn't an answer", async (t) => {
+  const answers = async (harness, events) => {
+    const { workspace, resolve } = await script(
+      t,
+      `process.stdin.resume(); process.stdin.on('end', () => { for (const e of ${JSON.stringify(events)}) console.log(JSON.stringify(e)); process.exit(0); });`,
+    );
+    let count = 0;
+    await runHarness(
+      { harness, workspace, prompt: "hi", signal: new AbortController().signal, onText: () => {}, onAnswer: () => count++ },
+      { resolve, args: [] },
+    ).catch(() => {});
+    return count;
+  };
+  const text = (value, extra = {}) => ({ type: "assistant", message: { content: [{ type: "text", text: value }] }, ...extra });
+  assert.equal(await answers("claude", [text("Working on it."), text("Done."), { type: "result", subtype: "success", result: "Done." }]), 1, "once");
+  assert.equal(
+    await answers("claude", [
+      text("API Error: 429 rate limited", { is_api_error_message: true, error: "rate_limit", api_error_status: 429 }),
+      failed({ api_error_status: 429 }, "API Error: 429"),
+    ]),
+    0,
+  );
+  assert.equal(await answers("codex", [{ type: "thread.started" }, { type: "turn.started" }, { type: "item.started", item: { type: "command_execution" } }]), 1);
+  assert.equal(
+    await answers("codex", [{ type: "turn.started" }, { type: "error", message: "You've hit your usage limit." }, { type: "turn.failed", error: { message: "You've hit your usage limit." } }]),
+    0,
+  );
+  assert.equal(await answers("codex", [{ type: "item.completed", item: { type: "error", message: "MCP server failed to start" } }]), 0, "a Codex warning isn't an answer");
+});

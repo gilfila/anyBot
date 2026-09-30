@@ -893,7 +893,8 @@ export function App() {
     // Why each queued run waits (runtime dispatch), and Interrupt.
     waits: data.team?.waits || {},
     harnessName,
-    onInterrupt: (id) => act("runs.interrupt", { id }),
+    // `waiting`: the owner's queued run the interrupt makes way for.
+    onInterrupt: (id, waiting) => act("runs.interrupt", { id, for: waiting }),
     onOpenBot: directChat,
     onOpenArtifact: openArtifact,
     onRevealArtifact: revealArtifact,

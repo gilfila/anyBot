@@ -212,7 +212,7 @@ export function LiveRun({ run, employees, bubbles, onStop, compact = false }) {
                   type="button"
                   className="mini"
                   title="Stop that work so your message goes first; it's queued again after yours"
-                  onClick={() => chat.onInterrupt(wait.interrupt)}
+                  onClick={() => chat.onInterrupt(wait.interrupt, run.id)}
                 >
                   Interrupt
                 </button>

@@ -32,7 +32,7 @@ const {
 const { commandDirectory, killTree } = require("./shell-command.cjs");
 const fileAccess = require("./file-access.cjs");
 const { contextMenuItems, fileRequestBlocked, navigationTarget } = require("./window-shell.cjs");
-const { teamTrayItems, teamTrayTooltip, traySignature } = require("./team-tray.cjs");
+const { teamTrayItems, teamTrayTooltip, traySignature, trayRefreshDelay } = require("./team-tray.cjs");
 let diagnostics = null;
 let fileLinks = null;
 let window,
@@ -1225,6 +1225,9 @@ async function fileTarget(payload, action) {
 // Team's status changes (refreshTray, after the coordinator's changes).
 let trayTeam = null;
 let trayRefresh = null;
+// A pause ends by the clock, with no change from the coordinator, so the
+// tray looks again just after it ends (trayRefreshDelay).
+let trayPauseEnd = null;
 function buildTrayMenu() {
   if (!tray) return;
   const team = (method, payload) =>
@@ -1258,6 +1261,12 @@ function refreshTray() {
   trayRefresh = setTimeout(async () => {
     try {
       const team = await request("team.get");
+      clearTimeout(trayPauseEnd);
+      const delay = trayRefreshDelay(team);
+      if (delay !== null) {
+        trayPauseEnd = setTimeout(refreshTray, delay);
+        trayPauseEnd.unref?.();
+      }
       if (traySignature(team) === traySignature(trayTeam)) return;
       trayTeam = team;
       buildTrayMenu();

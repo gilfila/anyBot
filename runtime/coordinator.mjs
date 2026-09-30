@@ -45,6 +45,7 @@ import {
   laneOf,
   nextClockTime,
   parseResetTime,
+  preemptedKey,
   priorityOf,
   teamConfig,
   teamState as stateOfTeam,
@@ -179,8 +180,11 @@ export class Coordinator extends EventEmitter {
     this.team = teamConfig(this.store.one("SELECT value FROM metadata WHERE key='team'")?.value);
     this.infoCache = new Map();
     this.waits = new Map();
+    // The owner's queued runs an Interrupt made way for (interruptRun), with
+    // the bot and folder held for each until it starts: {employee, workspace}.
+    this.preempt = new Map();
     this.breaker = new Breaker(this.metadataKv(), () => this.clock());
-    this.budget = new Budget(this.store, { clock: () => this.clock(), laneOf: (row) => this.runInfo(row).lane });
+    this.budget = new Budget(this.store, { clock: () => this.clock(), laneOf: (row) => this.budgetLane(this.runInfo(row)) });
     this.retain();
     try {
       this.terminal.prune();
@@ -532,7 +536,7 @@ export class Coordinator extends EventEmitter {
       // Stops work nobody at the desk started so the owner's queued message to
       // that bot (or its folder) can start; the stopped work is queued again.
       case "runs.interrupt":
-        await this.interruptRun(payload.id);
+        await this.interruptRun(payload.id, payload.for === undefined ? undefined : text(payload.for, "Run ID", 100));
         break;
       // A bot's CLI as a terminal shows it, from a byte offset (Activity).
       case "runs.terminal": {
@@ -702,13 +706,13 @@ export class Coordinator extends EventEmitter {
       case "team.get":
         return this.teamStatus();
       case "team.set":
-        this.setTeam(payload);
+        await this.setTeam(payload);
         break;
       case "team.pause":
         this.pauseTeam(payload);
         break;
       case "team.stop":
-        this.stopTeam();
+        await this.stopTeam();
         break;
       case "team.resume":
         this.resumeTeam(payload);
@@ -787,7 +791,7 @@ export class Coordinator extends EventEmitter {
         dontAskAllowed: t.dontAskAllowed,
       },
       today: this.budget.summary(),
-      breakers: this.breaker.list(),
+      breakers: this.breaker.list((id) => this.active.has(id)),
       waits: Object.fromEntries(this.waits),
       // Whether Codex bots may take unattended work (runtime/budget.mjs).
       codexUnattended: CODEX_MCP_OFF_VERIFIED,
@@ -796,7 +800,7 @@ export class Coordinator extends EventEmitter {
   // The owner's settings. Turning Team off is the kill switch (the same as
   // team.stop, so Autopilot and routines never carry on without its limits);
   // turning it on again restores what the stop turned off.
-  setTeam(payload = {}) {
+  async setTeam(payload = {}) {
     if (payload.enabled !== undefined && typeof payload.enabled !== "boolean") throw new Error("Team on or off must be true or false");
     const next = applyTeamSettings(this.team, payload, { concurrency: this.defaultConcurrency });
     this.saveTeam(next);
@@ -805,7 +809,19 @@ export class Coordinator extends EventEmitter {
       if (this.team.stopped) this.resumeTeam({ enabled: true });
       else this.saveTeam({ ...this.team, enabled: true });
       this.store.event("team.enabled", {});
-    } else if (payload.enabled === false && this.team.enabled) this.stopTeam();
+    } else if (payload.enabled === false && this.team.enabled) await this.stopTeam();
+  }
+  // Runs Team state changes (stop, resume) in one transaction, and puts the
+  // in-memory state back if it fails, so dispatch never acts on a state the
+  // database doesn't have.
+  teamTransaction(work) {
+    const before = this.team;
+    try {
+      return this.store.transaction(work);
+    } catch (error) {
+      this.team = before;
+      throw error;
+    }
   }
   // A timed pause: `minutes` (1–1440) or `until` a local time ("07:00").
   pauseTeam(payload = {}) {
@@ -823,19 +839,31 @@ export class Coordinator extends EventEmitter {
     this.saveTeam({ ...this.team, pausedUntil: until });
     this.store.event("team.paused", { until: new Date(until).toISOString() });
   }
+  // Work nobody at the desk started that something is waiting on: a task
+  // card, the bot that handed it off, or a person on Slack, Buzz or a phone.
+  // Stop the team holds it (queued) until the resume instead of dropping it.
+  keptByStop(run, info) {
+    return info.lane === "guest" || Boolean(run.task) || Boolean(run.parent);
+  }
   // The kill switch, with Team on or off: Autopilot goes off in every room
-  // (remembered for team.resume), routines are held, work nobody at the desk
-  // started that is queued is cancelled, and running work can't hand anything
-  // on. Running work finishes. The owner's own messages still run.
-  stopTeam() {
+  // (remembered for team.resume), routines are held, and work nobody at the
+  // desk started stops, running or queued. What something waits on (see
+  // keptByStop) is held, queued, until the resume; the rest is cancelled. The
+  // owner's own work (and their Run again) goes on.
+  async stopTeam() {
     const already = this.team.stopped;
     const saved = already
       ? this.team.savedAutopilot
       : Object.fromEntries(this.store.all("SELECT id,autopilot FROM conversations WHERE archived=0").map((c) => [c.id, c.autopilot ? 1 : 0]));
-    const queued = this.store
-      .all("SELECT * FROM runs WHERE status='queued' ORDER BY rowid")
-      .filter((run) => this.runInfo(run).lane !== "owner");
-    this.store.transaction(() => {
+    const unattended = (run) => !this.attended(this.runInfo(run));
+    const queued = this.store.all("SELECT * FROM runs WHERE status='queued' ORDER BY rowid").filter(unattended);
+    const running = [...this.active.values()]
+      .filter((state) => !state.attended)
+      .map((state) => this.store.one("SELECT * FROM runs WHERE id=? AND status='running'", state.run))
+      .filter(Boolean);
+    const kept = (run) => this.keptByStop(run, this.runInfo(run));
+    const dropped = queued.filter((run) => !kept(run));
+    this.teamTransaction(() => {
       if (!already) this.store.run("UPDATE conversations SET autopilot=0 WHERE autopilot=1");
       this.saveTeam({
         ...this.team,
@@ -846,38 +874,79 @@ export class Coordinator extends EventEmitter {
         pausedUntil: 0,
       });
       const stamp = now();
-      const byConversation = new Map();
-      for (const run of queued) {
+      for (const run of dropped)
         this.store.run(
           "UPDATE runs SET status='cancelled',error=?,ended=?,dismissed=1 WHERE id=? AND status='queued'",
           "Cancelled when the team was stopped.",
           stamp,
           run.id,
         );
-        byConversation.set(run.conversation, (byConversation.get(run.conversation) || 0) + 1);
+      // One notice per conversation: what was cancelled, and what waits.
+      const byConversation = new Map();
+      for (const run of [...queued, ...running]) {
+        const counts = byConversation.get(run.conversation) || { cancelled: 0, held: 0 };
+        counts[kept(run) ? "held" : "cancelled"] += 1;
+        byConversation.set(run.conversation, counts);
       }
-      for (const [conversation, count] of byConversation)
+      const runs = (n) => (n === 1 ? "1 run" : `${n} runs`);
+      for (const [conversation, { cancelled, held }] of byConversation)
         this.addMessage(
           conversation,
           "system",
           "notice",
-          `The team was stopped, so ${count === 1 ? "1 queued run" : `${count} queued runs`} here that nobody at the desk started ${count === 1 ? "was" : "were"} cancelled. Your own messages still go through. Resume the team from Settings → Team or the tray.`,
+          `The team was stopped, so work here that nobody at the desk started stopped: ${[
+            cancelled ? `${runs(cancelled)} ${cancelled === 1 ? "was" : "were"} cancelled` : "",
+            held ? `${runs(held)} (a task, a hand-off, or a message from Slack, Buzz or a phone) ${held === 1 ? "waits" : "wait"} until you resume` : "",
+          ]
+            .filter(Boolean)
+            .join(", and ")}. Your own messages still go through. Resume the team from Settings → Team or the tray.`,
         );
-      for (const task of new Set(queued.map((run) => run.task).filter(Boolean))) this.settleTask(task);
-      this.store.event("team.stopped", { cancelled: queued.length });
+      for (const task of new Set(dropped.map((run) => run.task).filter(Boolean))) this.settleTask(task);
+      this.store.event("team.stopped", { cancelled: dropped.length, stopped: running.length, held: queued.length - dropped.length });
     });
+    // Running work stops too (its harness is cut off, like the run's Stop);
+    // what something waits on is queued again as the same work, held until
+    // the resume.
+    for (const run of running) {
+      await this.cancel(run.id);
+      // One that finished on its own meanwhile has nothing to redo.
+      if (!["cancelling", "cancelled"].includes(this.store.one("SELECT status FROM runs WHERE id=?", run.id)?.status)) continue;
+      if (kept(run)) this.store.transaction(() => this.requeue(run));
+      else this.store.run("UPDATE runs SET dismissed=1 WHERE id=?", run.id);
+    }
+  }
+  // A run the owner's Interrupt or Stop the team cut off, queued again as
+  // the same piece of work (same message, parent, root, depth, task and
+  // thread). Its rerun counts toward the day's runs in its place.
+  requeue(run) {
+    this.store.run("UPDATE runs SET dismissed=1 WHERE id=?", run.id);
+    this.store.run("INSERT OR REPLACE INTO metadata(key,value) VALUES (?, '1')", preemptedKey(run.id));
+    this.budget.refund(run, this.budgetLane(this.runInfo(run)));
+    return this.addRun(run.conversation, run.employee, run.message, run.parent, run.root || run.id, run.depth, run.task, run.thread);
   }
   // Back from a stop or a pause. `enabled` chooses Team on or off afterwards
   // (by default, what it was before the stop); Autopilot comes back on in the
-  // rooms the stop turned it off in.
+  // rooms the stop turned it off in. Resuming with Team off after Team was on
+  // leaves those rooms' Autopilot off (it would run without Team's limits),
+  // with a note in each.
   resumeTeam(payload = {}) {
     if (payload.enabled !== undefined && typeof payload.enabled !== "boolean") throw new Error("Team on or off must be true or false");
     const t = this.team;
     const enabled = payload.enabled ?? (t.stopped ? t.resumeEnabled : t.enabled);
-    this.store.transaction(() => {
+    const unlimited = t.stopped && t.resumeEnabled && !enabled;
+    this.teamTransaction(() => {
       if (t.stopped)
-        for (const [conversation, flag] of Object.entries(t.savedAutopilot))
-          if (flag === 1) this.store.run("UPDATE conversations SET autopilot=1 WHERE id=? AND archived=0", conversation);
+        for (const [conversation, flag] of Object.entries(t.savedAutopilot)) {
+          if (flag !== 1 || !this.store.one("SELECT id FROM conversations WHERE id=? AND archived=0", conversation)) continue;
+          if (unlimited)
+            this.addMessage(
+              conversation,
+              "system",
+              "notice",
+              "Autopilot was on here before the team was stopped. Team is off now, so Autopilot stays off: turned back on, it would run without Team's daily limits. Turn it on here if you want that.",
+            );
+          else this.store.run("UPDATE conversations SET autopilot=1 WHERE id=? AND archived=0", conversation);
+        }
       this.saveTeam({ ...t, stopped: false, enabled, resumeEnabled: false, savedAutopilot: {}, pausedUntil: 0 });
       this.store.event("team.resumed", { enabled });
     });
@@ -900,14 +969,37 @@ export class Coordinator extends EventEmitter {
       return [];
     }
   }
-  // Runs the owner asked for at the desk though their message is the system's:
-  // Run again (runs.retry) and a routine's Run now. Metadata `ownerRun:<run>`.
+  // Runs the owner started at the desk though their message is the system's:
+  // a routine's Run now, and Run again on a routine's own run (the owner's
+  // routine either way). Metadata `ownerRun:<run>`: the owner's lane, for it
+  // and what it hands on.
   isOwnerRun(runId) {
     return Boolean(runId) && this.store.one("SELECT value FROM metadata WHERE key=?", `ownerRun:${runId}`)?.value === "desktop";
   }
   markOwnerRun(runId) {
     this.store.run("INSERT OR REPLACE INTO metadata(key,value) VALUES (?, 'desktop')", `ownerRun:${runId}`);
     this.infoCache.delete(runId);
+  }
+  // Run again on anyone else's run (a guest's, a bot's, Autopilot's): metadata
+  // `ownerRetry:<run>`. Only that run goes first and gets past a stop, pause,
+  // budget or usage-limit hold; it keeps its own lane, so it's still
+  // unattended (tool rules, the dontAsk and Codex refusals), and what it
+  // hands on is the guest's or bot's work, as before.
+  isOwnerRetry(runId) {
+    return Boolean(runId) && this.store.one("SELECT value FROM metadata WHERE key=?", `ownerRetry:${runId}`)?.value === "desktop";
+  }
+  markOwnerRetry(runId) {
+    this.store.run("INSERT OR REPLACE INTO metadata(key,value) VALUES (?, 'desktop')", `ownerRetry:${runId}`);
+    this.infoCache.delete(runId);
+  }
+  // The owner is waiting on this run: their own lane, or their Run again.
+  attended(info) {
+    return info.lane === "owner" || info.ownerRetry;
+  }
+  // The lane a run counts in for today's limits: the owner's Run again
+  // counts as theirs (never capped).
+  budgetLane(info) {
+    return this.attended(info) ? "owner" : info.lane;
   }
   // What unattended work a run is, for its priority.
   runKind(run) {
@@ -928,14 +1020,18 @@ export class Coordinator extends EventEmitter {
     const rootOrigin = this.runOrigin(run);
     const peopleStarted = this.startedByPeople(run);
     const ownerRun = this.isOwnerRun(run.id) || (Boolean(run.root) && run.root !== run.id && this.isOwnerRun(run.root));
-    const info = { lane: laneOf({ origin, rootOrigin, peopleStarted, ownerRun }), kind: this.runKind(run), origin, rootOrigin, peopleStarted, ownerRun };
+    const lane = laneOf({ origin, rootOrigin, peopleStarted, ownerRun });
+    // Never inherited: only the run the owner pressed Run again on.
+    const ownerRetry = lane !== "owner" && this.isOwnerRetry(run.id);
+    const info = { lane, kind: this.runKind(run), origin, rootOrigin, peopleStarted, ownerRun, ownerRetry };
     if (this.infoCache.size > 5000) this.infoCache.clear();
     this.infoCache.set(run.id, info);
     return info;
   }
   runPriority(run) {
     const info = this.runInfo(run);
-    return priorityOf({ ...info, queuedMs: Date.now() - Date.parse(run.created) });
+    // The owner's Run again goes first, like their own messages.
+    return priorityOf({ ...info, ownerRun: info.ownerRun || info.ownerRetry, queuedMs: Date.now() - Date.parse(run.created) });
   }
   // True the first time `key` is seen today (local day), so notices and
   // alerts go out once a day however often dispatch looks.
@@ -1012,7 +1108,10 @@ export class Coordinator extends EventEmitter {
           code === "run.dontask_refused"
             ? `${employee.name} can act without asking you (its permission mode), so with Team on it doesn't take work nobody is watching. Opt it in under Settings → Team if it should, or send it the work yourself.`
             : `${employee.name} runs on Codex, and Any Bot can't yet switch off Codex's MCP servers (such as node_repl), which run outside Codex's sandbox, for work nobody is watching. So with Team on, Codex bots only take work you send them yourself.`;
-        this.store.run("UPDATE runs SET status='cancelled',error=?,ended=?,dismissed=1 WHERE id=? AND status='queued'", why, stamp, run.id);
+        // A guest's run reports its error back through Slack or Buzz
+        // (bridgeUpdates): they get a plain reason, and the owner the notice.
+        const error = this.runInfo(run).lane === "guest" ? "This bot can't take this request right now." : why;
+        this.store.run("UPDATE runs SET status='cancelled',error=?,ended=?,dismissed=1 WHERE id=? AND status='queued'", error, stamp, run.id);
         if (this.noteOnce(`${code}:${employee.id}:${run.conversation}`))
           this.addMessage(run.conversation, "system", "notice", why, run.thread ?? null);
         if (this.noteOnce(`${code}:${employee.id}`))
@@ -1037,7 +1136,8 @@ export class Coordinator extends EventEmitter {
       reason: blocker.employee === employee.id ? "bot-busy" : "folder-busy",
       blocker: blocker.run,
       blockerEmployee: blocker.employee,
-      lane: blocker.lane,
+      // The owner's Run again is theirs: stopped, never interrupted.
+      lane: blocker.attended ? "owner" : blocker.lane,
       kind: blocker.kind,
       since: blocker.startedAt,
     };
@@ -1055,14 +1155,14 @@ export class Coordinator extends EventEmitter {
       const what = failure.code === "auth" ? "sign-in problem" : "usage limit";
       this.emit("attention", {
         title: `${name} ${what}`,
-        body: `Work nobody at the desk started on ${name} waits until ${until}. Your own messages still try. Settings → Team has Try now.`,
+        body: `Routines, Autopilot and hand-offs on ${name} wait until ${until}; messages from you, Slack, Buzz or your phone still try. Settings → Team has Try now.`,
         target: { run: run.id },
       });
       this.diagnostic({
         level: "warn",
         source: "team",
         code: "breaker.opened",
-        message: `${name} hit a ${what}; its unattended work waits until ${until}`,
+        message: `${name} hit a ${what}; its routines, Autopilot and hand-offs wait until ${until}`,
         context: { harness: employee.harness, reason: failure.code, openUntil: new Date(state.openUntil).toISOString() },
       });
     }
@@ -1079,18 +1179,31 @@ export class Coordinator extends EventEmitter {
   }
   // The owner's way through to a bot that's busy with work nobody at the desk
   // started: that run stops and is queued again as the same piece of work,
-  // after the owner's.
-  async interruptRun(runId) {
+  // after the owner's. `waiting` is the owner's queued run it makes way for
+  // (by default, their first one waiting on that bot or its folder). The bot
+  // and folder are held for that run until it starts, so nothing queued
+  // before it takes them (with Team off the queue is first come, first served).
+  async interruptRun(runId, waiting) {
     const run = requireRow(this.store.one("SELECT * FROM runs WHERE id=?", text(runId, "Run ID", 100)), "Run");
-    if (run.status !== "running" || !this.active.has(run.id)) throw new Error("Only work that is running can be interrupted");
+    const blocker = this.active.get(run.id);
+    if (run.status !== "running" || !blocker) throw new Error("Only work that is running can be interrupted");
     const info = this.runInfo(run);
-    if (info.lane === "owner") throw new Error("That's your own work: stop it instead of interrupting it");
-    await this.cancel(run.id);
+    if (this.attended(info)) throw new Error("That's your own work: stop it instead of interrupting it");
     const name = this.store.one("SELECT name FROM employees WHERE id=?", run.employee)?.name || "The bot";
+    const workspace = (id) => this.store.one("SELECT workspace FROM employees WHERE id=?", id)?.workspace;
+    const blocked = (queued) => queued.employee === run.employee || workspace(queued.employee) === blocker.workspace;
+    const mine = this.store
+      .all("SELECT * FROM runs WHERE status='queued' ORDER BY rowid")
+      .filter((queued) => this.attended(this.runInfo(queued)) && blocked(queued));
+    const first = mine.find((queued) => queued.id === waiting) || mine[0];
+    if (!first) throw new Error(`Nothing of yours is waiting for ${name}, so there's nothing to interrupt it for`);
+    this.preempt.set(first.id, { employee: run.employee, workspace: blocker.workspace });
+    await this.cancel(run.id);
+    // It may have finished on its own meanwhile; then there's nothing to redo.
+    if (!["cancelling", "cancelled"].includes(this.store.one("SELECT status FROM runs WHERE id=?", run.id)?.status)) return;
     const what = { routine: "routine run", task: "task", review: "review", child: "hand-off" }[info.kind] || "work";
     this.store.transaction(() => {
-      this.store.run("UPDATE runs SET dismissed=1 WHERE id=?", run.id);
-      const again = this.addRun(run.conversation, run.employee, run.message, run.parent, run.root || run.id, run.depth, run.task, run.thread);
+      const again = this.requeue(run);
       this.addMessage(
         run.conversation,
         "system",
@@ -2318,7 +2431,19 @@ export class Coordinator extends EventEmitter {
             ),
           }))
       : [];
-    const assignment = requireRow(this.store.one("SELECT id,body,author FROM messages WHERE id=?", run.message), "Assignment");
+    // A person's message that came through a bridge carries its label, so
+    // the prompt shows it as a guest's, never as the owner's (context.mjs).
+    const labelled = (message) => {
+      if (message?.author !== "human") return message;
+      const label = this.store.one("SELECT value FROM metadata WHERE key=?", originKey(message.id))?.value;
+      return label === undefined ? message : { ...message, origin: parseOrigin(label) };
+    };
+    for (let i = 0; i < messages.length; i++) messages[i] = labelled(messages[i]);
+    for (const item of channel) {
+      item.message = labelled(item.message);
+      if (item.reply) item.reply = labelled(item.reply);
+    }
+    const assignment = labelled(requireRow(this.store.one("SELECT id,body,author FROM messages WHERE id=?", run.message), "Assignment"));
     const task = run.task && this.store.one("SELECT title,description FROM tasks WHERE id=?", run.task);
     const topic = `${assignment.body} ${task?.title || ""} ${task?.description || ""}`.slice(0, 4000);
     const org = this.orgContext(run, employee, topic, names);
@@ -2430,8 +2555,10 @@ export class Coordinator extends EventEmitter {
   // (runtime/budget.mjs), `ownerReserve` slots are kept for the owner, and
   // work nobody at the desk started waits past its daily budget; dontAsk and
   // Codex bots are refused it. Either way a stopped or paused team holds that
-  // work, and a harness's open breaker holds its autonomous runs. Why each
-  // queued run waits is kept in `this.waits` for the app.
+  // work, a harness's open breaker holds its autonomous runs, and a bot or
+  // folder an Interrupt freed is held for the owner's run (this.preempt).
+  // The owner's Run again gets past those holds but is still refused where
+  // its lane is. Why each queued run waits is kept in `this.waits` for the app.
   dispatch() {
     if (this.closed || this.paused || this.holding) {
       this.waits = new Map();
@@ -2470,31 +2597,55 @@ export class Coordinator extends EventEmitter {
     const refusals = [];
     // Slots for work nobody at the desk started (all of them with Team off).
     const reserve = managed ? Math.min(team.ownerReserve, Math.max(0, this.concurrency - 1)) : 0;
-    let unattended = active.filter((a) => a.lane !== "owner").length;
+    let unattended = active.filter((a) => !a.attended).length;
+    // Bots and folders an Interrupt holds for the owner's run, until it starts
+    // or leaves the queue.
+    for (const id of this.preempt.keys())
+      if (this.store.one("SELECT status FROM runs WHERE id=?", id)?.status !== "queued") this.preempt.delete(id);
+    const heldFor = (employee) =>
+      [...this.preempt].find(([, held]) => held.employee === employee.id || held.workspace === employee.workspace)?.[0];
     for (const { run, info } of queue) {
       const employee = bots.get(run.employee);
       // An archived bot never works (cancelArchivedWork cancels its runs).
       if (!employee || employee.archived) continue;
       let probe = false;
-      if (info.lane !== "owner") {
+      // The owner is waiting on it: their own work, or their Run again.
+      const attended = this.attended(info);
+      if (!attended) {
         if (hold) {
           waits.set(run.id, { reason: teamNow });
           continue;
         }
-        if (managed && employee.permissionMode === "dontAsk" && !team.dontAskAllowed.includes(employee.id)) {
+        const first = heldFor(employee);
+        if (first) {
+          waits.set(run.id, { reason: "owner-first", run: first });
+          continue;
+        }
+      }
+      // Refused whoever pressed Run again: it's still unattended work.
+      if (managed && info.lane !== "owner") {
+        if (employee.permissionMode === "dontAsk" && !team.dontAskAllowed.includes(employee.id)) {
           refusals.push({ run, employee, code: "run.dontask_refused" });
           continue;
         }
-        if (managed && employee.harness === "codex" && !CODEX_MCP_OFF_VERIFIED) {
+        if (employee.harness === "codex" && !CODEX_MCP_OFF_VERIFIED) {
           refusals.push({ run, employee, code: "run.codex_mcp_unverified" });
           continue;
         }
+      }
+      if (!attended) {
         // The owner's and guests' runs still try; autonomous work waits.
         if (info.lane === "autonomous") {
           const gate = this.breaker.admit(employee.harness, (id) => this.active.has(id));
           if (gate === "open") {
             const state = this.breaker.get(employee.harness);
-            waits.set(run.id, { reason: "breaker", harness: employee.harness, until: state.openUntil, code: state.code });
+            // Half-open with its probe still going: no reopen time to show.
+            waits.set(
+              run.id,
+              state.state === "half"
+                ? { reason: "breaker", harness: employee.harness, code: state.code, state: "half" }
+                : { reason: "breaker", harness: employee.harness, until: state.openUntil, code: state.code },
+            );
             continue;
           }
           probe = gate === "probe";
@@ -2518,7 +2669,7 @@ export class Coordinator extends EventEmitter {
       }
       const blocker = employees.get(employee.id) || occupied.get(employee.workspace);
       if (blocker) {
-        waits.set(run.id, { ...this.waitFor(blocker, employee), mine: info.lane === "owner" });
+        waits.set(run.id, { ...this.waitFor(blocker, employee), mine: attended });
         continue;
       }
       const controller = new AbortController();
@@ -2528,6 +2679,7 @@ export class Coordinator extends EventEmitter {
         employee: employee.id,
         run: run.id,
         lane: info.lane,
+        attended,
         kind: info.kind,
         startedAt: new Date().toISOString(),
         promise: null,
@@ -2541,8 +2693,9 @@ export class Coordinator extends EventEmitter {
         run.id,
       );
       if (probe) this.breaker.probeStarted(employee.harness, run.id);
-      this.budget.started(run, info.lane);
-      if (info.lane !== "owner") {
+      this.preempt.delete(run.id);
+      this.budget.started(run, this.budgetLane(info));
+      if (!attended) {
         unattended += 1;
         if (managed) this.budgetWarn(run);
       }
@@ -2635,7 +2788,9 @@ export class Coordinator extends EventEmitter {
       // Work nobody at the desk started is unattended. With Team on, such
       // Claude runs can't use the org policy's outward MCP tools, and Codex
       // runs switch off their MCP servers (runtime/adapters.mjs).
-      const unattended = this.runInfo(run).lane !== "owner";
+      // (The owner's Run again on a guest's or bot's run stays unattended.)
+      const info = this.runInfo(run);
+      const unattended = info.lane !== "owner";
       const guarded = unattended && this.team.enabled;
       try {
         result = await this.runner({
@@ -2658,6 +2813,18 @@ export class Coordinator extends EventEmitter {
           onUsage: (value) => {
             usage = value;
           },
+          // The provider answered this run: a breaker that was open or
+          // half-open for this harness closes now, so the work waiting on
+          // it goes on without waiting for this whole run to finish. A
+          // closed breaker's failure count is left alone (a run can answer,
+          // then hit the limit later).
+          onAnswer: () => {
+            if (this.closed || controller.signal.aborted || this.breaker.get(employee.harness).state === "closed") return;
+            if (!this.breaker.succeeded(employee.harness).closed) return;
+            this.breakerClosed(employee.harness, "answered");
+            this.notify();
+            this.dispatch();
+          },
           onText: (output) => {
             if (
               this.closed ||
@@ -2671,7 +2838,7 @@ export class Coordinator extends EventEmitter {
           },
         });
       } finally {
-        this.saveUsage(run.id, usage, unattended ? "unattended" : "owner");
+        this.saveUsage(run.id, usage, this.budgetLane(info) === "owner" ? "owner" : "unattended");
       }
       // The provider answered: a breaker that was open for this harness closes.
       if (!controller.signal.aborted && !this.closed && this.breaker.succeeded(employee.harness).closed)
@@ -2941,7 +3108,7 @@ export class Coordinator extends EventEmitter {
       parent.conversation,
       "system",
       "notice",
-      `${name(run.employee)} hit ${code === "auth" ? `a ${harness} sign-in problem` : `the ${harness} usage limit`} on work ${name(parent.employee)} handed off, so ${name(parent.employee)} wasn't started again just to hear that. ${harness} work nobody at the desk started waits until about ${until}. Press Run again on ${name(run.employee)}'s run once it's lifted, and the result goes back to ${name(parent.employee)}.`,
+      `${name(run.employee)} hit ${code === "auth" ? `a ${harness} sign-in problem` : `the ${harness} usage limit`} on work ${name(parent.employee)} handed off, so ${name(parent.employee)} wasn't started again just to hear that. Routines, Autopilot and hand-offs on ${harness} wait until about ${until}. Press Run again on ${name(run.employee)}'s run once it's lifted, and the result goes back to ${name(parent.employee)}.`,
       parent.thread,
     );
   }
@@ -3229,8 +3396,12 @@ export class Coordinator extends EventEmitter {
         run.thread,
       );
       this.store.run("UPDATE runs SET dismissed=1 WHERE id=?", run.id);
-      // The owner pressed Run again: the owner's lane, whoever started it first.
-      this.markOwnerRun(retry);
+      // The owner pressed Run again. On a routine's own run that's Run now for
+      // the owner's routine: the owner's lane. On anyone else's (a guest's, a
+      // bot's, Autopilot's) it goes first and gets past the brakes, but stays
+      // their work (ownerRetry), with the unattended rules.
+      if (!run.parent && this.store.one("SELECT kind FROM messages WHERE id=?", run.message)?.kind === "routine") this.markOwnerRun(retry);
+      else this.markOwnerRetry(retry);
       this.store.event("run.retried", { run: run.id, retry });
       return retry;
     });

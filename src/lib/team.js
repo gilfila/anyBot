@@ -15,9 +15,40 @@ export const KIND_WORDS = { routine: "a routine", task: "an Autopilot task", rev
 export const breakerTitle = (breaker, harnessName = (id) => id) =>
   `${harnessName(breaker.harness)} ${breaker.code === "auth" ? "sign-in problem" : "usage limit"}`;
 
-// Harnesses whose breaker holds unattended work now (open, or half-open with
-// its one probe going).
+// Harnesses whose breaker is on: open, or half-open (its time is up; with
+// `probing`, one run is checking whether the limit has lifted, otherwise the
+// next routine, Autopilot task or hand-off on it will check).
 export const openBreakers = (team) => (team?.breakers || []).filter((b) => b.state === "open" || b.state === "half");
+
+// A breaker in a few words, for the sidebar: "until 14:20", "checking" or
+// "may have lifted".
+export const breakerShort = (breaker) =>
+  breaker.state !== "half" ? `until ${clockTime(breaker.openUntil)}` : breaker.probing ? "checking" : "may have lifted";
+
+// A breaker in a sentence: what waits, until when, and what still tries.
+// Only routines, Autopilot and hand-offs wait; people's messages (yours, and
+// ones from Slack, Buzz or a phone) still try, so they hear the reason.
+export function breakerNote(breaker, harnessName = (id) => id) {
+  const name = harnessName(breaker.harness);
+  const title = breakerTitle(breaker, harnessName);
+  if (breaker.state === "half" && breaker.probing)
+    return `${title}: one run is checking whether it has lifted; routines, Autopilot and hand-offs on ${name} wait for it.`;
+  if (breaker.state === "half") return `${title}: it may have lifted; the next routine, Autopilot task or hand-off on ${name} checks.`;
+  return `${title}: routines, Autopilot and hand-offs on ${name} wait until ${clockTime(breaker.openUntil)}; messages from you, Slack, Buzz or your phone still try.`;
+}
+
+// What Resume offers. After Team was switched off (or stopped while on), a
+// plain Resume would turn Team back on, so it says so, next to Resume with
+// Team off. `payload` goes to team.resume.
+export function resumeChoices(team) {
+  if (team?.state === "stopped" && team.resumeEnabled)
+    return [
+      { label: "Turn Team back on", payload: { enabled: true } },
+      { label: "Resume with Team off", payload: { enabled: false } },
+    ];
+  if (team?.state === "stopped" || team?.state === "paused") return [{ label: "Resume", payload: undefined }];
+  return [];
+}
 
 // One line on the Team's state, with what matters next.
 export function teamLine(team) {
@@ -29,7 +60,7 @@ export function teamLine(team) {
     const cap = team.settings?.orgRunsPerDay ?? 0;
     return `On: ${used} of ${cap} runs today that nobody at the desk started.`;
   }
-  return "Off: routines and Autopilot work as they always have, without daily limits.";
+  return "Off: routines and Autopilot run without daily limits (they still wait while a harness is on a usage limit).";
 }
 
 // Why a queued run hasn't started: { text, interrupt } where `interrupt` is
@@ -67,7 +98,15 @@ export function waitText(wait, { name = () => "A bot", harnessName = (id) => id,
       return { text: text || "Today's limit is used up; this waits until midnight.", interrupt: null };
     }
     case "breaker":
-      return { text: `${breakerTitle({ harness: wait.harness, code: wait.code }, harnessName)}: this waits until ${clockTime(wait.until)}.`, interrupt: null };
+      return {
+        text:
+          wait.state === "half"
+            ? `${breakerTitle({ harness: wait.harness, code: wait.code }, harnessName)}: one run is checking whether it has lifted; this starts after it.`
+            : `${breakerTitle({ harness: wait.harness, code: wait.code }, harnessName)}: this waits until ${clockTime(wait.until)}.`,
+        interrupt: null,
+      };
+    case "owner-first":
+      return { text: "Waiting while your message goes first.", interrupt: null };
     case "paused":
       return { text: "The team is paused; this starts when the pause ends.", interrupt: null };
     case "stopped":

@@ -21,8 +21,22 @@ function teamTrayItems(team, run) {
     paused
       ? { label: `Resume the team (paused until ${clock(team.pausedUntil)})`, click: () => run("team.resume") }
       : { label: "Pause team 1 hour", enabled: !stopped, click: () => run("team.pause", { minutes: 60 }) },
-    stopped ? { label: "Resume the team", click: () => run("team.resume") } : { label: "Stop the team", click: () => run("team.stop") },
+    // Stopped while Team was on (or switched off): a plain Resume would turn
+    // Team back on, so the menu says so, next to Resume with Team off.
+    ...(stopped && team.resumeEnabled
+      ? [
+          { label: "Turn Team back on", click: () => run("team.resume", { enabled: true }) },
+          { label: "Resume with Team off", click: () => run("team.resume", { enabled: false }) },
+        ]
+      : [stopped ? { label: "Resume the team", click: () => run("team.resume") } : { label: "Stop the team", click: () => run("team.stop") }]),
   ];
+}
+
+// When the tray should look again by itself: just after a pause ends
+// (nothing else tells it, since a pause ends by the clock), or null.
+function trayRefreshDelay(team, now = Date.now()) {
+  if (team?.state !== "paused") return null;
+  return Math.min(Math.max(0, team.pausedUntil - now) + 1000, 2 ** 31 - 1);
 }
 
 // "Any Bot · Team on · 3 working · 12/40 runs today" (Windows keeps 127 characters).
@@ -36,7 +50,7 @@ function teamTrayTooltip(team) {
 // What the menu shows; it's rebuilt only when this changes.
 function traySignature(team) {
   if (!team) return "null";
-  return JSON.stringify([team.state, team.enabled, team.pausedUntil, team.working, team.today?.org, team.settings?.orgRunsPerDay]);
+  return JSON.stringify([team.state, team.enabled, team.resumeEnabled, team.pausedUntil, team.working, team.today?.org, team.settings?.orgRunsPerDay]);
 }
 
-module.exports = { teamTrayItems, teamTrayTooltip, traySignature };
+module.exports = { teamTrayItems, teamTrayTooltip, traySignature, trayRefreshDelay };

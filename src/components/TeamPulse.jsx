@@ -1,6 +1,6 @@
 import React from "react";
 import { CirclePause, OctagonX, Play, RotateCcw, Zap } from "lucide-react";
-import { breakerTitle, clockTime, openBreakers } from "../lib/team.js";
+import { breakerNote, breakerShort, breakerTitle, clockTime, openBreakers, resumeChoices } from "../lib/team.js";
 import "./team.css";
 
 // The sidebar's Team strip: working count and today's runs, the pause, and
@@ -18,8 +18,13 @@ export function TeamPulse({ team, harnessName, busy, onOpen, onAct }) {
         : team.state === "stopped"
           ? "Team stopped"
           : null;
+  // Screen readers hear the state when it changes, not every run count.
+  const announced = { running: "Team on", paused: "Team paused", stopped: "Team stopped" }[team.state] || "";
   return (
-    <div className={`team-pulse is-${team.state}`} role="status">
+    <div className={`team-pulse is-${team.state}`}>
+      <span className="visually-hidden" role="status">
+        {[announced, ...breakers.map((breaker) => `${breakerTitle(breaker, harnessName)}, ${breakerShort(breaker)}`)].filter(Boolean).join(". ")}
+      </span>
       {label && (
         <div className="team-pulse-row">
           <button type="button" className="team-pulse-main" title="Open Settings → Team" onClick={onOpen}>
@@ -27,21 +32,30 @@ export function TeamPulse({ team, harnessName, busy, onOpen, onAct }) {
             <span>{label}</span>
           </button>
           {team.state === "running" ? (
-            <button type="button" className="resume-link" disabled={busy} onClick={() => onAct("team.pause", { minutes: 60 })}>
-              Pause
+            <button
+              type="button"
+              className="resume-link"
+              title="Pause the team for 1 hour"
+              aria-label="Pause the team for 1 hour"
+              disabled={busy}
+              onClick={() => onAct("team.pause", { minutes: 60 })}
+            >
+              Pause 1h
             </button>
           ) : (
-            <button type="button" className="resume-link" disabled={busy} onClick={() => onAct("team.resume")}>
-              <Play size={11} />
-              Resume
-            </button>
+            resumeChoices(team).map(({ label: choice, payload }) => (
+              <button key={choice} type="button" className="resume-link" disabled={busy} onClick={() => onAct("team.resume", payload)}>
+                {payload?.enabled !== false && <Play size={11} />}
+                {choice}
+              </button>
+            ))
           )}
         </div>
       )}
       {breakers.map((breaker) => (
         <div className="team-pulse-row team-pulse-breaker" key={breaker.harness}>
           <span>
-            {breakerTitle(breaker, harnessName)} · {breaker.state === "half" ? "checking" : `until ${clockTime(breaker.openUntil)}`}
+            {breakerTitle(breaker, harnessName)} · {breakerShort(breaker)}
           </span>
           <button
             type="button"
@@ -68,28 +82,25 @@ export function TeamBanner({ team, harnesses = [], harnessName = (id) => id, bus
   return (
     <>
       {(team.state === "stopped" || team.state === "paused") && (
-        <div className="paused-banner team-banner" role="status">
+        <div className={`paused-banner team-banner is-${team.state}`} role="status">
           {team.state === "stopped" ? <OctagonX size={18} /> : <CirclePause size={18} />}
           <span>
             {team.state === "stopped"
               ? "The team is stopped: nothing starts on its own here. Your own messages still go through."
               : `The team is paused until ${clockTime(team.pausedUntil)}: nothing starts on its own. Your own messages still go through.`}
           </span>
-          <button type="button" className="secondary" disabled={busy} onClick={() => onAct("team.resume")}>
-            <Play size={14} />
-            Resume
-          </button>
+          {resumeChoices(team).map(({ label, payload }) => (
+            <button key={label} type="button" className="secondary" disabled={busy} onClick={() => onAct("team.resume", payload)}>
+              {payload?.enabled !== false && <Play size={14} />}
+              {label}
+            </button>
+          ))}
         </div>
       )}
       {breakers.map((breaker) => (
         <div className="paused-banner team-banner" role="status" key={breaker.harness}>
           <Zap size={18} />
-          <span>
-            {breakerTitle(breaker, harnessName)}:{" "}
-            {breaker.state === "half"
-              ? "one run is checking whether it has lifted."
-              : `work nobody at the desk started waits until ${clockTime(breaker.openUntil)}. Your own messages still try.`}
-          </span>
+          <span>{breakerNote(breaker, harnessName)}</span>
           <button type="button" className="secondary" disabled={busy} onClick={() => onAct("breaker.reset", { harness: breaker.harness })}>
             <RotateCcw size={14} />
             Try now

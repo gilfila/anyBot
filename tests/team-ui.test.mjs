@@ -4,10 +4,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { breakerTitle, occurrenceLabel, openBreakers, teamLine, waitText } from "../src/lib/team.js";
+import { breakerNote, breakerShort, breakerTitle, occurrenceLabel, openBreakers, resumeChoices, teamLine, waitText } from "../src/lib/team.js";
 
 const require = createRequire(import.meta.url);
-const { teamTrayItems, teamTrayTooltip, traySignature } = require("../desktop/team-tray.cjs");
+const { teamTrayItems, teamTrayTooltip, traySignature, trayRefreshDelay } = require("../desktop/team-tray.cjs");
 
 const names = { n1: "Nova", r1: "Reel" };
 const context = { name: (id) => names[id] || "A bot", harnessName: (id) => ({ claude: "Claude Code", codex: "Codex" })[id] || id };
@@ -48,7 +48,7 @@ test("a queued run says why it waits, and offers Interrupt only for work nobody 
 
 test("the Team's state in a line, and the breakers holding work", () => {
   assert.equal(teamLine(null), "");
-  assert.match(teamLine({ state: "off" }), /as they always have/);
+  assert.match(teamLine({ state: "off" }), /without daily limits \(they still wait while a harness is on a usage limit\)/);
   assert.match(teamLine({ state: "running", today: { org: 12 }, settings: { orgRunsPerDay: 40 } }), /12 of 40 runs today/);
   assert.match(teamLine({ state: "paused", pausedUntil: Date.now() + 60_000 }), /^Paused until/);
   assert.match(teamLine({ state: "stopped" }), /resume/);
@@ -106,4 +106,51 @@ test("the tray has Team on, a one-hour pause and Stop the team, and they call th
   assert.equal(teamTrayTooltip({ state: "off", working: 0 }), "Any Bot · Team off · 0 working");
   assert.notEqual(traySignature({ state: "running", working: 1 }), traySignature({ state: "running", working: 2 }));
   assert.equal(traySignature(null), "null");
+});
+
+test("a usage limit says what waits and what still tries, and 'checking' only while a probe runs", () => {
+  const now = Date.parse("2026-09-30T10:00:00Z");
+  const open = { harness: "claude", state: "open", code: "usage_limit", openUntil: now + 3600_000 };
+  const checking = { ...open, state: "half", probing: true };
+  const lifted = { ...open, state: "half", probing: false };
+  const note = (breaker) => breakerNote(breaker, context.harnessName);
+  assert.match(note(open), /^Claude Code usage limit: routines, Autopilot and hand-offs on Claude Code wait until .+; messages from you, Slack, Buzz or your phone still try\.$/);
+  assert.match(note(checking), /one run is checking whether it has lifted/);
+  assert.match(note(lifted), /may have lifted; the next routine, Autopilot task or hand-off on Claude Code checks/);
+  assert.doesNotMatch(note(lifted), /checking/);
+  assert.match(breakerShort(open), /^until /);
+  assert.equal(breakerShort(checking), "checking");
+  assert.equal(breakerShort(lifted), "may have lifted");
+  // A queued run behind a half-open breaker doesn't show a time already past.
+  const wait = waitText({ reason: "breaker", harness: "claude", code: "usage_limit", state: "half" }, { ...context, now });
+  assert.match(wait.text, /^Claude Code usage limit: one run is checking whether it has lifted/);
+  assert.doesNotMatch(wait.text, /until/);
+  assert.match(waitText({ reason: "owner-first" }).text, /your message/);
+});
+
+test("Resume after Team was switched off says it turns Team back on, next to Resume with Team off", () => {
+  assert.deepEqual(resumeChoices({ state: "stopped", resumeEnabled: true }), [
+    { label: "Turn Team back on", payload: { enabled: true } },
+    { label: "Resume with Team off", payload: { enabled: false } },
+  ]);
+  assert.deepEqual(resumeChoices({ state: "stopped", resumeEnabled: false }), [{ label: "Resume", payload: undefined }]);
+  assert.deepEqual(resumeChoices({ state: "paused", enabled: true }), [{ label: "Resume", payload: undefined }]);
+  assert.deepEqual(resumeChoices({ state: "running" }), []);
+  const calls = [];
+  const items = teamTrayItems({ state: "stopped", enabled: false, stopped: true, resumeEnabled: true }, (method, payload) => calls.push([method, payload]));
+  assert.deepEqual(items.map((item) => item.label), ["Team on", "Pause team 1 hour", "Turn Team back on", "Resume with Team off"]);
+  items[2].click({});
+  items[3].click({});
+  assert.deepEqual(calls, [
+    ["team.resume", { enabled: true }],
+    ["team.resume", { enabled: false }],
+  ]);
+});
+
+test("the tray refreshes itself when a pause ends", () => {
+  const now = Date.parse("2026-09-30T10:00:00Z");
+  assert.equal(trayRefreshDelay({ state: "paused", pausedUntil: now + 60_000 }, now), 61_000);
+  assert.equal(trayRefreshDelay({ state: "paused", pausedUntil: now - 1 }, now), 1000);
+  assert.equal(trayRefreshDelay({ state: "running" }, now), null);
+  assert.equal(trayRefreshDelay(null, now), null);
 });
