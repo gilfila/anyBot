@@ -6,7 +6,14 @@ import { tmpdir, homedir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
-const { createShutdown, createCrashTracker, createRestartBudget, isOfflineError } = require("../desktop/lifecycle.cjs");
+const {
+  createShutdown,
+  createCrashTracker,
+  createRestartBudget,
+  createStartupFailures,
+  stoppedDialog,
+  isOfflineError,
+} = require("../desktop/lifecycle.cjs");
 const { commandDirectory } = require("../desktop/shell-command.cjs");
 
 // A stand-in for the coordinator's utility process.
@@ -77,6 +84,24 @@ test("coordinator restarts are limited per burst; a stable run resets the count"
     now += 24 * 3600_000;
     assert.equal(later.exited(), 1000, "a crash days apart is a first crash again");
   }
+});
+
+test("a coordinator that can't start for the same reason twice isn't restarted again, and the dialog says why", () => {
+  const failures = createStartupFailures();
+  const reason =
+    "Any Bot couldn't back up this workspace before upgrading it (schema 18 to 19), so it left it unchanged. Check that the disk has free space and Any Bot's data folder can be written to, then start Any Bot again. (disk full)";
+  assert.equal(failures.repeated(reason), false, "the first failure is retried");
+  assert.equal(failures.repeated(reason), true, "the same reason again stops the restarts");
+  assert.equal(failures.repeated(null), false, "one that was running and then crashed restarts as before");
+  assert.equal(failures.repeated(null), false);
+  assert.equal(failures.repeated("Unsupported workspace schema. Use the matching Any Bot version."), false);
+  assert.equal(failures.repeated("Something else went wrong"), false, "a different reason is retried");
+  const dialog = stoppedDialog(reason);
+  assert.match(dialog.message, /couldn't start/);
+  assert.match(dialog.detail, /couldn't back up this workspace/);
+  assert.match(dialog.detail, /Settings → Diagnostics/);
+  assert.match(stoppedDialog(null).message, /failed repeatedly/);
+  assert.match(stoppedDialog(null).detail, /Settings → Diagnostics/);
 });
 
 test("offline update checks are told apart from real update failures", () => {

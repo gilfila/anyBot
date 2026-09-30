@@ -7,6 +7,7 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 const assert = require("node:assert/strict");
 const { mkdirSync, mkdtempSync, writeFileSync } = require("node:fs");
+const { pathToFileURL } = require("node:url");
 const profileRoot = path.join(__dirname, "../.anybot/test-profiles");
 app.commandLine.appendSwitch("disable-gpu");
 app.commandLine.appendSwitch("in-process-gpu");
@@ -100,9 +101,55 @@ app
       assert.ok(crash, "the crash was reported");
       assert.match(crash.message, /ENOTDIR|EEXIST|not a directory|already exists/i);
       assert.ok(!`${crash.message}${crash.detail}`.includes(directory), "without the path");
+      // With the coordinator's crash handlers, a rejected promise nobody
+      // handled is reported and the process keeps running (Electron's own
+      // default); a throw stops new work, is reported, and exits.
+      const probeFile = path.join(directory, "crash-probe.mjs");
+      writeFileSync(
+        probeFile,
+        `import { installCrashHandlers } from ${JSON.stringify(pathToFileURL(path.join(__dirname, "../runtime/diagnostics.mjs")).href)};
+const port = process.parentPort;
+installCrashHandlers(process, {
+  report: (entry) => port.postMessage({ type: "diagnostic", entry }),
+  stop: () => port.postMessage({ type: "stopped" }),
+  exit: (code) => setTimeout(() => process.exit(code), 200),
+});
+port.on("message", ({ data }) => {
+  if (data === "reject") Promise.reject(new Error("nobody waited for this"));
+  if (data === "ping") port.postMessage({ type: "pong" });
+  if (data === "throw") setTimeout(() => { throw new Error("thrown on purpose"); });
+});
+port.postMessage({ type: "ready" });
+`,
+      );
+      const probe = utilityProcess.fork(probeFile, [], { serviceName: "anyBot crash handler test", stdio: "pipe" });
+      const seen = [];
+      const next = (type) =>
+        new Promise((resolve) => {
+          const check = () => {
+            const index = seen.findIndex((m) => m.type === type);
+            if (index < 0) return setTimeout(check, 20);
+            resolve(seen.splice(index, 1)[0]);
+          };
+          check();
+        });
+      probe.on("message", (message) => seen.push(message));
+      const probeExit = new Promise((resolve) => probe.once("exit", resolve));
+      await next("ready");
+      probe.postMessage("reject");
+      const rejection = await next("diagnostic");
+      assert.equal(rejection.entry.code, "runtime.unhandled_rejection");
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      probe.postMessage("ping");
+      await next("pong");
+      probe.postMessage("throw");
+      await next("stopped");
+      const thrown = await next("diagnostic");
+      assert.equal(thrown.entry.code, "runtime.uncaught");
+      assert.equal(await probeExit, 1);
       clearTimeout(timeout);
       console.log(
-        "PASS: Electron utility process startup, SQLite, harness detection, IPC creation, rejection, shutdown and crash report",
+        "PASS: Electron utility process startup, SQLite, harness detection, IPC creation, rejection, shutdown, crash report and unhandled rejections",
       );
       await finish(0);
     } catch (error) {

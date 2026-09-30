@@ -85,33 +85,76 @@ async function v14Into(directory) {
   db.close();
 }
 const backups = async (directory) => (await readdir(directory)).filter((f) => /^anybot\.backup-v14-to-v18-.+\.sqlite$/.test(f));
+const allBackups = async (directory) => (await readdir(directory)).filter((f) => /^anybot\.backup-v\d+-to-v\d+-.+\.sqlite$/.test(f));
+const schemaOf = (file) => {
+  const copy = new DatabaseSync(file, { readOnly: true });
+  try {
+    return copy.prepare("SELECT value FROM metadata WHERE key='schema'").get().value;
+  } finally {
+    copy.close();
+  }
+};
 
 test("1. an older workspace is backed up before it's upgraded, and only the newest three backups are kept", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "anybot-backup-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   // A backup someone made by hand is never pruned.
   await writeFile(join(directory, "anybot.backup-2026-09-28-before-life-org.sqlite"), "kept");
+  // Backups from three earlier upgrades.
+  const earlier = [
+    "anybot.backup-v11-to-v12-20010101-090000.sqlite",
+    "anybot.backup-v12-to-v13-20010201-090000.sqlite",
+    "anybot.backup-v13-to-v14-20010301-090000.sqlite",
+  ];
+  for (const name of earlier) await writeFile(join(directory, name), "old");
   await v14Into(directory);
   new Store(directory).close();
   const [first, ...others] = await backups(directory);
   assert.ok(first, "a backup was written");
   assert.deepEqual(others, [], "exactly one");
+  assert.equal(schemaOf(join(directory, first)), "14", "the backup is the old workspace");
   const copy = new DatabaseSync(join(directory, first), { readOnly: true });
-  assert.equal(copy.prepare("SELECT value FROM metadata WHERE key='schema'").get().value, "14", "the backup is the old workspace");
   assert.equal(copy.prepare("SELECT name FROM employees WHERE id='e1'").get().name, "Builder");
   copy.close();
+  assert.deepEqual((await allBackups(directory)).sort(), [...earlier.slice(1), first].sort(), "the oldest earlier backup went");
   // Opening a current workspace writes nothing.
   new Store(directory).close();
   assert.equal((await backups(directory)).length, 1);
-  // Three more upgrades: four backups in all, so the oldest goes.
+  // The same upgrade three more times (the old workspace put back each
+  // time): the newest three stay, and so does the first copy made for this
+  // upgrade, the one the version before it can open.
   for (let i = 0; i < 3; i++) {
     await v14Into(directory);
     new Store(directory).close();
   }
-  const kept = await backups(directory);
-  assert.equal(kept.length, 3);
-  assert.ok(!kept.includes(first), "the oldest backup was pruned");
+  const kept = await allBackups(directory);
+  assert.equal(kept.length, 4);
+  assert.ok(kept.includes(first), "the first copy for this upgrade is kept");
+  assert.ok(!kept.some((f) => earlier.includes(f)), "earlier upgrades' backups gave way to newer ones");
   assert.equal(await readFile(join(directory, "anybot.backup-2026-09-28-before-life-org.sqlite"), "utf8"), "kept");
+});
+
+test("1c. an upgrade that keeps failing part-way never loses the copy of the workspace as it was", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "anybot-backup-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await v14Into(directory);
+  // Steps 15 and 16 go through; step 17 fails every time (a bug in it, say).
+  const db = new DatabaseSync(join(directory, "anybot.sqlite"));
+  db.exec(
+    "CREATE TRIGGER step17 BEFORE UPDATE ON metadata WHEN NEW.key='schema' AND NEW.value='17' BEGIN SELECT RAISE(ABORT, 'step 17 failed'); END",
+  );
+  db.close();
+  // The first start and main's three restarts, then one more after "Restart Any Bot".
+  for (let start = 0; start < 5; start++) assert.throws(() => new Store(directory), /step 17 failed/);
+  const live = new DatabaseSync(join(directory, "anybot.sqlite"), { readOnly: true });
+  assert.equal(live.prepare("SELECT value FROM metadata WHERE key='schema'").get().value, "16", "steps 15 and 16 stayed");
+  live.close();
+  const kept = await allBackups(directory);
+  const original = kept.filter((f) => f.startsWith("anybot.backup-v14-to-v18-"));
+  assert.equal(original.length, 1, "the copy made before the upgrade began is still there");
+  assert.equal(schemaOf(join(directory, original[0])), "14");
+  assert.ok(kept.length <= 4, `retries don't pile up copies (${kept.length})`);
+  assert.ok(kept.every((f) => /^anybot\.backup-v1[46]-to-v18-/.test(f)));
 });
 
 test("1b. a workspace that can't be backed up isn't upgraded", async (t) => {
@@ -228,30 +271,46 @@ test("4. a reviewer's Changes on a task whose lead is archived starts no run and
 });
 
 test("5. a task entering Review with an archived reviewer goes to that reviewer's manager", async (t) => {
-  const { c, e, room, archive, task, activity, runsOf } = await team(t, (name) =>
-    name === "Chief" ? actions([{ type: "review", task: task("Pricing").id.slice(0, 8), decision: "approve" }]) : "ok",
+  const { c, e, room, archive, task, activity, runsOf } = await team(
+    t,
+    (name) => (name === "Chief" ? actions([{ type: "review", task: task("Pricing").id.slice(0, 8), decision: "approve" }]) : "ok"),
+    { names: ["Chief", "Lead", "Junior", "Peer", "Temp", "Boss", "Helper"] },
   );
+  // Chief manages Junior and the lead, so it may review the lead's work.
   await c.command("employees.setManager", { id: e.Junior.id, manager: e.Chief.id });
-  const project = await room("Launch", [e.Lead, e.Junior, e.Peer]);
+  await c.command("employees.setManager", { id: e.Lead.id, manager: e.Chief.id });
+  // Boss manages Temp but has nothing to do with this project or its lead.
+  await c.command("employees.setManager", { id: e.Temp.id, manager: e.Boss.id });
+  // Helper's manager is Lead, who is doing the work.
+  await c.command("employees.setManager", { id: e.Helper.id, manager: e.Lead.id });
+  const project = await room("Launch", [e.Lead, e.Junior, e.Peer, e.Temp, e.Helper]);
   await c.command("runtime.pause");
-  await c.command("tasks.create", { conversation: project.id, title: "Pricing", assignees: [e.Lead.id], reviewer: e.Junior.id });
-  await c.command("tasks.create", { conversation: project.id, title: "Orphan", assignees: [e.Lead.id], reviewer: e.Peer.id });
-  await archive(e.Junior);
-  await archive(e.Peer);
-  await c.command("tasks.move", { id: task("Pricing").id, status: "review" });
-  await c.command("tasks.move", { id: task("Orphan").id, status: "review" });
+  for (const [title, reviewer] of [
+    ["Pricing", e.Junior],
+    ["Orphan", e.Peer],
+    ["Outside", e.Temp],
+    ["Own work", e.Helper],
+  ])
+    await c.command("tasks.create", { conversation: project.id, title, assignees: [e.Lead.id], reviewer: reviewer.id });
+  for (const bot of [e.Junior, e.Peer, e.Temp, e.Helper]) await archive(bot);
+  for (const title of ["Pricing", "Orphan", "Outside", "Own work"]) await c.command("tasks.move", { id: task(title).id, status: "review" });
   assert.deepEqual(
     c.snapshot().runs.map((r) => [r.employee, r.task]),
     [[e.Chief.id, task("Pricing").id]],
-    "the manager reviews; the reviewer with no manager leaves it to the owner",
+    "the manager reviews; otherwise the owner decides",
   );
   assert.equal(task("Pricing").reviewer, e.Chief.id);
-  assert.ok((await activity("Pricing")).some((a) => a.kind === "notice" && /Junior is archived.*Chief/.test(a.body)));
-  assert.ok((await activity("Orphan")).some((a) => a.kind === "notice" && /Peer is archived.*you decide/.test(a.body)));
+  assert.equal(task("Outside").reviewer, e.Temp.id, "a manager who can't review here doesn't become the reviewer");
+  const notice = async (title) => (await activity(title)).find((a) => a.kind === "notice")?.body || "";
+  assert.match(await notice("Pricing"), /Junior is archived.*Chief/);
+  assert.match(await notice("Orphan"), /Peer is archived and has no active manager.*you decide: Approve, or Request changes/);
+  assert.match(await notice("Outside"), /Temp is archived.*Boss.*isn't in this project.*you decide: Approve, or Request changes/);
+  assert.match(await notice("Own work"), /Helper is archived.*Lead.*working on this task.*you decide: Approve, or Request changes/);
   await c.command("runtime.resume");
   await settled(c);
   assert.equal(task("Pricing").status, "done", "the manager's verdict counts");
-  assert.equal(runsOf(e.Junior).length + runsOf(e.Peer).length, 0);
+  assert.equal(runsOf(e.Boss).length, 0, "no review run outside the project");
+  assert.equal(runsOf(e.Junior).length + runsOf(e.Peer).length + runsOf(e.Temp).length + runsOf(e.Helper).length, 0);
 });
 
 test("6. the owner's Changes starts exactly one run for the lead", async (t) => {
@@ -323,6 +382,7 @@ test("7. a mention in work a routine started joins that work, and its 9th run is
   assert.equal(junior.root, root().id, "the mention joined the routine's work");
   assert.equal(junior.depth, 2);
   assert.equal(junior.conversation, studio.id);
+  assert.deepEqual(c.runOrigin(junior), { via: "system" }, "a routine's work, not the bot's");
   assert.equal(c.snapshot().runs.filter((r) => r.root === root().id).length, 8);
   assert.equal(runsOf(e.Lead).length, 1, "Junior's @Lead would be the 9th run");
   assert.ok(
@@ -360,6 +420,11 @@ test("7c. in the owner's own thread, each mention still starts fresh work", asyn
   assert.equal(mentioned.length, 5, "the bots passed it around past the depth limit");
   for (const run of mentioned) assert.deepEqual([run.root, run.depth], [run.id, 0]);
   assert.ok(!c.snapshot().messages.some((m) => m.kind === "notice" && /limit/.test(m.body)));
+  // Each of those runs is still the owner's work, typed at this computer.
+  for (const run of mentioned) {
+    assert.equal(c.startedByPeople(run), true);
+    assert.deepEqual(c.runOrigin(run), { via: "desktop" });
+  }
 });
 
 // Autopilot -------------------------------------------------------------------
@@ -394,6 +459,41 @@ test("8. autopilot starts a task that keeps bouncing back to Backlog at most 3 t
   mock.timers.tick(24 * 3600_000);
   await tick();
   assert.equal(await starts(), 4);
+});
+
+test("8c. a task that keeps bouncing day after day gets at most one note a day", async (t) => {
+  mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-09-29T09:00:00.000Z") });
+  t.after(() => mock.timers.reset());
+  let ref = "";
+  const { c, e, room, task, activity } = await team(t, (name) =>
+    name === "Lead" ? actions([{ type: "task.update", task: ref, status: "backlog" }], "Not ready yet.") : "ok",
+  );
+  clearInterval(c.timer);
+  const diagnostics = [];
+  c.on("diagnostic", (entry) => diagnostics.push(entry));
+  const project = await room("Launch", [e.Lead, e.Junior]);
+  await c.command("tasks.create", { conversation: project.id, title: "Bouncy", assignees: [e.Lead.id], reviewer: "" });
+  ref = task("Bouncy").id.slice(0, 8);
+  await c.command("conversations.setAutopilot", { conversation: project.id, enabled: true });
+  const tickAt = async (day, minute) => {
+    mock.timers.setTime(Date.parse(`2026-09-${day}T09:${String(minute).padStart(2, "0")}:00.000Z`));
+    c.lastAutopilot = 0;
+    c.autopilot();
+    await settled(c);
+  };
+  // Day one: starts ten minutes apart, then the cap and its note.
+  for (const minute of [0, 10, 20, 30]) await tickAt(29, minute);
+  // Day two, checked every minute: each time the oldest start is a day old,
+  // the task gets one more start.
+  for (let minute = 0; minute <= 40; minute++) await tickAt(30, minute);
+  const log = await activity("Bouncy");
+  const starts = log.filter((a) => a.kind === "started" && a.author === "system").map((a) => Date.parse(a.created));
+  const notes = log.filter((a) => a.kind === "notice" && /3 times in 24 hours/.test(a.body)).map((a) => Date.parse(a.created));
+  assert.equal(starts.length, 6);
+  for (const start of starts) assert.ok(starts.filter((s) => s >= start && s < start + 24 * 3600_000).length <= 3, "3 starts a day at most");
+  assert.equal(notes.length, 2, "one note each day");
+  assert.ok(notes[1] - notes[0] >= 24 * 3600_000, "a day apart");
+  assert.equal(diagnostics.filter((d) => d.code === "autopilot.bounce_capped").length, 2);
 });
 
 test("8b. a task that reached Review since its last starts isn't bouncing", async (t) => {
@@ -524,17 +624,21 @@ test("a Buzz mention is labelled as Buzz's", async (t) => {
 
 // The coordinator process ---------------------------------------------------------
 
-test("the coordinator process reports an uncaught error once, without paths, then exits", () => {
+test("the coordinator process reports an uncaught error once, without paths, stops starting work, then exits", () => {
   const target = new EventEmitter();
   const reported = [];
-  const exits = [];
-  installCrashHandlers(target, { report: (entry) => reported.push(entry), exit: (code) => exits.push(code) });
+  const order = [];
+  installCrashHandlers(target, {
+    report: (entry) => (reported.push(entry), order.push("report")),
+    stop: () => order.push("stop"),
+    exit: (code) => order.push(`exit ${code}`),
+  });
   const error = new Error("Cannot read properties of undefined (reading 'id') in C:\\Users\\someone\\data\\anybot.sqlite");
   error.stack = `${error.message}\n    at Coordinator.tick (file:///C:/Users/someone/AppData/Local/Programs/anybot/resources/app.asar/runtime/coordinator.mjs:220:14)`;
   target.emit("uncaughtException", error, "uncaughtException");
-  target.emit("unhandledRejection", new Error("second"));
+  target.emit("uncaughtException", new Error("second"), "uncaughtException");
   assert.equal(reported.length, 1, "reported once");
-  assert.deepEqual(exits, [1]);
+  assert.deepEqual(order, ["stop", "report", "exit 1"], "nothing new starts in the moment before the exit");
   const [entry] = reported;
   assert.equal(entry.code, "runtime.uncaught");
   assert.equal(entry.source, "runtime");
@@ -543,10 +647,104 @@ test("the coordinator process reports an uncaught error once, without paths, the
   assert.match(entry.detail, /coordinator\.mjs:220:14/, "code locations keep their file name");
   assert.doesNotMatch(`${entry.message}${entry.detail}`, /someone|AppData|anybot\.sqlite/);
   assert.equal(scrubPaths("open '/home/someone/notes.txt' failed"), "open '<path>' failed");
+  // A stop that fails still ends in the exit.
+  const other = new EventEmitter();
+  const exits = [];
+  installCrashHandlers(other, {
+    report: () => {},
+    stop: () => {
+      throw new Error("not constructed yet");
+    },
+    exit: (code) => exits.push(code),
+  });
+  other.emit("uncaughtException", new Error("boom"), "uncaughtException");
+  assert.deepEqual(exits, [1]);
+});
+
+test("a rejected promise nobody handled is logged at most once a minute, and the coordinator keeps running", () => {
+  const target = new EventEmitter();
+  let time = 1_000_000;
+  const reported = [];
+  const stopped = [];
+  const exits = [];
+  installCrashHandlers(target, {
+    report: (entry) => reported.push(entry),
+    stop: () => stopped.push(true),
+    exit: (code) => exits.push(code),
+    now: () => time,
+  });
+  const error = new Error("database is locked while saving C:\\Users\\someone\\data\\anybot.sqlite");
+  target.emit("unhandledRejection", error);
+  target.emit("unhandledRejection", new Error(error.message));
+  // Node run with --unhandled-rejections=strict raises it as an uncaught exception instead.
+  target.emit("uncaughtException", new Error(error.message), "unhandledRejection");
+  assert.deepEqual(exits, [], "it keeps running, as Electron's own default does");
+  assert.deepEqual(stopped, []);
+  assert.equal(reported.length, 1, "once a minute");
+  const [entry] = reported;
+  assert.equal(entry.code, "runtime.unhandled_rejection");
+  assert.equal(entry.source, "runtime");
+  assert.match(entry.message, /database is locked/);
+  assert.doesNotMatch(`${entry.message}${entry.detail}`, /someone|anybot\.sqlite/);
+  time += 61_000;
+  target.emit("unhandledRejection", error);
+  target.emit("unhandledRejection", "a reason that isn't an Error");
+  assert.equal(reported.length, 3);
+  assert.equal(reported[2].message, "a reason that isn't an Error");
+  // A real throw still stops it.
+  target.emit("uncaughtException", new Error("thrown"), "uncaughtException");
+  assert.deepEqual(exits, [1]);
+});
+
+test("a run whose clean-up fails is logged, frees its slot, and leaves no rejected promise", async (t) => {
+  const { c, e, room } = await team(t, () => "Done", { names: ["Solo"] });
+  const diagnostics = [];
+  c.on("diagnostic", (entry) => diagnostics.push(entry));
+  const unhandled = [];
+  const listener = (reason) => unhandled.push(reason);
+  process.on("unhandledRejection", listener);
+  t.after(() => process.off("unhandledRejection", listener));
+  const release = c.approvals.release.bind(c.approvals);
+  let broken = true;
+  c.approvals.release = (runId) => {
+    if (!broken) return release(runId);
+    broken = false;
+    throw new Error("release failed");
+  };
+  const chat = await room("Solo", [e.Solo]);
+  await c.command("messages.send", { conversation: chat.id, body: "First", requestId: "first" });
+  await until(() => diagnostics.some((d) => d.code === "runtime.tick_failed" && d.context.step === "run"), "the logged failure");
+  await c.command("messages.send", { conversation: chat.id, body: "Second", requestId: "second" });
+  await until(() => c.snapshot().runs.filter((r) => r.status === "succeeded").length === 2, "the next run");
+  await pause(20);
+  assert.deepEqual(unhandled, []);
+});
+
+test("paths with spaces in them are scrubbed whole", () => {
+  for (const [text, expected] of [
+    ["open 'C:\\Users\\Jane Doe\\OneDrive\\Home Admin\\bills 2026.pdf'", "open '<path>'"],
+    [
+      'ENOENT: no such file or directory, mkdir "C:\\Users\\Jane Doe\\AppData\\Roaming\\anybot-desktop\\data"',
+      'ENOENT: no such file or directory, mkdir "<path>"',
+    ],
+    ["read `/home/jane doe/notes/plan b.txt` failed", "read `<path>` failed"],
+    ["    at Store (C:\\Program Files\\Any Bot\\resources\\app.asar\\runtime\\store.mjs:12:3)", "    at Store (<path>/store.mjs:12:3)"],
+    ["    at C:\\Program Files\\Any Bot\\resources\\app.asar\\desktop\\main.cjs:40:7", "    at <path>/main.cjs:40:7"],
+    ["copy failed: C:\\Users\\Jane Doe\\Projects\\Big Client\\contract.pdf", "copy failed: <path>"],
+    // Ordinary text stays as it is.
+    ["The bot's reply was 'done' and/or 3/4 finished (exit 1)", "The bot's reply was 'done' and/or 3/4 finished (exit 1)"],
+  ])
+    assert.equal(scrubPaths(text), expected);
 });
 
 test("the new problems have plain-language titles", () => {
-  for (const code of ["runtime.tick_failed", "runtime.uncaught", "autopilot.bounce_capped", "routine.enqueue_failed"]) {
+  for (const code of [
+    "runtime.tick_failed",
+    "runtime.uncaught",
+    "runtime.unhandled_rejection",
+    "autopilot.bounce_capped",
+    "routine.enqueue_failed",
+  ]) {
     const { title, hint } = describeIssue({ code });
     assert.notEqual(title, code, code);
     assert.ok(hint.length > 20, code);

@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 
@@ -11,10 +11,14 @@ export const promptHash = (prompt) => createHash("sha256").update(prompt).digest
 
 // Before a workspace is upgraded to a new schema, a copy of it is written
 // next to it: anybot.backup-v<from>-to-v<to>-<YYYYMMDD-HHmmss>.sqlite. The
-// newest KEEP_BACKUPS are kept; files named any other way (a backup made by
-// hand) are never touched.
+// newest KEEP_BACKUPS are kept, and so is the first copy made for an upgrade
+// to this schema (the one with the lowest <from>, the oldest of those): each
+// migration step commits on its own, so an upgrade that fails part-way and
+// is retried backs up the partly upgraded workspace each time, and only that
+// first copy still opens in the version the owner updated from. Files named
+// any other way (a backup made by hand) are never touched.
 export const KEEP_BACKUPS = 3;
-const BACKUP = /^anybot\.backup-v\d+-to-v\d+-(\d{8}-\d{6})(?:-(\d+))?\.sqlite$/;
+const BACKUP = /^anybot\.backup-v(\d+)-to-v(\d+)-(\d{8}-\d{6})(?:-(\d+))?\.sqlite$/;
 // VACUUM INTO writes a consistent copy, pages still in the WAL included.
 const vacuumInto = (db, file) => db.prepare("VACUUM INTO ?").run(file);
 function backUp(db, directory, from, to, write) {
@@ -26,14 +30,32 @@ function backUp(db, directory, from, to, write) {
   for (let n = 1; existsSync(file); n++) file = join(directory, `${name}-${n}.sqlite`);
   write(db, file);
   try {
-    const backups = readdirSync(directory)
-      .map((entry) => ({ entry, match: BACKUP.exec(entry) }))
-      .filter((b) => b.match)
-      .sort((a, b) => a.match[1].localeCompare(b.match[1]) || Number(a.match[2] || 0) - Number(b.match[2] || 0));
-    for (const { entry } of backups.slice(0, -KEEP_BACKUPS)) rmSync(join(directory, entry), { force: true });
+    pruneBackups(directory, to);
   } catch {
     // An old backup that won't go away only costs disk space.
   }
+}
+function pruneBackups(directory, to) {
+  const backups = readdirSync(directory)
+    .map((entry) => {
+      const match = BACKUP.exec(entry);
+      if (!match) return null;
+      // Copies written in the same second are told apart by when they were
+      // written, then by their -<n> suffix.
+      let written = 0;
+      try {
+        written = statSync(join(directory, entry)).mtimeMs;
+      } catch {
+        // Gone already: it sorts first.
+      }
+      return { entry, from: Number(match[1]), to: Number(match[2]), stamp: match[3], written, n: Number(match[4] || 0) };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.stamp.localeCompare(b.stamp) || a.written - b.written || a.n - b.n);
+  const keep = new Set(backups.slice(-KEEP_BACKUPS));
+  const upgrade = backups.filter((b) => b.to === to).sort((a, b) => a.from - b.from)[0];
+  if (upgrade) keep.add(upgrade);
+  for (const backup of backups) if (!keep.has(backup)) rmSync(join(directory, backup.entry), { force: true });
 }
 
 export class Store {

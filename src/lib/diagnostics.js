@@ -180,7 +180,7 @@ export function describeIssue(issue) {
     "runtime.stderr": { title: "The coordinator printed an error", hint: "Details are below.", bug: true },
     "runtime.tick_failed": {
       title: "The coordinator's timer hit an error",
-      hint: "Any Bot logged it and kept going: queued work still starts, and the step below is tried again every half second. This is logged at most once a minute. If it keeps happening, copy the report; it's a bug in Any Bot.",
+      hint: "Any Bot logged it and kept going: queued work still starts. The message starts with the step that failed: routines, autopilot and dispatch are tried again every half second; run means a finished run couldn't be fully recorded, and its place in the queue was freed. This is logged at most once a minute. If it keeps happening, copy the report; it's a bug in Any Bot.",
       bug: true,
     },
     "runtime.uncaught": {
@@ -188,9 +188,14 @@ export function describeIssue(issue) {
       hint: "Any Bot restarts it automatically. If the message says the workspace couldn't be backed up before an upgrade, nothing was changed: free some disk space and restart Any Bot. Otherwise, if it keeps happening, copy the report; it's a bug in Any Bot.",
       bug: true,
     },
+    "runtime.unhandled_rejection": {
+      title: "The coordinator hit an error it didn't handle",
+      hint: "Something in Any Bot failed without anything waiting for the result. Any Bot logged it and kept running, and your bots' work goes on. This is logged at most once a minute. If it keeps happening, copy the report; it's a bug in Any Bot.",
+      bug: true,
+    },
     "routine.enqueue_failed": {
       title: "A routine couldn't start",
-      hint: "Its bot or project can't take work right now (usually one of them was archived, or the bot left the project). This time was skipped and the next one is scheduled as usual. Edit the routine to point it somewhere else, or pause it.",
+      hint: "Something about its bot or project stopped this run from queuing (for example, the data was changed outside Any Bot). This time was skipped and the next one is scheduled as usual. Edit the routine to point it somewhere else, or pause it.",
     },
     "command.failed": { title: "An action in the app failed unexpectedly", hint: "This is a bug in Any Bot.", bug: true },
     "renderer.crash": { title: "A screen crashed", hint: "Any Bot showed a recovery page. This is a bug.", bug: true },

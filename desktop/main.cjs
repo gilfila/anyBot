@@ -21,7 +21,14 @@ const { DISPLAY_NAME, BRAND_DIR, applyBrand, trayIcon } = require("./brand.cjs")
 applyBrand(app);
 const { pathToFileURL } = require("node:url");
 const { DiagnosticsLog, checkPendingUpdate, rememberPendingUpdate } = require("./diagnostics.cjs");
-const { createShutdown, createCrashTracker, createRestartBudget, isOfflineError } = require("./lifecycle.cjs");
+const {
+  createShutdown,
+  createCrashTracker,
+  createRestartBudget,
+  createStartupFailures,
+  stoppedDialog,
+  isOfflineError,
+} = require("./lifecycle.cjs");
 const { commandDirectory, killTree } = require("./shell-command.cjs");
 const fileAccess = require("./file-access.cjs");
 const { contextMenuItems, fileRequestBlocked, navigationTarget } = require("./window-shell.cjs");
@@ -39,6 +46,7 @@ let window,
   keepRunningInTray = true,
   userDataFallback = false;
 const restarts = createRestartBudget();
+const startupFailures = createStartupFailures();
 const rendererCrashes = createCrashTracker();
 // Terminal commands still running (Settings → context rail → Terminal), by id.
 const commands = new Map();
@@ -1267,6 +1275,9 @@ function startWorker() {
     { serviceName: "Any Bot coordinator", stdio: "pipe" },
   );
   worker = child;
+  // Why this child stopped before it was ready, if it said (runtime.uncaught).
+  let childReady = false,
+    startupReason = null;
   worker.stderr?.on("data", (chunk) => {
     const text = String(chunk);
     console.error(text);
@@ -1278,6 +1289,7 @@ function startWorker() {
   worker.on("message", (message) => {
     if (message.type === "ready") {
       ready = true;
+      childReady = true;
       restarts.ready();
       settleReadyWaiters();
       notifyRenderer();
@@ -1310,6 +1322,8 @@ function startWorker() {
       return;
     }
     if (message.type === "diagnostic") {
+      if (!childReady && startupReason === null && message.entry?.code === "runtime.uncaught")
+        startupReason = String(message.entry.message || "").slice(0, 600) || null;
       diagnostics?.record(message.entry);
       notifyRenderer();
       return;
@@ -1331,14 +1345,18 @@ function startWorker() {
     }
     pending.clear();
     if (quitting) return;
-    // Restarts are limited per burst of crashes (createRestartBudget).
-    const delay = restarts.exited();
+    // Restarts are limited per burst of crashes (createRestartBudget). One
+    // that couldn't start for the same reason as the start before it (a
+    // workspace that can't be backed up, say) isn't restarted again: the
+    // dialog says why at once (createStartupFailures).
+    const reason = childReady ? null : startupReason;
+    const delay = startupFailures.repeated(reason) ? null : restarts.exited();
     diagnostics?.record({
       level: "error",
       source: "runtime",
       code: "runtime.exited",
       message: `The coordinator stopped unexpectedly (exit ${code})`,
-      context: { exitCode: code, restarts: restarts.count },
+      context: { exitCode: code, restarts: restarts.count, started: childReady },
     });
     if (delay !== null) {
       restartTimer = setTimeout(startWorker, delay);
@@ -1350,8 +1368,7 @@ function startWorker() {
       .showMessageBox({
         type: "error",
         title: "Any Bot runtime stopped",
-        message: "The coordinator failed repeatedly.",
-        detail: "Restart Any Bot to try again. Your saved conversations are kept.",
+        ...stoppedDialog(reason),
         buttons: ["Restart Any Bot", "Not now"],
         defaultId: 0,
         cancelId: 1,

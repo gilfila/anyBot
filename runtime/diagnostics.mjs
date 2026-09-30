@@ -37,40 +37,77 @@ export function isUnexpected(error) {
 // becomes <path>/coordinator.mjs:220:14.
 // A drive path (C:\, C:/), a network path (\\server\), or a rooted one with
 // two or more parts (/home/…), each optionally as a file:// URL.
-const PATH = /(?:file:\/\/\/?)?(?:(?<!\w)[A-Za-z]:[\\/]|\\\\[^\\\s]+\\|(?<![\w:.])\/(?=[\w.~-]+\/))[^\s"'`()<>|]*/g;
+const START = String.raw`(?:file:\/\/\/?)?(?:(?<!\w)[A-Za-z]:[\\/]|\\\\[^\\\s]+\\|(?<![\w:.])\/(?=[\w.~-]+\/))`;
+// Folder names can hold spaces. A quoted path (as Node's errors quote them)
+// runs to its closing quote. An unquoted one takes each further
+// space-separated part that still holds a separator, so a stack frame under
+// "C:\Program Files\Any Bot\…" goes whole; only a last part with a space
+// and no separator ("…\file name.txt") can be left over.
+const QUOTED = new RegExp(String.raw`(['"\`])(${START}[^'"\`\r\n]*)\1`, "g");
+const PART = String.raw`[^\s"'\`()<>|]`;
+const PATH = new RegExp(String.raw`${START}${PART}*(?: ${PART}*[\\/]${PART}*)*`, "g");
+const scrubOne = (path) => {
+  const code = /[\\/]([\w.-]+\.(?:mjs|cjs|js|jsx))(:\d+(?::\d+)?)?$/.exec(path);
+  return code ? `<path>/${code[1]}${code[2] || ""}` : "<path>";
+};
 export function scrubPaths(text) {
-  return String(text ?? "").replace(PATH, (path) => {
-    const code = /[\\/]([\w.-]+\.(?:mjs|cjs|js|jsx))(:\d+(?::\d+)?)?$/.exec(path);
-    return code ? `<path>/${code[1]}${code[2] || ""}` : "<path>";
-  });
+  return String(text ?? "")
+    .replace(QUOTED, (_, quote, path) => `${quote}${scrubOne(path)}${quote}`)
+    .replace(PATH, scrubOne);
 }
 
-// The coordinator process's last word: an error nothing caught (a throw, or
-// a promise nobody awaited) is reported once, then the process exits so the
-// desktop restarts it (desktop/main.cjs). `origin` says which kind it was.
-export function crashEntry(error, origin) {
+// The coordinator process's last word: a throw nothing caught is reported
+// once, then the process exits so the desktop restarts it (desktop/main.cjs).
+export function crashEntry(error, origin, code = "runtime.uncaught") {
   const message = error instanceof Error ? error.message : String(error);
   return {
     level: "error",
     source: "runtime",
-    code: "runtime.uncaught",
+    code,
     message: scrubPaths(message).slice(0, 600),
     detail: error instanceof Error && error.stack ? scrubPaths(error.stack).slice(0, 4000) : undefined,
     context: { origin },
   };
 }
-export function installCrashHandlers(target, { report, exit }) {
+// A rejected promise nobody handled is reported (at most once a minute per
+// message) and the process keeps running, as Electron's utility process does
+// by default: before 0.3.37 it was only a warning on stderr, and exiting on
+// one would cut off every running bot. A throw nothing caught still exits,
+// after `stop()` has kept new work from starting in the meantime.
+const REJECTION_REPORT_MS = 60_000;
+export function installCrashHandlers(target, { report, exit, stop = () => {}, now = Date.now }) {
   let crashed = false;
-  const crash = (error, origin) => {
+  const crash = (error) => {
     if (crashed) return;
     crashed = true;
     try {
-      report(crashEntry(error, origin));
+      stop();
+    } catch {
+      // Stopping is best effort (the coordinator may not exist yet); exiting is not.
+    }
+    try {
+      report(crashEntry(error, "uncaughtException"));
     } catch {
       // Reporting is best effort; exiting is not.
     }
     exit(1);
   };
-  target.on("uncaughtException", (error, origin) => crash(error, origin === "unhandledRejection" ? "unhandledRejection" : "uncaughtException"));
-  target.on("unhandledRejection", (error) => crash(error, "unhandledRejection"));
+  const reported = new Map(); // message -> when it was last reported
+  const rejected = (error) => {
+    if (crashed) return;
+    const entry = crashEntry(error, "unhandledRejection", "runtime.unhandled_rejection");
+    const at = now();
+    if (at - (reported.get(entry.message) ?? -Infinity) < REJECTION_REPORT_MS) return;
+    if (reported.size > 100) reported.clear();
+    reported.set(entry.message, at);
+    try {
+      report(entry);
+    } catch {
+      // Best effort.
+    }
+  };
+  // With --unhandled-rejections=strict a rejection arrives as an uncaught
+  // exception whose origin says so; it is treated as a rejection all the same.
+  target.on("uncaughtException", (error, origin) => (origin === "unhandledRejection" ? rejected(error) : crash(error)));
+  target.on("unhandledRejection", (error) => rejected(error));
 }

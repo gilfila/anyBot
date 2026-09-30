@@ -1131,7 +1131,7 @@ export class Coordinator extends EventEmitter {
         task.id,
         "system",
         "notice",
-        `${name} is archived, so no one was restarted. Assign the task to someone else, then start it again.`,
+        `${name} is archived, so no one was restarted. Assign the task to someone else, then press Run again.`,
       );
       return name;
     }
@@ -1251,9 +1251,10 @@ export class Coordinator extends EventEmitter {
   // A task that keeps coming back to Backlog (its bot moves it back, or
   // decides it isn't ready) would otherwise be started again every few
   // seconds. Once autopilot has started it AUTOPILOT_BOUNCES times in 24
-  // hours with no move to Review or Done since, it is skipped: one note on
-  // the task and one diagnostic, then it waits until those starts are a day
-  // old. The owner can still start it.
+  // hours with no move to Review or Done since, it is skipped until the
+  // oldest of those starts is a day old. It gets one note (and one
+  // diagnostic) a day at most, however the starts spread out. The owner can
+  // still start it.
   autopilotBounced(task, conversation) {
     const dayAgo = new Date(Date.now() - 24 * 3600_000).toISOString();
     const progressed =
@@ -1269,10 +1270,11 @@ export class Coordinator extends EventEmitter {
     );
     if (starts.length < AUTOPILOT_BOUNCES) return false;
     const noted = this.store.one(
-      "SELECT id FROM task_activity WHERE task=? AND kind='notice' AND body=? AND created>=? LIMIT 1",
+      "SELECT id FROM task_activity WHERE task=? AND kind='notice' AND body=? AND created>=? AND created>? LIMIT 1",
       task.id,
       BOUNCE_NOTE,
-      starts.at(-1).created,
+      dayAgo,
+      progressed,
     );
     if (!noted) {
       this.board.activity(task.id, "system", "notice", BOUNCE_NOTE);
@@ -1359,20 +1361,26 @@ export class Coordinator extends EventEmitter {
   // A card entering Review with an employee reviewer queues a review run for
   // them (at most three rounds per task, then the owner decides). A reviewer
   // who has been archived hands the review to their manager, if that manager
-  // is active and isn't doing the work; otherwise the owner decides.
+  // is active, isn't doing the work, and may review here (a project member,
+  // or above the lead, as for any reviewer); otherwise the owner decides.
   onTaskMoved(task, from, to) {
     if (to !== "review" || !task.reviewer) return;
     let reviewer = this.store.one("SELECT id,name,archived,manager FROM employees WHERE id=?", task.reviewer);
     if (!reviewer) return;
     if (reviewer.archived) {
       const manager = reviewer.manager && this.store.one("SELECT id,name,archived FROM employees WHERE id=?", reviewer.manager);
-      if (!manager || manager.archived || task.assignees.includes(manager.id)) {
-        this.board.activity(
-          task.id,
-          "system",
-          "notice",
-          `${reviewer.name} is archived and has no active manager to review this instead, so you decide: approve it or send it back.`,
-        );
+      let why = "";
+      if (!manager || manager.archived) why = `${reviewer.name} is archived and has no active manager to review this instead`;
+      else if (task.assignees.includes(manager.id))
+        why = `${reviewer.name} is archived, and their manager, ${manager.name}, is working on this task`;
+      else
+        try {
+          this.board.validReviewer(task.conversation, manager.id, task.assignees);
+        } catch {
+          why = `${reviewer.name} is archived, and their manager, ${manager.name}, isn't in this project or above its lead`;
+        }
+      if (why) {
+        this.board.activity(task.id, "system", "notice", `${why}, so you decide: Approve, or Request changes.`);
         return;
       }
       this.store.run("UPDATE tasks SET reviewer=?,updated=?,revision=revision+1 WHERE id=?", manager.id, now(), task.id);
@@ -1543,11 +1551,27 @@ export class Coordinator extends EventEmitter {
     const label = this.store.one("SELECT value FROM metadata WHERE key=?", originKey(messageId))?.value;
     return label === undefined ? { via: "desktop" } : parseOrigin(label);
   }
-  // A piece of work began with its root run's message; everything handed on
-  // from it (hand-offs, returns, joined mentions) shares that origin.
+  // A piece of work began with the message workMessage() finds; everything
+  // handed on from it (hand-offs, returns, mentions) shares that origin.
   runOrigin(run) {
-    const root = this.store.one("SELECT message FROM runs WHERE id=?", run.root || run.id);
-    return this.messageOrigin(root?.message ?? run.message);
+    return this.messageOrigin(this.workMessage(run)?.id ?? run.message);
+  }
+  // The message that began this run's work: its root run's message. A
+  // mention in work people started begins a root of its own whose message
+  // is the bot reply that mentioned it (activateMentions), so such a reply is
+  // followed back to the run that posted it, and on to that run's root.
+  workMessage(run) {
+    let current = run;
+    let message = null;
+    for (let hop = 0; current && hop < 50; hop++) {
+      message = this.store.one(
+        "SELECT m.id,m.author,m.kind FROM runs r JOIN messages m ON m.id=r.message WHERE r.id=?",
+        current.root || current.id,
+      );
+      if (!message || message.kind !== "assistant") return message;
+      current = this.store.one("SELECT r.id,r.root FROM run_responses rr JOIN runs r ON r.id=rr.run WHERE rr.message=?", message.id);
+    }
+    return message;
   }
   // The owner's attachments on the message that started this run, copied
   // into the bot's inbox. Anything that couldn't be delivered is noted in
@@ -2037,7 +2061,13 @@ export class Coordinator extends EventEmitter {
         run.id,
       );
       started = true;
-      state.promise = this.execute(run, employee, controller);
+      // execute() settles the run itself; this catches its own clean-up
+      // failing (a SQLite error while recording the result, say), which
+      // would otherwise be a rejected promise nobody handles.
+      state.promise = this.execute(run, employee, controller).catch((error) => {
+        this.active.delete(run.id);
+        this.tickFailed("run", error);
+      });
     }
     if (started || dropped.changes || archived) this.notify();
   }
@@ -2404,9 +2434,9 @@ export class Coordinator extends EventEmitter {
     }
     this.activeEmployee(request.employeeId);
     if (
-      run.depth >= 3 ||
+      run.depth >= ROOT_DEPTH ||
       this.store.one("SELECT count(*) AS n FROM runs WHERE root=?", run.root)
-        .n >= 8
+        .n >= ROOT_RUNS
     )
       throw new Error("Root task reached its delegation limit");
     // Delegated work runs in the delegate's project room, as a new thread,
@@ -2522,30 +2552,18 @@ export class Coordinator extends EventEmitter {
       hops += 1;
     }
   }
-  // Whether a person started this run's work: its root run answers a message
-  // people wrote (here or through a bridge). A mention in such work starts a
-  // root of its own whose message is the reply that mentioned it, so that
-  // reply's run is followed back to its own root.
+  // Whether a person started this run's work: the message that began it
+  // (workMessage, the same walk runOrigin uses) was written by people, here
+  // or through a bridge.
   startedByPeople(run) {
-    let current = run;
-    for (let hop = 0; current && hop < 50; hop++) {
-      const root = this.store.one(
-        "SELECT m.id,m.author,m.kind FROM runs r JOIN messages m ON m.id=r.message WHERE r.id=?",
-        current.root || current.id,
-      );
-      if (!root) return false;
-      if (root.author === "human") return true;
-      if (root.kind !== "assistant") return false;
-      current = this.store.one("SELECT r.id,r.root FROM run_responses rr JOIN runs r ON r.id=rr.run WHERE rr.message=?", root.id);
-    }
-    return false;
+    return this.workMessage(run)?.author === "human";
   }
   returnToParent(run, result) {
     const parent = this.store.one("SELECT * FROM runs WHERE id=?", run.parent);
     if (!parent || parent.status !== "succeeded") return;
     if (
       this.store.one("SELECT count(*) AS n FROM runs WHERE root=?", run.root)
-        .n >= 8
+        .n >= ROOT_RUNS
     ) {
       this.addMessage(
         run.conversation,
@@ -2644,7 +2662,7 @@ export class Coordinator extends EventEmitter {
       !(task && (task.reviewer === run.employee || JSON.parse(task.assignees || "[]").includes(run.employee)))
     )
       throw new Error("That bot isn't in this conversation any more");
-    if (run.parent && this.store.one("SELECT count(*) AS n FROM runs WHERE root=?", run.root).n >= 8)
+    if (run.parent && this.store.one("SELECT count(*) AS n FROM runs WHERE root=?", run.root).n >= ROOT_RUNS)
       throw new Error("Root task reached its delegation limit");
     return this.store.transaction(() => {
       const retry = this.addRun(

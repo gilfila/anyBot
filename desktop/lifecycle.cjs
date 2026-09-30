@@ -91,6 +91,33 @@ function createRestartBudget({ limit = 3, stableMs = 10 * 60_000, now = Date.now
   };
 }
 
+// A coordinator that exits before it's ready says why first (its
+// runtime.uncaught message, already without paths). That reason is usually
+// the same on every start: a workspace that can't be backed up before an
+// upgrade, or one from a newer version. The same reason from two starts in a
+// row stops the restarts, and stoppedDialog shows it.
+function createStartupFailures() {
+  let previous = null;
+  return {
+    // `reason`: what a coordinator that never got ready said, or null (one
+    // that was running, or said nothing). True when the start before it
+    // failed the same way.
+    repeated(reason) {
+      const same = reason !== null && reason === previous;
+      previous = reason;
+      return same;
+    },
+  };
+}
+
+// What main's dialog says when the coordinator won't stay up.
+function stoppedDialog(reason) {
+  const details = "Details are in Settings → Diagnostics. Your saved conversations are kept.";
+  return reason
+    ? { message: "Any Bot couldn't start the part that runs your bots.", detail: `${reason}\n\n${details}` }
+    : { message: "The coordinator failed repeatedly.", detail: `Restart Any Bot to try again. ${details}` };
+}
+
 // An update check that failed because this computer is offline (or the
 // network isn't up yet after login or sleep), not because of the update.
 const OFFLINE =
@@ -99,4 +126,11 @@ function isOfflineError(error) {
   return OFFLINE.test(`${error?.code || ""} ${error?.message || ""}`);
 }
 
-module.exports = { createShutdown, createCrashTracker, createRestartBudget, isOfflineError };
+module.exports = {
+  createShutdown,
+  createCrashTracker,
+  createRestartBudget,
+  createStartupFailures,
+  stoppedDialog,
+  isOfflineError,
+};

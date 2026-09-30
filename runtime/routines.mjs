@@ -236,9 +236,10 @@ export class Routines {
             else this.enqueue(routine, routine.nextRun);
           });
         } catch (error) {
-          // One routine that can't queue (its bot or project was archived
-          // under it) is recorded as failed; the others still run, and it
-          // waits for its next time instead of failing every tick.
+          // One routine that can't queue (its bot or project changed under
+          // it outside the app's own checks) is recorded as failed; the
+          // others still run, and it waits for its next time instead of
+          // failing every tick.
           this.record(routine, routine.nextRun, "failed", null);
           failed.push({ routine, error });
         }
