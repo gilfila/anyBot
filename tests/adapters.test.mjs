@@ -101,8 +101,12 @@ test("built-in structured parsers expose text, final, and error semantics", () =
   assert.deepEqual(extractEvent("codex", { type: "turn.failed", error: {} }, codexRun), { error: retry });
   assert.deepEqual(extractEvent("codex", { type: "turn.failed", error: { message: "stream closed" } }, codexRun), { error: "stream closed" });
   const credits = "You've hit your usage limit. Upgrade to Pro or try again later.";
-  assert.deepEqual(extractEvent("codex", { type: "error", message: credits }, {}), { error: credits });
-  assert.deepEqual(extractEvent("codex", { type: "error", message: "unexpected status 401 Unauthorized" }, {}), { error: "unexpected status 401 Unauthorized" });
+  // These two also carry a structured code for the provider breaker (0.3.38).
+  assert.deepEqual(extractEvent("codex", { type: "error", message: credits }, {}), { error: credits, failure: { code: "usage_limit" } });
+  assert.deepEqual(extractEvent("codex", { type: "error", message: "unexpected status 401 Unauthorized" }, {}), {
+    error: "unexpected status 401 Unauthorized",
+    failure: { code: "auth" },
+  });
   // Antigravity: text deltas stream, the result's response is the reply, and a
   // non-SUCCESS status is the error (shapes captured from agy 1.2.10).
   assert.deepEqual(

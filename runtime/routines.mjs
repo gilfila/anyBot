@@ -200,6 +200,7 @@ export class Routines {
       run: root,
       manual,
     });
+    return root;
   }
   runNow(payload) {
     const routine = this.store.one(
@@ -213,7 +214,9 @@ export class Routines {
           "SELECT max(scheduled) AS value FROM routine_occurrences WHERE routine=?",
           routine.id,
         )?.value || 0;
-      this.enqueue(routine, Math.max(this.clock(), last + 1), true);
+      // The owner pressed Run now: the owner's own work (runtime/budget.mjs),
+      // which runs even while the team is stopped.
+      this.c.markOwnerRun(this.enqueue(routine, Math.max(this.clock(), last + 1), true));
     });
   }
   tick() {
@@ -224,6 +227,9 @@ export class Routines {
       current,
     );
     if (!due.length) return;
+    // A stopped or paused team (the kill switch) skips routines; they run
+    // again at their next time after it resumes.
+    const held = this.c.teamHalted();
     const failed = [];
     this.store.transaction(() => {
       for (const routine of due) {
@@ -231,7 +237,8 @@ export class Routines {
         // in a burst. A due tick admits one finite work item at most.
         try {
           this.store.savepoint(() => {
-            if (current - routine.nextRun > 60000)
+            if (held) this.record(routine, routine.nextRun, "skipped-stopped", null);
+            else if (current - routine.nextRun > 60000)
               this.record(routine, routine.nextRun, "missed", null);
             else this.enqueue(routine, routine.nextRun);
           });

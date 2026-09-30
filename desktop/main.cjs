@@ -32,6 +32,7 @@ const {
 const { commandDirectory, killTree } = require("./shell-command.cjs");
 const fileAccess = require("./file-access.cjs");
 const { contextMenuItems, fileRequestBlocked, navigationTarget } = require("./window-shell.cjs");
+const { teamTrayItems, teamTrayTooltip, traySignature } = require("./team-tray.cjs");
 let diagnostics = null;
 let fileLinks = null;
 let window,
@@ -760,6 +761,13 @@ const methods = new Set([
   "runtime.pause",
   "runtime.resume",
   "runtime.stopAll",
+  "runs.interrupt",
+  "team.get",
+  "team.set",
+  "team.pause",
+  "team.stop",
+  "team.resume",
+  "breaker.reset",
 ]);
 
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -1137,23 +1145,8 @@ else {
     });
     startUpdateChecker();
     tray = new Tray(trayIcon(nativeImage));
-    tray.setToolTip("Any Bot — your team is available");
-    tray.setContextMenu(
-      Menu.buildFromTemplate([
-        // showWindow's argument is the renderer sandbox flag, not the menu item.
-        { label: "Open Any Bot", click: () => showWindow() },
-        {
-          label: "Pause new work",
-          click: () => request("runtime.pause").catch(() => {}),
-        },
-        {
-          label: "Resume work",
-          click: () => request("runtime.resume").catch(() => {}),
-        },
-        { type: "separator" },
-        { label: "Quit and stop active work", click: () => app.quit() },
-      ]),
-    );
+    buildTrayMenu();
+    refreshTray();
     tray.on("double-click", () => showWindow());
   });
 }
@@ -1227,6 +1220,53 @@ async function fileTarget(payload, action) {
   }
   throw new Error(problem.message);
 }
+// The tray menu: Open, the Team's switch, one-hour pause and kill switch
+// (desktop/team-tray.cjs), the runtime pause, and Quit. Rebuilt when the
+// Team's status changes (refreshTray, after the coordinator's changes).
+let trayTeam = null;
+let trayRefresh = null;
+function buildTrayMenu() {
+  if (!tray) return;
+  const team = (method, payload) =>
+    request(method, payload)
+      .then(() => refreshTray())
+      .catch(() => {});
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      // showWindow's argument is the renderer sandbox flag, not the menu item.
+      { label: "Open Any Bot", click: () => showWindow() },
+      { type: "separator" },
+      ...teamTrayItems(trayTeam, team),
+      { type: "separator" },
+      {
+        label: "Pause new work",
+        click: () => request("runtime.pause").catch(() => {}),
+      },
+      {
+        label: "Resume work",
+        click: () => request("runtime.resume").catch(() => {}),
+      },
+      { type: "separator" },
+      { label: "Quit and stop active work", click: () => app.quit() },
+    ]),
+  );
+  tray.setToolTip(teamTrayTooltip(trayTeam));
+}
+function refreshTray() {
+  if (!tray || !ready) return;
+  clearTimeout(trayRefresh);
+  trayRefresh = setTimeout(async () => {
+    try {
+      const team = await request("team.get");
+      if (traySignature(team) === traySignature(trayTeam)) return;
+      trayTeam = team;
+      buildTrayMenu();
+    } catch {
+      // The tray catches up on the next change.
+    }
+  }, 400);
+  trayRefresh.unref?.();
+}
 function request(method, payload) {
   return new Promise((resolve, reject) => {
     if (!ready || !worker) {
@@ -1297,12 +1337,14 @@ function startWorker() {
       // A restarted coordinator forgets the hold an idle install asked for.
       if (installWhenIdle) request("runtime.hold", { hold: true }).catch(() => {});
       checkIdleInstall();
+      refreshTray();
       return;
     }
     if (message.type === "changed") {
       notifyRenderer();
       slackBridge?.refresh();
       checkIdleInstall();
+      refreshTray();
       return;
     }
     if (message.type === "attention") {

@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.38] - 2026-09-30
+
+This update adds the brakes for an always-on team: a Team switch, a stop switch, daily limits and a usage-limit brake. **Team is off**, so almost nothing changes until you turn it on in **Settings → Team**. The few things that apply either way are listed under "With Team off, too".
+
+### Added
+- **Settings → Team.** A switch for the always-on team, plus:
+  - **Pause 1 hour**, **Pause until 07:00** and **Stop the team**.
+  - How many bots work at once (1 to 12, 8 as before), and how many of those slots are kept for your own messages (2).
+  - Daily limits for work nobody at the desk started (routines, Autopilot, hand-offs, and messages from Slack, Buzz or your phone): 40 runs a day for the team, 40 per project and 12 per bot, plus an optional token limit. Past a limit, that work waits in the queue until midnight; nothing is dropped. You get an alert at 80% and at 100% of the team's and each project's runs.
+  - Harnesses waiting on a usage limit, with **Try now**.
+  - A note that your Claude and ChatGPT plans are the real ceiling: bots use the same plans as your own Claude Code and Codex, so keep the limits low until you've seen what a day costs.
+- **With Team on:**
+  - Your own messages go first, and 2 slots are kept for them.
+  - Bots that act without asking (their permission mode) only take work you send them from this computer, unless you tick them in Settings → Team.
+  - Codex bots only take work you send them from this computer. Their MCP servers (such as node_repl) run outside Codex's sandbox, and Any Bot can't yet switch those off for work nobody is watching.
+- **The tray** has **Team on**, **Pause team 1 hour** and **Stop the team** (or **Resume the team**), and its tooltip shows how many bots are working.
+- **The sidebar** shows the team's state and today's runs when Team is on, paused or stopped, with **Pause** or **Resume**.
+- **A queued message says why it's waiting**, for example "Nova is on a routine (started 12m ago)". When your message waits for work nobody at the desk started, **Interrupt** stops that work so yours goes first; the interrupted work is queued again and starts over afterwards.
+
+### With Team off, too
+- **A brake for usage limits.** When a harness refuses two runs within 10 minutes because of a usage limit or a sign-in problem, work nobody at the desk started on that harness waits instead of failing again and again: 15 minutes at first, then 30, 60 and 120, or until the reset time the provider gave. Then one run tries; if it works, the rest go on. Your own messages still try. You get one notification, the chat shows a banner with **Try now**, and other harnesses keep working. Only the CLI's own error codes count, never words in a failure message (a failed run whose text mentions "billing" or "429" doesn't trip it).
+- **While that brake is on,** a hand-off that hits the limit doesn't start the bot that handed it off just to say so; a note in its chat says what happened, and **Run again** on the hand-off sends the result back later.
+- **Stop the team works whether Team is on or off.** Nothing starts on its own: routines are skipped, Autopilot turns off in every project, queued work nobody at the desk started is cancelled, and running work can't hand anything on (no hand-offs, @mentions or returned results). Your own messages, **Run again** and a routine's **Run now** still go through; messages from Slack, Buzz or your phone wait until you resume. **Resume the team** turns Autopilot back on where it was on. Turning Team off does the same as Stop the team, and **Pause** holds the same work for an hour (or until 07:00) without cancelling it.
+- The Settings card that cancels everything and pauses new work is now called **Stop everything** (it used to say "Stop the team").
+
 ## [0.3.37] - 2026-09-29
 
 This update makes Any Bot sturdier before bots get more room to work on their own. It applies to everyone; there's nothing to turn on.

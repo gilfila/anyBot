@@ -436,14 +436,24 @@ export function childEnvironment(env = process.env, platform = process.platform)
   );
 }
 
+// MCP tool or server names as Claude Code's permission rules take them
+// (mcp__server__tool, or mcp__server for all of a server's tools).
+const MCP_NAME = /^mcp__[A-Za-z0-9_.-]{1,200}$/;
+// A Codex MCP server name that can go into `-c mcp_servers.<name>.…` as is.
+const CODEX_SERVER = /^[A-Za-z0-9_-]{1,100}$/;
+
 // `inputs` carries a message's attachments in the forms a CLI takes
 // natively (runtime/attachments.mjs): folders to allow, images to attach.
-// Every harness also gets them listed in the prompt.
+// Every harness also gets them listed in the prompt. For a run no one is
+// watching (Team on), `disallowedTools` blocks outward MCP tools in Claude
+// Code, and `mcpOff` switches off Codex's MCP servers by name.
 export function invocation(harness, model = "", permissionMode = "auto", approvals = undefined, inputs = {}) {
   if (model) return [...invocation(harness, "", permissionMode, approvals, inputs), "--model", model];
   const addDirs = inputs.addDirs || [];
   const images = inputs.images || [];
   const effort = inputs.effort || "";
+  const disallowed = [...new Set((inputs.disallowedTools || []).filter((name) => typeof name === "string" && MCP_NAME.test(name)))];
+  const mcpOff = [...new Set((inputs.mcpOff || []).filter((name) => typeof name === "string" && CODEX_SERVER.test(name)))];
   switch (harness) {
     case "claude": {
       // anyBot modes → Claude Code permission modes:
@@ -467,6 +477,7 @@ export function invocation(harness, model = "", permissionMode = "auto", approva
           approvals.configPath,
         );
       if (effort) args.push("--effort", effort);
+      if (disallowed.length) args.push("--disallowedTools", ...disallowed);
       // Claude Code reads images by path; folders need --add-dir.
       for (const dir of addDirs) args.push("--add-dir", dir);
       return args;
@@ -487,6 +498,8 @@ export function invocation(harness, model = "", permissionMode = "auto", approva
         ...addDirs.flatMap((dir) => ["--add-dir", dir]),
         ...(effort ? ["-c", `model_reasoning_effort="${effort}"`] : []),
         ...(permissionMode === "dontAsk" ? ["-c", "sandbox_workspace_write.network_access=true"] : []),
+        // MCP servers run outside the sandbox, so unattended runs switch them off.
+        ...mcpOff.flatMap((name) => ["-c", `mcp_servers.${name}.enabled=false`]),
         "--sandbox",
         permissionMode === "ask" ? "read-only" : "workspace-write",
         "-",
@@ -546,20 +559,89 @@ function antigravityDenied(actions) {
 const CODEX_FATAL =
   /usage (limit|credits)|out of credits|quota|insufficient (credits|balance|funds)|billing|not logged in|log ?in again|unauthori[sz]ed|\b401\b|invalid api key|authenticat|unknown model|invalid model|model\b.{0,60}\b(not found|not available|not supported|does not exist)/i;
 
+// A failed run's `failure` ({code: "usage_limit" | "auth", resetAt?}) says the
+// provider refused it: a usage limit or a sign-in problem. The provider
+// circuit breaker (runtime/budget.mjs) opens only on these. They come only
+// from a CLI's own structured error fields, or the exact messages the CLI
+// itself prints for them at the start of its error result, never from words
+// anywhere in the text (a failure can quote a task that mentions "billing" or
+// "429"). classifyRunError (runtime/diagnostics.mjs) still labels the rest
+// for the diagnostics log.
+// Claude Code: the result's (or its API-error message's) HTTP status, the
+// API-error message's `error` and `api_error` kinds, and a rate_limit_event
+// whose status is "rejected". An expired sign-in (seen live on 2026-09-30)
+// arrives as `error: "authentication_failed"` with no status.
+const CLAUDE_AUTH_ERRORS = new Set(["authentication_failed", "oauth_org_not_allowed", "account_on_hold", "verification_required", "cloud_credential_error"]);
+const CLAUDE_LIMIT_ERRORS = new Set(["rate_limit", "billing_error"]);
+const CLAUDE_AUTH_KINDS = new Set([
+  "provider_credentials",
+  "gateway_signin_required",
+  "gateway_session_expired",
+  "api_key_auth_disabled",
+  "org_disabled_credential",
+  "invalid_credential_header",
+]);
+const CLAUDE_CREDIT_KINDS = new Set(["model_requires_usage_credits", "long_context_credits_required"]);
+const CLAUDE_AUTH_TEXT = /^(Not logged in|Invalid API key|Authentication required|Failed to authenticate|OAuth token (?:has )?(?:expired|revoked))\b/;
+const CLAUDE_LIMIT_TEXT = /^(Claude AI usage limit reached|You[’']ve hit your (?:usage )?limit|Credit balance is too low)\b/;
+function claudeFailure(value, state) {
+  const status = Number.isInteger(value.api_error_status) ? value.api_error_status : state.apiError?.status;
+  let code = null;
+  if (status === 429) code = "usage_limit";
+  else if (status === 401 || status === 403) code = "auth";
+  else if (CLAUDE_AUTH_ERRORS.has(state.apiError?.error)) code = "auth";
+  else if (CLAUDE_LIMIT_ERRORS.has(state.apiError?.error)) code = "usage_limit";
+  else if (CLAUDE_AUTH_KINDS.has(state.apiError?.kind)) code = "auth";
+  else if (CLAUDE_CREDIT_KINDS.has(state.apiError?.kind)) code = "usage_limit";
+  else if (value.subtype === "success" && typeof value.result === "string")
+    code = CLAUDE_AUTH_TEXT.test(value.result) ? "auth" : CLAUDE_LIMIT_TEXT.test(value.result) ? "usage_limit" : null;
+  if (!code && state.rateLimit) code = "usage_limit";
+  if (!code) return null;
+  const resetAt = code === "usage_limit" ? state.rateLimit?.resetAt : undefined;
+  return resetAt ? { code, resetAt } : { code };
+}
+// Codex: the error events' own messages for these (its CLI text, not the
+// model's), or a typed codex_error_info when a version sends one.
+const CODEX_LIMIT_TEXT = /^(You[’']ve hit your usage limit|exceeded retry limit, last status: 429\b)/;
+const CODEX_AUTH_TEXT = /^(Your access token could not be refreshed|unexpected status 401\b)/;
+function codexFailure(message, info) {
+  const typed = typeof info === "string" ? info : info && typeof info === "object" ? Object.keys(info)[0] : "";
+  if (typed === "usage_limit_exceeded") return { code: "usage_limit" };
+  if (typed === "unauthorized") return { code: "auth" };
+  if (CODEX_LIMIT_TEXT.test(message)) return { code: "usage_limit" };
+  if (CODEX_AUTH_TEXT.test(message)) return { code: "auth" };
+  return null;
+}
+const withFailure = (event, failure) => (failure ? { ...event, failure } : event);
+
 // `state` carries what a harness's earlier events said (Codex: whether it
-// has started a message, its last error). One object per run.
+// has started a message, its last error; Claude: its last API error and rate
+// limit). One object per run.
 export function extractEvent(harness, value, state = {}) {
   if (harness === "claude") {
-    if (value.type === "assistant")
+    if (value.type === "rate_limit_event") {
+      const info = value.rate_limit_info || {};
+      state.rateLimit =
+        info.status === "rejected" ? { resetAt: Number.isInteger(info.resetsAt) && info.resetsAt > 0 ? info.resetsAt * 1000 : undefined } : null;
+      return {};
+    }
+    if (value.type === "assistant") {
+      if (value.is_api_error_message)
+        state.apiError = {
+          status: Number.isInteger(value.api_error_status) ? value.api_error_status : undefined,
+          error: typeof value.error === "string" ? value.error : undefined,
+          kind: typeof value.api_error === "string" ? value.api_error : undefined,
+        };
       return {
         text: (value.message?.content || [])
           .filter((c) => c.type === "text")
           .map((c) => c.text)
           .join("\n"),
       };
+    }
     if (value.type === "result")
       return value.is_error
-        ? { error: value.result || value.errors?.join("\n") || "Claude failed" }
+        ? withFailure({ error: value.result || value.errors?.join("\n") || "Claude failed" }, claudeFailure(value, state))
         : { final: value.result || "" };
   }
   if (harness === "codex") {
@@ -590,10 +672,12 @@ export function extractEvent(harness, value, state = {}) {
     if (value.type === "error") {
       const message = String(value.message || "Codex reported an error");
       state.lastError = message;
-      return CODEX_FATAL.test(message) ? { error: message } : { warning: message };
+      return CODEX_FATAL.test(message) ? withFailure({ error: message }, codexFailure(message, value.codex_error_info)) : { warning: message };
     }
-    if (value.type === "turn.failed")
-      return { error: value.error?.message || state.lastError || "Codex failed" };
+    if (value.type === "turn.failed") {
+      const message = String(value.error?.message || state.lastError || "Codex failed");
+      return withFailure({ error: message }, codexFailure(message, value.error?.codex_error_info ?? value.codex_error_info));
+    }
   }
   if (harness === "antigravity") {
     const step = value.step_update;
@@ -839,10 +923,36 @@ export function lineSplitter(max, onLine, onOversized = () => {}) {
   };
 }
 
+// The MCP servers ~/.codex/config.toml (or $CODEX_HOME's) configures, by
+// name: `names` can be switched off with `-c mcp_servers.<name>.enabled=false`,
+// `skipped` can't (a quoted name with other characters). Only
+// [mcp_servers.<name>] tables are read; a missing file has none. Codex
+// plugins (for example a mail plugin) are not MCP servers and aren't listed.
+export async function codexMcpServerNames(env = process.env) {
+  const home = env.CODEX_HOME || join(env.USERPROFILE || env.HOME || "", ".codex");
+  let text = "";
+  try {
+    text = await readFile(join(home, "config.toml"), "utf8");
+  } catch {
+    return { names: [], skipped: [] };
+  }
+  const names = new Set();
+  const skipped = new Set();
+  for (const line of text.split(/\r?\n/)) {
+    const match = /^\s*\[\s*mcp_servers\s*\.\s*(?:"([^"]*)"|'([^']*)'|([A-Za-z0-9_-]+))\s*\]\s*(?:#.*)?$/.exec(line);
+    if (!match) continue;
+    const name = match[1] ?? match[2] ?? match[3];
+    (CODEX_SERVER.test(name) ? names : skipped).add(name);
+  }
+  return { names: [...names], skipped: [...skipped] };
+}
+
 // `waitedMs()` is how long the run has spent waiting on the owner (pending
-// approvals); that time doesn't count against `timeoutMs`.
+// approvals); that time doesn't count against `timeoutMs`. For a run no one
+// is watching (Team on), `disallowedTools` are blocked in Claude Code and
+// `codexMcpOff` switches off Codex's configured MCP servers.
 export async function runHarness(
-  { harness, model, workspace, prompt, signal, onText, onTerminal, onUsage, timeoutMs = 600000, permissionMode = "auto", approvals, addDirs, images, effort, waitedMs },
+  { harness, model, workspace, prompt, signal, onText, onTerminal, onUsage, timeoutMs = 600000, permissionMode = "auto", approvals, addDirs, images, effort, waitedMs, disallowedTools, codexMcpOff = false },
   { resolve = resolveExecutable, args, outputFormat, pipeGraceMs = 2000, limits = {} } = {},
 ) {
   const limit = { ...OUTPUT_LIMITS, ...limits };
@@ -856,7 +966,8 @@ export async function runHarness(
       `${harness} is not installed or its launcher is unsupported. Open Harnesses for setup instructions.`,
     );
   if (signal.aborted) throw new Error("Run cancelled");
-  const argv = [...executable.prefix, ...(args ?? invocation(harness, model, permissionMode, approvals, { addDirs, images, effort }))];
+  const mcpOff = harness === "codex" && codexMcpOff && !args ? (await codexMcpServerNames()).names : [];
+  const argv = [...executable.prefix, ...(args ?? invocation(harness, model, permissionMode, approvals, { addDirs, images, effort, disallowedTools, mcpOff }))];
   const quote = (part) => (/[\s"]/.test(part) ? `"${String(part).replace(/"/g, '\\"')}"` : part);
   term(`$ ${[executable.file, ...argv].map(quote).join(" ")}  < prompt (${prompt.length.toLocaleString("en-US")} chars)\n`);
   const child = spawn(
@@ -874,6 +985,7 @@ export async function runHarness(
   let output = "",
     diagnostics = "",
     parseError = "",
+    failure = null,
     bytes = 0,
     final;
   const decoder = new StringDecoder("utf8");
@@ -909,6 +1021,7 @@ export async function runHarness(
         final = event.final.length > limit.reply ? `${event.final.slice(0, limit.reply)}${cut}` : event.final;
       if (event.error) {
         parseError = event.error;
+        failure = event.failure || null;
         abort();
       }
     } catch {
@@ -998,7 +1111,8 @@ export async function runHarness(
     if (signal.aborted) throw new Error("Run cancelled");
     if (timedOut)
       throw new Error(`Run exceeded its configured ${Math.round(timeoutMs / 60000)}-minute time limit`);
-    if (parseError) throw new Error(redact(parseError));
+    // The provider's structured refusal, when the CLI gave one, rides along.
+    if (parseError) throw Object.assign(new Error(redact(parseError)), failure ? { failure } : {});
     // Codex's last reported error explains an exit better than its stderr.
     if (code !== 0)
       throw new Error(

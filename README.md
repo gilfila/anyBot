@@ -156,6 +156,18 @@ The **Knowledge graph** connects your bots, projects, tasks, and files. Bots add
 - If a routine can't start, that run is marked failed and the next one is scheduled as usual; other routines aren't held up.
 - Edit a routine (what it asks, who does it, how often, in minutes, hours or days) or delete it at any time.
 
+### Let the team work on its own
+
+**Settings → Team** turns on the always-on team (it's off until you do). It puts brakes on everything that starts without you: routines, Autopilot, hand-offs between bots, and messages from Slack, Buzz or your phone.
+
+- **Daily limits:** 40 runs a day for the team, 40 per project and 12 per bot by default, plus an optional token limit. Past a limit, that work waits in the queue until midnight. You get an alert at 80% and 100%.
+- **You come first:** your own messages go ahead of that work, and 2 of the 8 slots are kept for them. If the bot you message is busy with a routine or an Autopilot task, your message says so, and **Interrupt** lets yours go first (the interrupted work runs again afterwards).
+- **Usage-limit brake:** after two usage-limit or sign-in refusals in 10 minutes, a harness's unattended work waits (15 minutes, then 30, 60 and 120, or until the reset time the provider gave) instead of failing again and again. This one works with Team off too. **Try now** lifts it.
+- **Stop the team** (Settings, the tray, or turning Team off): nothing starts on its own until you resume, queued work of that kind is cancelled, and Autopilot turns off everywhere (Resume turns it back on where it was). **Pause** does the same for an hour or until 07:00. Your own messages always go through.
+- **With Team on,** bots that act without asking only take work you send them from this computer unless you allow them, and Codex bots only take work you send them from this computer (their MCP servers run outside Codex's sandbox, and Any Bot can't yet switch those off). For now, messages from Slack, Buzz or your phone are treated like anyone else's: they count toward the limits and wait while the team is stopped.
+
+**Your Claude and ChatGPT plans are the real ceiling.** Bots run on the same plans as your own Claude Code and Codex, so a busy team can use up the 5-hour or weekly limit you work with. Start with low limits and check **Activity → Tokens today** before raising them.
+
 ### Make it yours
 
 **Settings → Appearance** has four themes:
@@ -203,7 +215,7 @@ Files your bots mention become links once Any Bot confirms they exist: click to 
 
 ### Keep working in the background
 
-- **The tray:** closing the window keeps Any Bot running in the tray, so your bots keep working. **Quit and stop active work** in the tray menu stops everything. Work cut off by quitting is marked in its conversation, and the bot that handed it off is told; start it again when you're back.
+- **The tray:** closing the window keeps Any Bot running in the tray, so your bots keep working. The tray menu has **Team on**, **Pause team 1 hour** and **Stop the team** (see [Let the team work on its own](#let-the-team-work-on-its-own)); **Quit and stop active work** stops everything. Work cut off by quitting is marked in its conversation, and the bot that handed it off is told; start it again when you're back.
 - **Launch at login** (Settings → Runtime & privacy) starts Any Bot when you sign in to Windows, so routines and queued work pick up again. The computer still has to stay on.
 
 ## Supported harnesses

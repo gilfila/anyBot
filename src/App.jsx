@@ -208,6 +208,9 @@ import { fileSize } from "./lib/file-refs.js";
 import { SectionToggle } from "./components/SectionToggle.jsx";
 import { AppearancePanel } from "./components/theme/AppearancePanel.jsx";
 import { PhoneLinkPanel } from "./components/PhoneLinkPanel.jsx";
+import { TeamPanel } from "./components/TeamPanel.jsx";
+import { TeamBanner, TeamPulse } from "./components/TeamPulse.jsx";
+import { occurrenceLabel } from "./lib/team.js";
 import { SlackPanel } from "./components/SlackPanel.jsx";
 import { BuzzPanel } from "./components/BuzzPanel.jsx";
 import { AttentionIcon } from "./components/AttentionIcon.jsx";
@@ -887,6 +890,10 @@ export function App() {
     runs: data.runs,
     artifacts: data.artifacts,
     paused: data.runtime.paused,
+    // Why each queued run waits (runtime dispatch), and Interrupt.
+    waits: data.team?.waits || {},
+    harnessName,
+    onInterrupt: (id) => act("runs.interrupt", { id }),
     onOpenBot: directChat,
     onOpenArtifact: openArtifact,
     onRevealArtifact: revealArtifact,
@@ -1246,6 +1253,13 @@ export function App() {
         </div>
         </div>
         <div className="sidebar-bottom">
+          <TeamPulse
+            team={connected ? data.team : null}
+            harnessName={harnessName}
+            busy={busy}
+            onOpen={() => setView("settings")}
+            onAct={act}
+          />
           <div className="runtime-indicator">
             <i className={connected && !data.runtime.paused ? "online" : ""} />
             <span>
@@ -1853,6 +1867,15 @@ export function App() {
                   </button>
                 </div>
               )}
+              {!conversation.archived && (
+                <TeamBanner
+                  team={data.team}
+                  harnesses={data.employees.filter((e) => conversation.members.includes(e.id)).map((e) => e.harness)}
+                  harnessName={harnessName}
+                  busy={busy}
+                  onAct={act}
+                />
+              )}
               {conversation.archived ? (
                 <div className="archived-banner" role="status">
                   <Archive size={16} />
@@ -2405,6 +2428,7 @@ export function App() {
               onOpenRun={openRunTerminal}
               onOpenBot={directChat}
             />
+            <TeamPanel data={data} act={act} busy={busy} harnessName={harnessName} />
             <h2 className="settings-section-title">Runtime & Privacy</h2>
             <div className="settings-card">
               <div>
@@ -2462,8 +2486,11 @@ export function App() {
             </div>
             <div className="settings-card">
               <div>
-                <h3>Stop the team</h3>
-                <p>Cancel running and queued assignments and pause new work.</p>
+                <h3>Stop everything</h3>
+                <p>
+                  Cancel all running and queued work, yours included, and pause new work until you resume. To stop only
+                  the work that starts on its own, use Stop the team above.
+                </p>
               </div>
               <button className="danger" onClick={() => act("runtime.stopAll")}>
                 <Square size={15} />
@@ -2629,7 +2656,7 @@ export function App() {
                               {r.lastOccurrence}
                             </button>
                           ) : (
-                            r.lastOccurrence
+                            occurrenceLabel(r.lastOccurrence)
                           )}
                         </small>
                       )}
