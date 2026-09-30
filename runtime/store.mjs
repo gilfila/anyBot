@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 
@@ -9,8 +9,36 @@ export const SCHEMA_VERSION = 18;
 export const now = () => new Date().toISOString();
 export const promptHash = (prompt) => createHash("sha256").update(prompt).digest("hex");
 
+// Before a workspace is upgraded to a new schema, a copy of it is written
+// next to it: anybot.backup-v<from>-to-v<to>-<YYYYMMDD-HHmmss>.sqlite. The
+// newest KEEP_BACKUPS are kept; files named any other way (a backup made by
+// hand) are never touched.
+export const KEEP_BACKUPS = 3;
+const BACKUP = /^anybot\.backup-v\d+-to-v\d+-(\d{8}-\d{6})(?:-(\d+))?\.sqlite$/;
+// VACUUM INTO writes a consistent copy, pages still in the WAL included.
+const vacuumInto = (db, file) => db.prepare("VACUUM INTO ?").run(file);
+function backUp(db, directory, from, to, write) {
+  const pad = (n) => String(n).padStart(2, "0");
+  const at = new Date();
+  const stamp = `${at.getFullYear()}${pad(at.getMonth() + 1)}${pad(at.getDate())}-${pad(at.getHours())}${pad(at.getMinutes())}${pad(at.getSeconds())}`;
+  const name = `anybot.backup-v${from}-to-v${to}-${stamp}`;
+  let file = join(directory, `${name}.sqlite`);
+  for (let n = 1; existsSync(file); n++) file = join(directory, `${name}-${n}.sqlite`);
+  write(db, file);
+  try {
+    const backups = readdirSync(directory)
+      .map((entry) => ({ entry, match: BACKUP.exec(entry) }))
+      .filter((b) => b.match)
+      .sort((a, b) => a.match[1].localeCompare(b.match[1]) || Number(a.match[2] || 0) - Number(b.match[2] || 0));
+    for (const { entry } of backups.slice(0, -KEEP_BACKUPS)) rmSync(join(directory, entry), { force: true });
+  } catch {
+    // An old backup that won't go away only costs disk space.
+  }
+}
+
 export class Store {
-  constructor(directory) {
+  // `backup(db, file)` writes the pre-upgrade copy; tests replace it.
+  constructor(directory, { backup = vacuumInto } = {}) {
     mkdirSync(directory, { recursive: true });
     this.db = new DatabaseSync(join(directory, "anybot.sqlite"));
     this.db.exec(
@@ -29,6 +57,22 @@ export class Store {
       throw new Error(
         "Unsupported workspace schema. Use the matching Any Bot version.",
       );
+    }
+    // An existing workspace about to be upgraded is copied first. If the copy
+    // can't be written, nothing is changed and Any Bot doesn't start (the
+    // message goes to the diagnostics log as runtime.uncaught).
+    if (
+      storedVersion < SCHEMA_VERSION &&
+      this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='employees'").get()
+    ) {
+      try {
+        backUp(this.db, directory, storedVersion, SCHEMA_VERSION, backup);
+      } catch (error) {
+        this.db.close();
+        throw new Error(
+          `Any Bot couldn't back up this workspace before upgrading it (schema ${storedVersion} to ${SCHEMA_VERSION}), so it left it unchanged. Check that the disk has free space and Any Bot's data folder can be written to, then start Any Bot again. (${error.message})`,
+        );
+      }
     }
     this.db
       .exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
@@ -496,10 +540,16 @@ export class Store {
       }
     }
     // Runs are looked up by root (routine status on every snapshot, delegation
-    // limits, the Slack bridge) and by the message they answer. Plain indexes
-    // need no schema bump: an older version reads the database as before.
+    // limits, the Slack bridge) and by the message they answer; runs, task
+    // starts and messages are counted per bot and per day (autopilot brakes,
+    // budgets). Plain indexes need no schema bump: an older version reads the
+    // database as before.
     this.db.exec(`CREATE INDEX IF NOT EXISTS runs_root ON runs(root);
-      CREATE INDEX IF NOT EXISTS runs_message ON runs(message);`);
+      CREATE INDEX IF NOT EXISTS runs_message ON runs(message);
+      CREATE INDEX IF NOT EXISTS runs_employee_created ON runs(employee, created);
+      CREATE INDEX IF NOT EXISTS runs_created ON runs(created);
+      CREATE INDEX IF NOT EXISTS task_activity_kind_created ON task_activity(kind, created);
+      CREATE INDEX IF NOT EXISTS messages_author_created ON messages(author, created);`);
     this.db
       .prepare("INSERT OR IGNORE INTO metadata VALUES ('paused', 'false')")
       .run();

@@ -1,9 +1,17 @@
 import { Coordinator } from "./coordinator.mjs";
-import { isUnexpected } from "./diagnostics.mjs";
+import { installCrashHandlers, isUnexpected } from "./diagnostics.mjs";
 
 const port = process.parentPort;
 if (!port)
   throw new Error("Coordinator must be started by the desktop supervisor");
+// Anything nothing caught (including a workspace that can't be opened or
+// backed up at startup) is reported as runtime.uncaught, then the process
+// exits and the desktop restarts it. The short wait lets the report reach
+// the main process first.
+installCrashHandlers(process, {
+  report: (entry) => port.postMessage({ type: "diagnostic", entry }),
+  exit: (code) => setTimeout(() => process.exit(code), 200),
+});
 // --hold: an update is waiting for the team to finish, so nothing queued
 // starts, including before this process is ready for main's runtime.hold.
 const coordinator = new Coordinator({ directory: process.argv[2], holding: process.argv.includes("--hold") });

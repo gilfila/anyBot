@@ -455,9 +455,11 @@ export function createMobileGateway({
       }
       if (method === "POST" && match[2] === "messages") {
         const input = await readBody();
+        // Labelled as the phone's (runtime/origin.mjs), whatever it sends.
         await invoke("messages.send", {
           ...pick(input, ["body", "recipients", "requestId"]),
           conversation: conversation.id,
+          origin: { via: "phone", member: session.memberId },
         }, conversation.id);
         return reply(202, {
           accepted: true,

@@ -307,6 +307,8 @@ Computer-use sessions and browser profiles belong to an execution identity. In t
 4. Harness to filesystem/network/apps: enforce through sandbox/tool broker where available.
 5. Local user to shared organization: introduce real identity and isolation before remote access.
 
+**Where a message came from (0.3.37).** Every message people send is stored with author `human`, whether the owner typed it in the desktop app or it arrived through a bridge: a paired Slack user, a Buzz mention, a paired phone. Bridges label theirs (`runtime/origin.mjs`, metadata `origin:<message id>`, ids only): `bridgeSend` always writes a label (an unnamed bridge, or a label claiming to be the desktop, becomes `bridge`), and the mobile gateway labels every message it forwards as the phone's, ignoring what the phone sends. `Coordinator.messageOrigin` and `runOrigin` read them back; a run's origin is its root run's message's. Only `desktop` carries the owner's own authority (`ownerAuthority`); nothing that arrives through a bridge may approve or propose on the owner's behalf. The label changes no behavior by itself; budgets and approvals build on it.
+
 Phase 1's trusted-host mode assumes the desktop owner trusts the installed harnesses and intentionally grants them access as that OS user. It does not protect the coordinator database, secrets, or other employees from a malicious full-access process under the same account. Path checks and redaction improve reliability but do not create a security boundary against arbitrary code execution. The UI must state this limitation plainly.
 
 ### Execution profiles

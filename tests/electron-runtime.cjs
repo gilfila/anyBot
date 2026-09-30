@@ -6,7 +6,7 @@ const { mkdtemp, rm } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const assert = require("node:assert/strict");
-const { mkdirSync, mkdtempSync } = require("node:fs");
+const { mkdirSync, mkdtempSync, writeFileSync } = require("node:fs");
 const profileRoot = path.join(__dirname, "../.anybot/test-profiles");
 app.commandLine.appendSwitch("disable-gpu");
 app.commandLine.appendSwitch("in-process-gpu");
@@ -84,9 +84,25 @@ app
       const stopped = new Promise((resolve) => child.once("exit", resolve));
       child.postMessage({ type: "shutdown" });
       await stopped;
+      // A coordinator that can't open its workspace reports why (without the
+      // path) before it exits, so the desktop's diagnostics log has it.
+      const blocked = path.join(directory, "not-a-folder");
+      writeFileSync(blocked, "a file, not a folder");
+      const broken = utilityProcess.fork(path.join(__dirname, "../runtime/worker.mjs"), [path.join(blocked, "data")], {
+        serviceName: "anyBot runtime crash test",
+        stdio: "pipe",
+      });
+      const reports = [];
+      broken.on("message", (message) => message.type === "diagnostic" && reports.push(message.entry));
+      const exitCode = await new Promise((resolve) => broken.once("exit", resolve));
+      assert.notEqual(exitCode, 0);
+      const crash = reports.find((entry) => entry.code === "runtime.uncaught");
+      assert.ok(crash, "the crash was reported");
+      assert.match(crash.message, /ENOTDIR|EEXIST|not a directory|already exists/i);
+      assert.ok(!`${crash.message}${crash.detail}`.includes(directory), "without the path");
       clearTimeout(timeout);
       console.log(
-        "PASS: Electron utility process startup, SQLite, harness detection, IPC creation, rejection and shutdown",
+        "PASS: Electron utility process startup, SQLite, harness detection, IPC creation, rejection, shutdown and crash report",
       );
       await finish(0);
     } catch (error) {

@@ -30,3 +30,47 @@ export function isUnexpected(error) {
     return true;
   return /SQLITE_|constraint failed|database is locked|no such (table|column)/i.test(String(error.message));
 }
+
+// Diagnostics never carry paths (they name the owner's folders and files).
+// A path becomes <path>, except that a code file keeps its name and line, so
+// a stack trace still says where it failed: file:///C:/…/coordinator.mjs:220:14
+// becomes <path>/coordinator.mjs:220:14.
+// A drive path (C:\, C:/), a network path (\\server\), or a rooted one with
+// two or more parts (/home/…), each optionally as a file:// URL.
+const PATH = /(?:file:\/\/\/?)?(?:(?<!\w)[A-Za-z]:[\\/]|\\\\[^\\\s]+\\|(?<![\w:.])\/(?=[\w.~-]+\/))[^\s"'`()<>|]*/g;
+export function scrubPaths(text) {
+  return String(text ?? "").replace(PATH, (path) => {
+    const code = /[\\/]([\w.-]+\.(?:mjs|cjs|js|jsx))(:\d+(?::\d+)?)?$/.exec(path);
+    return code ? `<path>/${code[1]}${code[2] || ""}` : "<path>";
+  });
+}
+
+// The coordinator process's last word: an error nothing caught (a throw, or
+// a promise nobody awaited) is reported once, then the process exits so the
+// desktop restarts it (desktop/main.cjs). `origin` says which kind it was.
+export function crashEntry(error, origin) {
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    level: "error",
+    source: "runtime",
+    code: "runtime.uncaught",
+    message: scrubPaths(message).slice(0, 600),
+    detail: error instanceof Error && error.stack ? scrubPaths(error.stack).slice(0, 4000) : undefined,
+    context: { origin },
+  };
+}
+export function installCrashHandlers(target, { report, exit }) {
+  let crashed = false;
+  const crash = (error, origin) => {
+    if (crashed) return;
+    crashed = true;
+    try {
+      report(crashEntry(error, origin));
+    } catch {
+      // Reporting is best effort; exiting is not.
+    }
+    exit(1);
+  };
+  target.on("uncaughtException", (error, origin) => crash(error, origin === "unhandledRejection" ? "unhandledRejection" : "uncaughtException"));
+  target.on("unhandledRejection", (error) => crash(error, "unhandledRejection"));
+}

@@ -10,10 +10,19 @@ import { mentionedIds } from "./mentions.mjs";
 
 // Bot-to-bot @mentions a thread allows before the owner has to reply.
 const MENTION_HOPS = 6;
-// Autopilot brakes: how long a task it couldn't start is skipped, and how
-// many tasks that bots created it starts per project in 24 hours.
+// One piece of work (a root run and everything handed on from it) holds at
+// most this many runs, handed on at most this many levels deep.
+const ROOT_RUNS = 8;
+const ROOT_DEPTH = 3;
+// Autopilot brakes: how long a task it couldn't start is skipped, how many
+// tasks that bots created it starts per project in 24 hours, and how often
+// in 24 hours it starts a task that keeps coming back to Backlog.
 const AUTOPILOT_RETRY_MS = 10 * 60_000;
 const AUTOPILOT_BOT_TASKS_PER_DAY = 20;
+const AUTOPILOT_BOUNCES = 3;
+const BOUNCE_NOTE = `Autopilot started this task ${AUTOPILOT_BOUNCES} times in 24 hours and each time it came back to Backlog without reaching Review or Done, so Autopilot is leaving it alone for now. Check what's holding it up, then start it yourself; Autopilot tries it again once a day has passed.`;
+// A step of the 500 ms heartbeat that throws is logged at most this often.
+const TICK_FAILURE_MS = 60_000;
 const INTERRUPTED =
   "Any Bot stopped during this run (it quit, updated, or crashed). It may be partly done: review possible side effects before sending it again.";
 import { Routines } from "./routines.mjs";
@@ -23,7 +32,8 @@ import { Docs, blocksToMarkdown } from "./docs.mjs";
 import { Org } from "./org.mjs";
 import { Memory } from "./memory.mjs";
 import { Knowledge } from "./knowledge.mjs";
-import { classifyRunError } from "./diagnostics.mjs";
+import { classifyRunError, scrubPaths } from "./diagnostics.mjs";
+import { originKey, originLabel, parseOrigin } from "./origin.mjs";
 import { Approvals } from "./approvals.mjs";
 import { BuzzBridge } from "./buzz-bridge.mjs";
 import { TerminalLog } from "./terminal.mjs";
@@ -215,15 +225,45 @@ export class Coordinator extends EventEmitter {
     }
     this.routines = new Routines(this, clock);
     this.routines.recover();
-    this.timer = setInterval(() => {
-      this.routines.tick();
-      this.autopilot();
-      this.dispatch();
-    }, 500);
+    this.tickFailures = new Map(); // step + message -> when it was last logged
+    this.timer = setInterval(() => this.tick(), 500);
     this.timer.unref();
   }
   notify() {
     this.emit("changed");
+  }
+  // The heartbeat: due routines, then autopilot, then dispatch. Each step
+  // runs on its own, so one that throws (a bad row, a bug) can't stop queued
+  // work from starting or take the coordinator process down. A failing step
+  // is logged at most once a minute per error.
+  tick() {
+    for (const [step, run] of [
+      ["routines", () => this.routines.tick()],
+      ["autopilot", () => this.autopilot()],
+      ["dispatch", () => this.dispatch()],
+    ]) {
+      try {
+        run();
+      } catch (error) {
+        this.tickFailed(step, error);
+      }
+    }
+  }
+  tickFailed(step, error) {
+    const message = scrubPaths(error?.message ?? error).slice(0, 500);
+    const key = `${step}\u0001${message}`;
+    const at = this.clock();
+    if (at - (this.tickFailures.get(key) ?? -Infinity) < TICK_FAILURE_MS) return;
+    if (this.tickFailures.size > 100) this.tickFailures.clear();
+    this.tickFailures.set(key, at);
+    this.diagnostic({
+      level: "error",
+      source: "runtime",
+      code: "runtime.tick_failed",
+      message: `${step}: ${message}`,
+      detail: error?.stack ? scrubPaths(error.stack).slice(0, 4000) : undefined,
+      context: { step },
+    });
   }
   // Runs cut off when Any Bot last stopped: ones still marked running (a
   // crash, or an update that didn't wait for the coordinator) and ones the
@@ -1067,7 +1107,40 @@ export class Coordinator extends EventEmitter {
         id: task.id,
         status: payload.decision === "approve" ? "done" : "in_progress",
       });
+      // Sent back: the lead picks it up again with the comment (once, even
+      // when it's sent back twice before the lead gets to it).
+      if (payload.decision === "changes")
+        this.restartLead(task, "human", `Changes requested by the owner: ${payload.comment || "see the task activity"}`, {
+          once: true,
+        });
     });
+  }
+  // Work sent back from Review goes to the task's lead again, as a new round.
+  // A lead that has been archived can't take it: the card stays In progress
+  // with a note, and a new (empty) round is marked so the reviewer's own run
+  // ending doesn't send the card straight back to Review. `once`: skip it
+  // when the lead is already on this task. Returns the archived lead's name.
+  restartLead(task, author, body, { once = false } = {}) {
+    const lead = task.assignees[0];
+    if (!lead) return "";
+    const leader = this.store.one("SELECT name,archived FROM employees WHERE id=?", lead);
+    if (!leader || leader.archived) {
+      const name = leader?.name || "Its lead";
+      this.board.activity(task.id, author, "started", "Sent back after review");
+      this.board.activity(
+        task.id,
+        "system",
+        "notice",
+        `${name} is archived, so no one was restarted. Assign the task to someone else, then start it again.`,
+      );
+      return name;
+    }
+    if (once && this.store.one("SELECT id FROM runs WHERE task=? AND employee=? AND status IN ('queued','running','cancelling')", task.id, lead))
+      return "";
+    this.board.activity(task.id, author, "started", "Restarted after review");
+    const message = this.addMessage(task.conversation, author, "handoff", body);
+    this.addRun(task.conversation, lead, message, null, null, 0, task.id);
+    return "";
   }
   setAutopilot(payload) {
     const conversation = requireRow(
@@ -1115,6 +1188,10 @@ export class Coordinator extends EventEmitter {
         if (!open) break;
         if (busy.has(employee)) continue;
         for (let task; (task = this.board.nextBacklogFor(conversation.id, employee, blocked)); ) {
+          if (this.autopilotBounced(task, conversation)) {
+            blocked.add(task.id);
+            continue;
+          }
           if (!["human", "system"].includes(task.createdBy) && !this.autopilotMayStartBotTask(conversation)) {
             open = false;
             changed = true;
@@ -1170,6 +1247,45 @@ export class Coordinator extends EventEmitter {
       message: error.message,
       context: { task: task.id, conversation: conversation.id },
     });
+  }
+  // A task that keeps coming back to Backlog (its bot moves it back, or
+  // decides it isn't ready) would otherwise be started again every few
+  // seconds. Once autopilot has started it AUTOPILOT_BOUNCES times in 24
+  // hours with no move to Review or Done since, it is skipped: one note on
+  // the task and one diagnostic, then it waits until those starts are a day
+  // old. The owner can still start it.
+  autopilotBounced(task, conversation) {
+    const dayAgo = new Date(Date.now() - 24 * 3600_000).toISOString();
+    const progressed =
+      this.store.one(
+        "SELECT max(created) AS at FROM task_activity WHERE task=? AND kind='status' AND (body LIKE '% → review' OR body LIKE '% → done')",
+        task.id,
+      )?.at || "";
+    const starts = this.store.all(
+      "SELECT created FROM task_activity WHERE task=? AND kind='started' AND author='system' AND created>=? AND created>? ORDER BY created, rowid",
+      task.id,
+      dayAgo,
+      progressed,
+    );
+    if (starts.length < AUTOPILOT_BOUNCES) return false;
+    const noted = this.store.one(
+      "SELECT id FROM task_activity WHERE task=? AND kind='notice' AND body=? AND created>=? LIMIT 1",
+      task.id,
+      BOUNCE_NOTE,
+      starts.at(-1).created,
+    );
+    if (!noted) {
+      this.board.activity(task.id, "system", "notice", BOUNCE_NOTE);
+      this.diagnostic({
+        level: "warn",
+        source: "board",
+        code: "autopilot.bounce_capped",
+        message: `Autopilot skipped a task it started ${starts.length} times in 24 hours that kept coming back to Backlog`,
+        context: { task: task.id, conversation: conversation.id },
+      });
+      this.notify();
+    }
+    return true;
   }
   // Bots can keep a board busy by adding tasks for each other. Past
   // `autopilotBotTasksPerDay` such starts in 24 hours, autopilot turns
@@ -1233,25 +1349,36 @@ export class Coordinator extends EventEmitter {
     }
     if (action.decision !== "changes") throw new Error("decision must be approve or changes");
     this.board.move({ id: task.id, status: "in_progress" }, run.employee, run.id);
-    const lead = task.assignees[0];
-    if (lead) {
-      this.board.activity(task.id, run.employee, "started", "Restarted after review");
-      const message = this.addMessage(
-        task.conversation,
-        run.employee,
-        "handoff",
-        `Changes requested on task ${task.id.slice(0, 8)} "${task.title}": ${comment || "see the task activity"}`,
-      );
-      this.addRun(task.conversation, lead, message, null, null, 0, task.id);
-    }
-    return `requested changes on "${task.title}"`;
+    const archived = this.restartLead(
+      task,
+      run.employee,
+      `Changes requested on task ${task.id.slice(0, 8)} "${task.title}": ${comment || "see the task activity"}`,
+    );
+    return `requested changes on "${task.title}"${archived ? ` (${archived} is archived, so no one was restarted)` : ""}`;
   }
   // A card entering Review with an employee reviewer queues a review run for
-  // them (at most three rounds per task, then the owner decides).
+  // them (at most three rounds per task, then the owner decides). A reviewer
+  // who has been archived hands the review to their manager, if that manager
+  // is active and isn't doing the work; otherwise the owner decides.
   onTaskMoved(task, from, to) {
     if (to !== "review" || !task.reviewer) return;
-    const reviewer = this.store.one("SELECT id,archived FROM employees WHERE id=?", task.reviewer);
-    if (!reviewer || reviewer.archived) return;
+    let reviewer = this.store.one("SELECT id,name,archived,manager FROM employees WHERE id=?", task.reviewer);
+    if (!reviewer) return;
+    if (reviewer.archived) {
+      const manager = reviewer.manager && this.store.one("SELECT id,name,archived FROM employees WHERE id=?", reviewer.manager);
+      if (!manager || manager.archived || task.assignees.includes(manager.id)) {
+        this.board.activity(
+          task.id,
+          "system",
+          "notice",
+          `${reviewer.name} is archived and has no active manager to review this instead, so you decide: approve it or send it back.`,
+        );
+        return;
+      }
+      this.store.run("UPDATE tasks SET reviewer=?,updated=?,revision=revision+1 WHERE id=?", manager.id, now(), task.id);
+      this.board.activity(task.id, "system", "notice", `${reviewer.name} is archived, so ${manager.name}, their manager, reviews this instead.`);
+      reviewer = manager;
+    }
     const rounds = this.store.one(
       "SELECT count(*) AS n FROM task_activity WHERE task=? AND kind='review-requested'",
       task.id,
@@ -1384,8 +1511,12 @@ export class Coordinator extends EventEmitter {
       return;
     }
     for (const employee of recipients) this.activeEmployee(employee);
+    // Messages from a bridge (Slack, Buzz, a phone) carry its label
+    // (runtime/origin.mjs); one without a label was typed in this app.
+    const origin = payload.origin === undefined ? null : originLabel(payload.origin);
     this.store.transaction(() => {
       const messageId = this.addMessage(conversation.id, "human", "user", body, thread, attachments);
+      if (origin) this.store.run("INSERT OR REPLACE INTO metadata(key,value) VALUES (?,?)", originKey(messageId), JSON.stringify(origin));
       // In a project, each bot answers in a thread under the message that
       // activated it; a direct chat stays one conversation.
       const runThread = group ? thread || messageId : null;
@@ -1395,9 +1526,28 @@ export class Coordinator extends EventEmitter {
       this.store.event("message.accepted", {
         conversation: conversation.id,
         messageId,
-        actor: "local-owner",
+        actor: origin ? origin.via : "local-owner",
       });
     });
+  }
+  // Where the message that started some work came from: {via:"desktop"} for
+  // the owner at this computer, the bridge's label for Slack, Buzz and
+  // phones, {via:"system"} for routines and Any Bot's own hand-offs, and
+  // {via:"bot", employee} for a bot's. Only the desktop is the owner's own
+  // authority (ownerAuthority in runtime/origin.mjs).
+  messageOrigin(messageId) {
+    const message = this.store.one("SELECT author FROM messages WHERE id=?", messageId);
+    if (!message) return null;
+    if (message.author === "system") return { via: "system" };
+    if (message.author !== "human") return { via: "bot", employee: message.author };
+    const label = this.store.one("SELECT value FROM metadata WHERE key=?", originKey(messageId))?.value;
+    return label === undefined ? { via: "desktop" } : parseOrigin(label);
+  }
+  // A piece of work began with its root run's message; everything handed on
+  // from it (hand-offs, returns, joined mentions) shares that origin.
+  runOrigin(run) {
+    const root = this.store.one("SELECT message FROM runs WHERE id=?", run.root || run.id);
+    return this.messageOrigin(root?.message ?? run.message);
   }
   // The owner's attachments on the message that started this run, copied
   // into the bot's inbox. Anything that couldn't be delivered is noted in
@@ -1568,11 +1718,18 @@ export class Coordinator extends EventEmitter {
   }
   // Outside channels (the Slack bridge, desktop/main.cjs) talk to one bot
   // through its direct chat. Returns the owner's message id, which later
-  // `bridgeUpdates` calls follow to the bot's reply.
+  // `bridgeUpdates` calls follow to the bot's reply. The message is labelled
+  // with the bridge's `origin` (or as an unnamed bridge), never as typed here.
   bridgeSend(payload) {
     const employee = this.activeEmployee(text(payload.employee, "Employee ID", 100));
     const conversation = this.directConversation(employee);
-    this.send({ requestId: payload.requestId, conversation, body: payload.body, recipients: [employee.id] });
+    this.send({
+      requestId: payload.requestId,
+      conversation,
+      body: payload.body,
+      recipients: [employee.id],
+      origin: originLabel(payload.origin),
+    });
     const message = this.store.one("SELECT result FROM requests WHERE key=?", payload.requestId).result;
     return { conversation, message };
   }
@@ -1845,6 +2002,13 @@ export class Coordinator extends EventEmitter {
       "UPDATE runs SET status='cancelled',ended=? WHERE status='queued' AND conversation IN (SELECT id FROM conversations WHERE archived=1)",
       now(),
     );
+    let archived = false;
+    try {
+      archived = this.cancelArchivedWork();
+    } catch (error) {
+      // The loop below still skips them; everyone else's work goes on.
+      this.tickFailed("archived", error);
+    }
     for (const run of this.store.all(
       "SELECT * FROM runs WHERE status='queued' ORDER BY rowid",
     )) {
@@ -1853,6 +2017,8 @@ export class Coordinator extends EventEmitter {
         "SELECT * FROM employees WHERE id=?",
         run.employee,
       );
+      // An archived bot never works (cancelArchivedWork cancels its runs).
+      if (!employee || employee.archived) continue;
       if (occupied.has(employee.workspace) || employees.has(employee.id))
         continue;
       occupied.add(employee.workspace);
@@ -1873,7 +2039,44 @@ export class Coordinator extends EventEmitter {
       started = true;
       state.promise = this.execute(run, employee, controller);
     }
-    if (started || dropped.changes) this.notify();
+    if (started || dropped.changes || archived) this.notify();
+  }
+  // Work can still reach a bot after it was archived (a hand-off coming back
+  // to it, a review). It never starts: it is cancelled, with one notice per
+  // conversation, and its task notes the round didn't finish.
+  cancelArchivedWork() {
+    const runs = this.store.all(
+      `SELECT r.id,r.conversation,r.thread,r.task,e.name FROM runs r JOIN employees e ON e.id=r.employee
+       WHERE r.status='queued' AND e.archived=1 ORDER BY r.rowid`,
+    );
+    if (!runs.length) return false;
+    this.store.transaction(() => {
+      const stamp = now();
+      const byConversation = new Map();
+      for (const run of runs) {
+        this.store.run(
+          "UPDATE runs SET status='cancelled',error=?,ended=? WHERE id=? AND status='queued'",
+          `${run.name} was archived before this run started.`,
+          stamp,
+          run.id,
+        );
+        byConversation.set(run.conversation, [...(byConversation.get(run.conversation) || []), run]);
+      }
+      for (const [conversation, list] of byConversation) {
+        const names = [...new Set(list.map((run) => run.name))];
+        const threads = new Set(list.map((run) => run.thread ?? null));
+        const one = names.length === 1;
+        this.addMessage(
+          conversation,
+          "system",
+          "notice",
+          `${names.join(", ")} ${one ? "is" : "are"} archived, so ${one ? "its" : "their"} queued work here was cancelled. Restore ${one ? "the bot" : "them"} to give ${one ? "it" : "them"} work again.`,
+          threads.size === 1 ? [...threads][0] : null,
+        );
+      }
+      for (const task of new Set(runs.map((run) => run.task).filter(Boolean))) this.settleTask(task);
+    });
+    return true;
   }
   async execute(run, employee, controller) {
     let lastSave = 0;
@@ -2255,6 +2458,10 @@ export class Coordinator extends EventEmitter {
   // A bot that @mentions a teammate in its reply pulls that teammate into the
   // same thread. Bots can pass a thread
   // around at most MENTION_HOPS times before the owner has to reply.
+  // In work the owner started, each mention starts fresh work, as before. In
+  // work a routine, autopilot or a bot started, the mention joins that work
+  // (its root, one level deeper), so it counts toward the same ROOT_RUNS and
+  // ROOT_DEPTH limits as a hand-off and is refused past them.
   activateMentions(run, text, message) {
     if (!run.thread) return;
     const conversation = this.store.one("SELECT * FROM conversations WHERE id=?", run.conversation);
@@ -2282,7 +2489,9 @@ export class Coordinator extends EventEmitter {
       run.thread,
       since,
     ).n;
-    for (const target of targets) {
+    const root = run.root || run.id;
+    const joins = !this.startedByPeople(run);
+    for (const [index, target] of targets.entries()) {
       if (waiting.has(target)) continue;
       if (hops >= MENTION_HOPS) {
         this.addMessage(
@@ -2294,9 +2503,42 @@ export class Coordinator extends EventEmitter {
         );
         return;
       }
-      this.addRun(run.conversation, target, message, null, null, 0, run.task, run.thread);
+      if (joins && (run.depth >= ROOT_DEPTH || this.store.one("SELECT count(*) AS n FROM runs WHERE root=?", root).n >= ROOT_RUNS)) {
+        const names = targets
+          .slice(index)
+          .filter((id) => !waiting.has(id))
+          .map((id) => this.store.one("SELECT name FROM employees WHERE id=?", id)?.name || "A teammate");
+        this.addMessage(
+          run.conversation,
+          "system",
+          "notice",
+          `This work has reached its limit (${ROOT_RUNS} runs, or hand-offs ${ROOT_DEPTH} deep), so ${names.join(", ")} ${names.length === 1 ? "wasn't" : "weren't"} brought in. Reply here to keep it going.`,
+          run.thread,
+        );
+        return;
+      }
+      if (joins) this.addRun(run.conversation, target, message, null, root, run.depth + 1, run.task, run.thread);
+      else this.addRun(run.conversation, target, message, null, null, 0, run.task, run.thread);
       hops += 1;
     }
+  }
+  // Whether a person started this run's work: its root run answers a message
+  // people wrote (here or through a bridge). A mention in such work starts a
+  // root of its own whose message is the reply that mentioned it, so that
+  // reply's run is followed back to its own root.
+  startedByPeople(run) {
+    let current = run;
+    for (let hop = 0; current && hop < 50; hop++) {
+      const root = this.store.one(
+        "SELECT m.id,m.author,m.kind FROM runs r JOIN messages m ON m.id=r.message WHERE r.id=?",
+        current.root || current.id,
+      );
+      if (!root) return false;
+      if (root.author === "human") return true;
+      if (root.kind !== "assistant") return false;
+      current = this.store.one("SELECT r.id,r.root FROM run_responses rr JOIN runs r ON r.id=rr.run WHERE rr.message=?", root.id);
+    }
+    return false;
   }
   returnToParent(run, result) {
     const parent = this.store.one("SELECT * FROM runs WHERE id=?", run.parent);
