@@ -138,6 +138,15 @@ export function describeIssue(issue) {
       title: `${tool(c)} hit a ${c.reason === "auth" ? "sign-in problem" : "usage limit"}, so its routines, Autopilot and hand-offs are waiting`,
       hint: "Two runs on this harness were refused by the provider within 10 minutes, so its routines, Autopilot tasks and hand-offs wait instead of failing again and again: 15 minutes at first, then 30, 60 and 120, or until the reset time the provider gave. Then one of them tries; as soon as the provider answers it, the rest go on. Messages from you, Slack, Buzz or your phone still try, so whoever sent them sees the reason. Settings → Team has Try now. Your Claude and ChatGPT plans' own limits are the real ceiling for everything your bots do.",
     },
+    "people.review_failed": {
+      title: "The daily people review couldn't run",
+      hint: "The review only reads your bots' history, so nothing else was affected, and it tries again in 10 minutes. Org → People → Run now tries it right away. If it keeps failing, copy the report; it's a bug in Any Bot.",
+      bug: true,
+    },
+    "people.canvas_failed": {
+      title: "The people review couldn't update your HQ canvas",
+      hint: "The review itself was saved: Org → People shows it. Its section on the canvas of your HQ room (the project holding the bot at the top of your org) wasn't replaced, most often because that canvas is full (800 blocks). Make room there, then press Run now in Org → People.",
+    },
     "breaker.closed": {
       title: `${tool(c)} is answering again`,
       hint: "The provider answered a run on this harness (or you pressed Try now), so its waiting work goes on.",

@@ -1,0 +1,310 @@
+/* Org → People: the daily people review (PeopleTab.jsx). Studio paper tokens
+   only. Text sits on opaque cards, so it stays readable over the animated
+   backdrop themes. A verdict's color is a dot and a soft fill; its words are
+   ink, which keeps contrast in every theme. */
+.people-review {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 16px 32px 40px;
+}
+.people-card {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+.people-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+}
+.people-head h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+.people-head .secondary {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+.people-summary {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--ink);
+}
+.people-note {
+  max-width: 760px;
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.people-error {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--ink);
+  font-size: 13px;
+}
+.people-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.people-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--card);
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.people-filter span {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.people-filter[aria-pressed="true"] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+.people-filter[aria-pressed="true"] span {
+  color: var(--paper);
+}
+.people-table td.people-none {
+  color: var(--ink-3);
+}
+.people-table-wrap {
+  overflow-x: auto;
+}
+.people-table {
+  width: 100%;
+  min-width: 1100px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.people-table th {
+  position: sticky;
+  top: 0;
+  padding: 8px 10px;
+  border-bottom: 2px solid var(--ink);
+  background: var(--card);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: left;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.people-table th button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.people-table th[aria-sort="ascending"],
+.people-table th[aria-sort="descending"] {
+  color: var(--ink);
+}
+.people-table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+  color: var(--ink);
+}
+.people-table tr.is-selected td {
+  background: var(--paper-2);
+}
+.people-table td.num {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.people-table td.num small {
+  display: block;
+  color: var(--ink-3);
+}
+.people-bot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  color: var(--ink);
+  cursor: pointer;
+}
+.people-bot span {
+  display: grid;
+}
+.people-bot small {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.people-bot:hover strong,
+.people-bot:focus-visible strong {
+  text-decoration: underline;
+}
+.people-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--paper-2);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.people-chip::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-4);
+}
+.people-chip.is-fire {
+  background: var(--danger-soft);
+}
+.people-chip.is-fire::before {
+  background: var(--danger);
+}
+.people-chip.is-adjust {
+  background: var(--warn-soft);
+}
+.people-chip.is-adjust::before {
+  background: var(--warn);
+}
+.people-chip.is-watch {
+  background: var(--paper-3);
+}
+.people-chip.is-watch::before {
+  background: var(--warn);
+}
+.people-chip.is-ok {
+  background: var(--ok-soft);
+}
+.people-chip.is-ok::before {
+  background: var(--ok);
+}
+.people-chip.is-insufficient,
+.people-chip.is-none {
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.people-was {
+  display: block;
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.people-trend {
+  display: flex;
+  gap: 2px;
+  margin-top: 6px;
+}
+.people-trend i {
+  width: 6px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--rule);
+}
+.people-trend i.is-fire {
+  background: var(--danger);
+}
+.people-trend i.is-adjust {
+  background: var(--warn);
+}
+.people-trend i.is-watch {
+  background: var(--ink-3);
+}
+.people-trend i.is-ok {
+  background: var(--ok);
+}
+.people-trend i.is-none {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+.people-why {
+  min-width: 240px;
+}
+.people-why ul {
+  margin: 0;
+  padding-left: 16px;
+}
+.people-why li + li {
+  margin-top: 3px;
+}
+.people-why .muted,
+.people-fix .muted {
+  color: var(--ink-3);
+}
+.people-fix {
+  min-width: 220px;
+  max-width: 320px;
+}
+.people-fix strong {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+.people-rules {
+  padding: 12px 18px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.people-rules summary {
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+}
+.people-rules table {
+  width: 100%;
+  margin: 12px 0;
+  border-collapse: collapse;
+}
+.people-rules th,
+.people-rules td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+  text-align: left;
+}
+.people-rules th {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.people-rules h3 {
+  margin: 12px 0 4px;
+  font-size: 13px;
+  color: var(--ink);
+}
+.people-rules ul {
+  margin: 0;
+  padding-left: 18px;
+}
+@media (max-width: 720px) {
+  .people-review {
+    padding: 12px 16px 32px;
+  }
+  .people-head {
+    flex-direction: column;
+  }
+}

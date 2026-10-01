@@ -450,6 +450,34 @@ test("mobile messages are admitted once across retries and cancellation reaches 
   );
 });
 
+test("a phone's Stop says whose phone it was, so a member's isn't counted as the owner's", async (t) => {
+  const f = await fixture(t, [
+    { id: "owner", name: "Owner", role: "owner" },
+    { id: "alice", name: "Alice", role: "member" },
+  ]);
+  const owner = await f.pair({ memberId: "owner" });
+  const alice = await f.pair({ memberId: "alice", role: "operator" });
+  const conversation = await (
+    await f.post("/conversations", { title: "Shared", members: [f.c.snapshot().employees[0].id] }, owner.token)
+  ).json();
+  assert.equal((await f.post(`/conversations/${conversation.id}/humans`, { members: ["alice"] }, owner.token)).status, 200);
+  const cancels = [];
+  const command = f.c.command.bind(f.c);
+  f.c.command = (method, payload, ...rest) => {
+    if (method === "runs.cancel") cancels.push(payload);
+    return command(method, payload, ...rest);
+  };
+  for (const [session, body] of [[alice, "One"], [owner, "Two"]]) {
+    const message = { body, recipients: conversation.members, requestId: crypto.randomUUID() };
+    assert.equal((await f.post(`/conversations/${conversation.id}/messages`, message, session.token)).status, 202);
+    const run = f.c.snapshot().runs.at(-1);
+    assert.equal((await f.post(`/runs/${run.id}/cancel`, {}, session.token)).status, 200);
+  }
+  assert.deepEqual(cancels.map((payload) => payload.by), ["member", "owner"]);
+  // The phone can't claim to be the owner: `by` comes from its session.
+  assert.equal(JSON.stringify(cancels).includes("alice"), false);
+});
+
 test("the phone doesn't list archived (deleted) projects", async (t) => {
   const f = await fixture(t);
   await f.c.command("employees.create", { name: "Second", role: "Helper", harness: "codex", trusted: true });

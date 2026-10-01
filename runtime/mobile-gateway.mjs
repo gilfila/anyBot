@@ -488,7 +488,9 @@ export function createMobileGateway({
       const run = state.runs.find((r) => r.id === cancel[1]);
       if (!run || !visibleIds.has(run.conversation))
         return reply(404, { error: "Run not found" });
-      await invoke("runs.cancel", { id: cancel[1] }, run.conversation);
+      // Whose phone pressed Stop, from the session (never the request): the
+      // people review counts only the owner's Stops as the owner's.
+      await invoke("runs.cancel", { id: cancel[1], by: session.humanRole === "owner" ? "owner" : "member" }, run.conversation);
       return reply(200, { cancelled: true });
     }
     return reply(404, { error: "Endpoint not available" });

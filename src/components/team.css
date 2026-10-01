@@ -243,3 +243,31 @@
   gap: 8px;
   color: var(--ink-2);
 }
+
+/* Settings → Team: the daily people review's time (PeopleReviewSettings.jsx),
+   a form so Enter saves it. */
+.people-time {
+  margin-top: 10px;
+}
+.people-time label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.people-time input {
+  width: auto;
+  padding: 4px 8px;
+}
+.people-settings small.team-note {
+  display: block;
+}
+.people-settings-error {
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--danger);
+}
+.people-settings-error .mini {
+  margin-left: 6px;
+}

@@ -324,7 +324,8 @@ export function createSlackBridge({
     const allow = action.action_id === "anybot.approve";
     let outcome;
     try {
-      await request("approvals.decide", { id: action.value, decision: allow ? "allow" : "deny" });
+      // `by`: answered in Slack, so the people review doesn't count it as the owner's.
+      await request("approvals.decide", { id: action.value, decision: allow ? "allow" : "deny", by: "slack" });
       outcome = `${allow ? "Approved" : "Denied"} by ${person.name}.`;
     } catch (error) {
       outcome = `Couldn't ${allow ? "approve" : "deny"} it: ${error.message}`;

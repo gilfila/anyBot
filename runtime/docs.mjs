@@ -283,50 +283,86 @@ export class Docs {
     if (!markdown.trim()) throw new Error(`${action.type} needs markdown`);
     if (markdown.length > 20000) throw new Error("Doc updates are limited to 20000 characters");
     const added = markdownToBlocks(markdown, run.employee);
-    const { blocks } = this.get(run.conversation);
-    let next;
     if (action.type === "doc.append") {
-      next = [...blocks, ...added];
-    } else {
-      const heading = typeof action.heading === "string" ? action.heading.trim() : "";
-      if (!heading || heading.length > 200) throw new Error("doc.section needs a heading");
-      const same = (b) => HEADING[b.type] && b.text.trim().toLowerCase() === heading.toLowerCase();
-      const start = blocks.findIndex(same);
-      // Bots often start the markdown with the heading itself: drop that
-      // copy (a new section keeps its level).
-      let body = added;
-      let level = start >= 0 ? HEADING[blocks[start].type] : 2;
-      if (body[0] && same(body[0])) {
-        if (start < 0) level = HEADING[body[0].type];
-        body = body.slice(1);
-      }
-      // Headings inside the markdown sit below the section's own, so they
-      // can't end the section early and leave stale content on the next update.
-      body = body.map((b) =>
-        HEADING[b.type] && HEADING[b.type] <= level
-          ? level < 3
-            ? { ...b, type: `h${level + 1}` }
-            : { ...b, type: "p", text: `**${b.text}**` }
-          : b,
-      );
-      if (start < 0) {
-        next = [...blocks, { id: randomUUID(), type: `h${level}`, text: heading, author: run.employee, at: now() }, ...body];
-      } else {
-        // The section runs to the next heading at its level or above. Copies
-        // of this heading right after it (left by earlier updates that
-        // repeated it) belong to the section and are replaced too.
-        let end = start + 1;
-        for (;;) {
-          while (end < blocks.length && !(HEADING[blocks[end].type] && HEADING[blocks[end].type] <= level)) end += 1;
-          if (end < blocks.length && same(blocks[end])) end += 1;
-          else break;
-        }
-        next = [...blocks.slice(0, start + 1), ...body, ...blocks.slice(end)];
-      }
+      const { blocks } = this.get(run.conversation);
+      this.write(run.conversation, normalizeBlocks([...blocks, ...added]), run.employee, run.id);
+      return `added ${added.length} block${added.length === 1 ? "" : "s"} to the canvas`;
     }
-    this.write(run.conversation, normalizeBlocks(next), run.employee, run.id);
-    return action.type === "doc.append"
-      ? `added ${added.length} block${added.length === 1 ? "" : "s"} to the canvas`
-      : `updated the "${action.heading.trim()}" section`;
+    const heading = typeof action.heading === "string" ? action.heading.trim() : "";
+    if (!heading || heading.length > 200) throw new Error("doc.section needs a heading");
+    this.replaceSection(run.conversation, heading, added, { author: run.employee, run: run.id, blockAuthor: run.employee });
+    return `updated the "${action.heading.trim()}" section`;
   }
+  // Replaces what sits under `heading` with `body` blocks, or adds the
+  // heading and body at the end when the page has no such section. A bot's
+  // doc.section and Any Bot's own sections (the daily people review) both
+  // come through here; nothing else on the page changes. `blockAuthor` marks
+  // a new heading block as that bot's.
+  //
+  // `owner` ("system", Any Bot's own sections): the section is only the
+  // heading and the blocks it wrote, all marked as its own, so whatever a bot
+  // appends or the owner types below it stays when it is replaced. A `body`
+  // of null removes that section (nothing is written when there's none).
+  replaceSection(conversation, heading, body, { author, run = null, blockAuthor = null, owner = null }) {
+    const { blocks } = this.get(conversation);
+    const next = withSection(blocks, heading, body, { blockAuthor, owner });
+    if (next === blocks) return false;
+    this.write(conversation, normalizeBlocks(next), author, run);
+    return true;
+  }
+}
+
+// The page with `heading`'s section replaced by `added`, or removed when
+// `added` is null (see replaceSection). Returns `blocks` itself when nothing
+// changes.
+function withSection(blocks, heading, added, { blockAuthor = null, owner = null } = {}) {
+  const same = (b) => HEADING[b.type] && b.text.trim().toLowerCase() === heading.toLowerCase();
+  // Any Bot's section is its own heading, never one a bot or the owner wrote.
+  const start = blocks.findIndex((b) => same(b) && (!owner || b.author === owner));
+  if (added === null) {
+    if (start < 0) return blocks;
+    return [...blocks.slice(0, start), ...blocks.slice(sectionEnd(blocks, start, same, owner))];
+  }
+  // Bots often start the markdown with the heading itself: drop that
+  // copy (a new section keeps its level).
+  let body = added;
+  let level = start >= 0 ? HEADING[blocks[start].type] : 2;
+  if (body[0] && same(body[0])) {
+    if (start < 0) level = HEADING[body[0].type];
+    body = body.slice(1);
+  }
+  // Headings inside the markdown sit below the section's own, so they
+  // can't end the section early and leave stale content on the next update.
+  body = body.map((b) =>
+    HEADING[b.type] && HEADING[b.type] <= level
+      ? level < 3
+        ? { ...b, type: `h${level + 1}` }
+        : { ...b, type: "p", text: `**${b.text}**` }
+      : b,
+  );
+  const at = now();
+  if (owner) body = body.map((b) => ({ ...b, author: owner, at }));
+  const by = owner || blockAuthor;
+  if (start < 0) return [...blocks, { id: randomUUID(), type: `h${level}`, text: heading, ...(by ? { author: by, at } : {}) }, ...body];
+  return [...blocks.slice(0, start + 1), ...body, ...blocks.slice(sectionEnd(blocks, start, same, owner))];
+}
+
+// Where the section whose heading is at `start` ends. It runs to the next
+// heading at its level or above; copies of its heading right after it (left
+// by earlier updates that repeated it) belong to it. An `owner`'s section
+// also ends at the first block the owner didn't write.
+function sectionEnd(blocks, start, same, owner) {
+  const level = HEADING[blocks[start].type];
+  const ends = (b) => HEADING[b.type] && HEADING[b.type] <= level && !same(b);
+  let end = start + 1;
+  if (owner) {
+    while (end < blocks.length && blocks[end].author === owner && !ends(blocks[end])) end += 1;
+    return end;
+  }
+  for (;;) {
+    while (end < blocks.length && !(HEADING[blocks[end].type] && HEADING[blocks[end].type] <= level)) end += 1;
+    if (end < blocks.length && same(blocks[end])) end += 1;
+    else break;
+  }
+  return end;
 }

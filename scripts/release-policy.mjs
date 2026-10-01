@@ -54,3 +54,12 @@ export function changelogSection(changelog, version) {
   const end = lines.findIndex((line, index) => index > start && line.startsWith('## ['));
   return lines.slice(start + 1, end < 0 ? undefined : end).join('\n').trim().slice(0, 6000);
 }
+
+// Versions whose "## [x.y.z]" heading the earlier CHANGELOG had and this one
+// lost. A heading replaced instead of added merges that release's notes into
+// the next one's (and the updater cuts those at 6000 characters).
+export function missingReleaseNotes(prior, current) {
+  const versions = (text) => [...String(text || '').matchAll(/^## \[(\d+\.\d+\.\d+)\]/gm)].map((match) => match[1]);
+  const kept = new Set(versions(current));
+  return versions(prior).filter((version) => !kept.has(version));
+}
