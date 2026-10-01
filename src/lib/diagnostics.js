@@ -115,6 +115,10 @@ export function describeIssue(issue) {
       title: "Autopilot couldn't start a task",
       hint: "The reason is below and on the task. The task stays in Backlog, and Autopilot skips it (and goes on with the bot's other tasks) until the task changes; it tries again every 10 minutes without repeating this note.",
     },
+    "autopilot.bounce_capped": {
+      title: "Autopilot is skipping a task that keeps coming back",
+      hint: "Autopilot started this task 3 times in 24 hours and each time it went back to Backlog without reaching Review or Done, so it leaves the task alone until those starts are a day old. Open the task to see what's holding it up, then start it yourself.",
+    },
     "autopilot.limit_reached": {
       title: "Autopilot turned itself off",
       hint: "The bots in this project started 20 tasks they created for themselves in 24 hours, so Autopilot stopped to keep them from running without end. Check the board, then turn Autopilot back on if the work should go on.",
@@ -174,6 +178,25 @@ export function describeIssue(issue) {
       bug: true,
     },
     "runtime.stderr": { title: "The coordinator printed an error", hint: "Details are below.", bug: true },
+    "runtime.tick_failed": {
+      title: "The coordinator's timer hit an error",
+      hint: "Any Bot logged it and kept going: queued work still starts. The message starts with the step that failed: routines, autopilot and dispatch are tried again every half second; run means a finished run couldn't be fully recorded, and its place in the queue was freed. This is logged at most once a minute. If it keeps happening, copy the report; it's a bug in Any Bot.",
+      bug: true,
+    },
+    "runtime.uncaught": {
+      title: "The coordinator stopped on an error",
+      hint: "Any Bot restarts it automatically. If the message says the workspace couldn't be backed up before an upgrade, nothing was changed: free some disk space and restart Any Bot. Otherwise, if it keeps happening, copy the report; it's a bug in Any Bot.",
+      bug: true,
+    },
+    "runtime.unhandled_rejection": {
+      title: "The coordinator hit an error it didn't handle",
+      hint: "Something in Any Bot failed without anything waiting for the result. Any Bot logged it and kept running, and your bots' work goes on. This is logged at most once a minute. If it keeps happening, copy the report; it's a bug in Any Bot.",
+      bug: true,
+    },
+    "routine.enqueue_failed": {
+      title: "A routine couldn't start",
+      hint: "Something about its bot or project stopped this run from queuing (for example, the data was changed outside Any Bot). This time was skipped and the next one is scheduled as usual. Edit the routine to point it somewhere else, or pause it.",
+    },
     "command.failed": { title: "An action in the app failed unexpectedly", hint: "This is a bug in Any Bot.", bug: true },
     "renderer.crash": { title: "A screen crashed", hint: "Any Bot showed a recovery page. This is a bug.", bug: true },
     "renderer.error": { title: "A screen hit an error", hint: "This is a bug in Any Bot.", bug: true },

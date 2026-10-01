@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.37] - 2026-09-29
+
+This update makes Any Bot sturdier before bots get more room to work on their own. It applies to everyone; there's nothing to turn on.
+
+### Added
+- **A backup before every data upgrade.** When an update changes how your data is stored, Any Bot first saves a copy of your data next to it (`anybot.backup-v18-to-v19-….sqlite`, for example). It keeps the newest three, and always the first copy made for the update in progress, so an upgrade that fails part-way and is tried again never loses the copy of your data as it was. If the copy can't be saved, Any Bot leaves your data as it was and doesn't start: a message says why (it also points to **Settings → Diagnostics**), instead of Any Bot retrying the same thing over and over. This update doesn't change how data is stored, so it writes no backup.
+
+### Fixed
+- **One error could stop all work.** Twice a second Any Bot checks routines, Autopilot and the work queue, and an error in any of them used to crash the part of Any Bot that runs your bots. Now the error is logged (at most once a minute) and the rest keeps going, so queued work still starts.
+- **A crash now says why.** If that part of Any Bot does stop on an error, **Settings → Diagnostics** shows the error (without your file paths, even ones with spaces in their folder names), not only "stopped unexpectedly". Before it stops, it starts no new work.
+- **Errors nobody was waiting for are logged.** Some errors inside Any Bot used to be printed where no one would see them. Now they're listed in **Settings → Diagnostics** (at most once a minute each), and Any Bot keeps running your bots, as before.
+- **One broken routine held up every routine.** A routine that hit an error while queuing its run failed twice a second and kept all the others from starting. Now that run is marked failed, its next run is scheduled as usual, and the other routines run.
+- **Archived bots could still get work.** Work that reached a bot after it was archived (a hand-off coming back to it, for example) used to run. Now it's cancelled, with one note in the conversation.
+- **Reviews with archived bots.**
+  - A reviewer asking for changes on a task whose lead was archived restarted the archived lead, and the task could bounce between them. Now no one is restarted, and the task says so.
+  - A task entering Review whose reviewer was archived used to sit there. Now the reviewer's manager reviews it, if that manager may review in the project (a member, or above the task's lead) and isn't doing the work. Otherwise it waits for you with a note.
+- **Request changes did nothing.** Choosing **Request changes** on a task in Review moved it to In progress, but no one picked it up. Now its lead starts again with your comment ("Changes requested by the owner: …"), once, even if you request changes twice before the lead gets to it.
+- **Autopilot could restart a task forever.** A task that its bot kept moving back to Backlog was started again every few seconds. Now Autopilot starts it at most 3 times in 24 hours, unless it reaches Review or Done in between, then leaves it for you with a note on the card (one note a day at most).
+
+### Changed
+- **@mentions in work a routine, Autopilot or a bot started count toward that work's limits.** A teammate @mentioned in such a thread joins the same piece of work, which holds at most 8 runs, handed on at most 3 levels deep, like hand-offs. Past that, the thread says so and waits for your reply. Threads that began with a person's message (yours, or one from Slack, Buzz or your phone) work as before.
+- **Messages from Slack, Buzz and your phone are labelled** with where they came from, so later features can tell your own messages at this computer from ones that arrive through a bridge. Nothing about how they're handled changes today.
+- Counting a bot's runs, task starts and messages per day is faster (new database indexes; older versions read your data as before).
+
 ## [0.3.36] - 2026-09-29
 
 ### Added

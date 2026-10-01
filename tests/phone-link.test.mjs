@@ -79,7 +79,14 @@ test("a phone pairs from the QR code and reaches the desktop, end to end", async
   assert.equal(overview.deviceRole, "operator");
   assert.equal(overview.memberRole, "owner");
   await phone.request("/conversations/c1/messages", { method: "POST", body: { body: "Draft the launch post", recipients: ["e1"], requestId: "r1" } });
-  assert.deepEqual(ws.calls.find(([m]) => m === "messages.send")[1], { body: "Draft the launch post", recipients: ["e1"], requestId: "r1", conversation: "c1" });
+  // Labelled as the phone's (runtime/origin.mjs).
+  assert.deepEqual(ws.calls.find(([m]) => m === "messages.send")[1], {
+    body: "Draft the launch post",
+    recipients: ["e1"],
+    requestId: "r1",
+    conversation: "c1",
+    origin: { via: "phone", member: "owner" },
+  });
   // Errors come back as errors, with the gateway's status.
   await assert.rejects(phone.request("/conversations/nope"), (e) => e.status === 404);
   const status = link.status();

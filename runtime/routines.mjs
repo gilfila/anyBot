@@ -1,4 +1,5 @@
 import { id, now } from "./store.mjs";
+import { scrubPaths } from "./diagnostics.mjs";
 
 function required(value, max, field) {
   if (typeof value !== "string" || !value.trim() || value.length > max)
@@ -223,13 +224,25 @@ export class Routines {
       current,
     );
     if (!due.length) return;
+    const failed = [];
     this.store.transaction(() => {
       for (const routine of due) {
         // An overdue interval (sleep/offline/paused) is recorded, never caught up
         // in a burst. A due tick admits one finite work item at most.
-        if (current - routine.nextRun > 60000)
-          this.record(routine, routine.nextRun, "missed", null);
-        else this.enqueue(routine, routine.nextRun);
+        try {
+          this.store.savepoint(() => {
+            if (current - routine.nextRun > 60000)
+              this.record(routine, routine.nextRun, "missed", null);
+            else this.enqueue(routine, routine.nextRun);
+          });
+        } catch (error) {
+          // One routine that can't queue (its bot or project changed under
+          // it outside the app's own checks) is recorded as failed; the
+          // others still run, and it waits for its next time instead of
+          // failing every tick.
+          this.record(routine, routine.nextRun, "failed", null);
+          failed.push({ routine, error });
+        }
         this.store.run(
           "UPDATE routines SET nextRun=? WHERE id=?",
           current + routine.minutes * 60000,
@@ -237,6 +250,14 @@ export class Routines {
         );
       }
     });
+    for (const { routine, error } of failed)
+      this.c.diagnostic({
+        level: "warn",
+        source: "routines",
+        code: "routine.enqueue_failed",
+        message: scrubPaths(error?.message ?? error).slice(0, 600),
+        context: { routine: routine.id, conversation: routine.conversation, employeeId: routine.employee },
+      });
     this.c.notify();
   }
 }

@@ -25,7 +25,7 @@ First, **install a harness**: at least one agent CLI, signed in once in a termin
    - The builds aren't code-signed yet, so SmartScreen may warn you. Choose **More info → Run anyway**.
 2. **Hire your first bot.** Any Bot suggests a few starter roles. Pick one, or make your own.
 
-Any Bot updates itself. When a new version is ready, an **Update** button appears next to your name. One click downloads it, and **Restart** installs it. If bots are working, Any Bot asks first and offers to install once they finish.
+Any Bot updates itself. When a new version is ready, an **Update** button appears next to your name. One click downloads it, and **Restart** installs it. If bots are working, Any Bot asks first and offers to install once they finish. When an update changes how your data is stored, Any Bot saves a copy of it first, next to your data. It keeps the newest three, and always the first copy made for the update in progress, so an update that fails part-way and is tried again never loses your data as it was before it. If Any Bot can't start at all (the copy can't be saved, for example), it says why in a message and in **Settings → Diagnostics**.
 
 ### Mac
 
@@ -106,8 +106,8 @@ Every project has a task board with four columns: **Backlog**, **In progress**, 
 
 - **Start a task:** its assignees get to work together. The first assignee leads, and the rest collaborate.
 - **Bots update the board themselves.** They post progress notes, tick checklist items, move cards, and add follow-up tasks.
-- **Review:** a reviewer, or you, approves the work before it moves to Done.
-- **Autopilot** is optional. It starts each idle bot's next Backlog task. It turns itself off when you press **Stop all** in the project's chat, or once the bots have started 20 tasks they created for themselves in a day, so they can't keep each other busy without end.
+- **Review:** a reviewer, or you, approves the work before it moves to Done. **Request changes** hands it to its lead again, with your comment. If the reviewer has been archived, their manager reviews it instead, or it waits for you.
+- **Autopilot** is optional. It starts each idle bot's next Backlog task. It turns itself off when you press **Stop all** in the project's chat, or once the bots have started 20 tasks they created for themselves in a day, so they can't keep each other busy without end. It also stops restarting a task that keeps coming back to Backlog: after 3 starts in a day, it leaves the task for you and says so on the card.
 
 ![A project board with tasks in each column](docs/screenshots/board.png)
 
@@ -153,6 +153,7 @@ The **Knowledge graph** connects your bots, projects, tasks, and files. Bots add
 
 - Missed runs are skipped, not piled up.
 - A routine never overlaps with itself.
+- If a routine can't start, that run is marked failed and the next one is scheduled as usual; other routines aren't held up.
 - Edit a routine (what it asks, who does it, how often, in minutes, hours or days) or delete it at any time.
 
 ### Make it yours

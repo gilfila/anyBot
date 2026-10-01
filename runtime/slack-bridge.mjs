@@ -242,7 +242,13 @@ export function createSlackBridge({
         ).catch((error) => report(error, { employee, step: "files" }));
       if (!body) return;
       const note = files.length ? `\n\n[Attached in Slack but not delivered: ${files.join(", ")}]` : "";
-      sent = await request("bridge.send", { employee, body: `${dm ? "[Slack DM]" : "[Slack channel]"} ${body}${note}`, requestId });
+      sent = await request("bridge.send", {
+        employee,
+        body: `${dm ? "[Slack DM]" : "[Slack channel]"} ${body}${note}`,
+        requestId,
+        // Ids only: who sent it and where (runtime/origin.mjs).
+        origin: { via: "slack", team: bot.team, user: event.user, channel: event.channel },
+      });
     } catch (error) {
       await post(employee, where, `I couldn't take that on: ${error.message}`);
       return;

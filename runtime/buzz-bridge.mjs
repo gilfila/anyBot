@@ -190,6 +190,7 @@ export class BuzzBridge {
       employee: employee.id,
       requestId: `buzz:${requestId}`,
       body: `[Buzz${where ? ` ${where}` : ""}] ${text}`,
+      origin: { via: "buzz", channel: where },
     });
     this.recent.set(employee.id, { at: new Date().toISOString(), channel: where, status: "running" });
     this.coordinator.notify();

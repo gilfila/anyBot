@@ -242,7 +242,13 @@ test("a paired DM becomes work for the bot, and its reply comes back to the DM",
   await flush();
   const sends = requests.filter((r) => r.method === "bridge.send");
   assert.equal(sends.length, 1, "Slack's retries don't duplicate work");
-  assert.deepEqual(sends[0].payload, { employee: "e1", body: "[Slack DM] draft the **weekly** update", requestId: "slack:T1:D1:5.5" });
+  assert.deepEqual(sends[0].payload, {
+    employee: "e1",
+    body: "[Slack DM] draft the **weekly** update",
+    requestId: "slack:T1:D1:5.5",
+    // Labelled as Slack's, with who sent it and where (runtime/origin.mjs).
+    origin: { via: "slack", team: "T1", user: "U1", channel: "D1" },
+  });
   await until(() => slack.posts("reactions.add").length === 1, "the eyes reaction");
   assert.equal(bridge.status("e1").waiting, 1);
 
