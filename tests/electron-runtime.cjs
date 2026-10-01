@@ -81,6 +81,13 @@ app
         trusted: true,
       });
       assert.equal(created.employees.length, 1);
+      // The always-on team is off in a new workspace, through the real transport.
+      const team = await request("team.get");
+      assert.equal(team.state, "off");
+      assert.equal(team.enabled, false);
+      assert.equal(team.settings.concurrency, 8);
+      assert.deepEqual(team.breakers, []);
+      assert.equal(created.team.state, "off", "the snapshot carries it too");
       await assert.rejects(request("not-an-operation"), /Unknown/);
       const stopped = new Promise((resolve) => child.once("exit", resolve));
       child.postMessage({ type: "shutdown" });

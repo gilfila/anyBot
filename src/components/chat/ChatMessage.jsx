@@ -9,6 +9,7 @@ import { RunTerminal } from "../RunTerminal.jsx";
 import { useCopy, useNow } from "../hooks.js";
 import { ChatContext } from "./ChatContext.js";
 import { closeOpenFence, copyText, elapsed, handedTo, replyRun, stamp } from "../../lib/chat.js";
+import { waitText } from "../../lib/team.js";
 
 const NO_ARTIFACTS = [];
 
@@ -169,6 +170,16 @@ export function LiveRun({ run, employees, bubbles, onStop, compact = false }) {
   const employee = employees.find((e) => e.id === run.employee);
   const since = run.started || run.created;
   const now = useNow(true);
+  // Why a queued run hasn't started (runtime dispatch), and, when it's your
+  // message waiting on work nobody at the desk started, Interrupt.
+  const wait =
+    run.status === "queued"
+      ? waitText(chat?.waits?.[run.id], {
+          name: (id) => employees.find((e) => e.id === id)?.name || "A bot",
+          harnessName: chat?.harnessName,
+          now,
+        })
+      : null;
   return (
     <div className="message live-run from-bot" style={bubbles.get(run.employee)}>
       <RobotAvatar size={compact ? 44 : 64} employee={employee} working />
@@ -193,6 +204,20 @@ export function LiveRun({ run, employees, bubbles, onStop, compact = false }) {
         <div className="message-body">
           {run.output ? (
             <MessageContent body={closeOpenFence(run.output)} people={employees.map((e) => e.name)} />
+          ) : run.status === "queued" && wait ? (
+            <span className="run-wait">
+              {wait.text}
+              {wait.interrupt && chat?.onInterrupt && (
+                <button
+                  type="button"
+                  className="mini"
+                  title="Stop that work so your message goes first; it's queued again after yours"
+                  onClick={() => chat.onInterrupt(wait.interrupt, run.id)}
+                >
+                  Interrupt
+                </button>
+              )}
+            </span>
           ) : run.status === "queued" ? (
             "Waiting for its turn…"
           ) : (

@@ -156,6 +156,20 @@ The **Knowledge graph** connects your bots, projects, tasks, and files. Bots add
 - If a routine can't start, that run is marked failed and the next one is scheduled as usual; other routines aren't held up.
 - Edit a routine (what it asks, who does it, how often, in minutes, hours or days) or delete it at any time.
 
+### Let the team work on its own
+
+**Settings → Team** turns on the always-on team (it's off until you do). It puts brakes on everything that starts without you: routines, Autopilot, hand-offs between bots, and messages from Slack, Buzz or your phone.
+
+- **Daily limits:** 40 runs a day for the team, 40 per project and 12 per bot by default, plus an optional token limit. Past a limit, that work waits in the queue until midnight. You get an alert at 80% and 100% of the team's and each project's runs; a bot or token limit leaves a note in the chat.
+- **You come first:** your own messages go ahead of that work, and 2 of the 8 slots are kept for them. If the bot you message is busy with a routine or an Autopilot task, your message says so, and **Interrupt** lets yours go first, with Team on or off (the interrupted work runs again afterwards, and only that rerun counts toward the limits). **Run again** also goes first and past the limits, but on someone else's message or a bot's work it stays theirs: the same rules, and what it hands on is theirs.
+- **Usage-limit brake:** after two usage-limit or sign-in refusals in 10 minutes, a harness's routines, Autopilot tasks and hand-offs wait (15 minutes, then 30, 60 and 120, or until the reset time the provider gave) instead of failing again and again. Messages from you, Slack, Buzz or your phone still try. Then one waiting run tries, and the rest go on as soon as the provider answers it. This one works with Team off too. **Try now** lifts it.
+- **Stop the team** (Settings, the tray, or turning Team off): work nobody at the desk started stops, including runs already working. A task, a hand-off or a message from Slack, Buzz or your phone waits until you resume and then starts over; anything else is cancelled. Routines are skipped and Autopilot turns off everywhere. Your own messages, and hand-offs and @mentions in your own threads, still go through (**Stop everything** stops those too). After a stop made with Team on, come back with **Turn Team back on** (Autopilot comes back where it was on) or **Resume with Team off** (Autopilot stays off, since it would run without the limits; each of those projects says so). After one made with Team off, **Resume** brings Autopilot back where it was on.
+- **Pause** (an hour, or until 07:00) holds waiting work without cancelling it and leaves Autopilot on; running work finishes but can't hand anything on, and routines that come due are skipped.
+- **With Team on,** bots that act without asking only take work you send them from this computer unless you allow them, and Codex bots only take work you send them from this computer (their MCP servers run outside Codex's sandbox, and Any Bot can't yet switch those off). For now, messages from Slack, Buzz or your phone are treated like anyone else's: they count toward the limits, and new ones wait while the team is stopped.
+- **Guests are marked.** A message from Slack, Buzz or your phone reaches your bots as "Guest via Buzz #general (not the owner at the desk)", quoted, so nothing in it can pass for something you typed at the desk, even in a chat you also use.
+
+**Your Claude and ChatGPT plans are the real ceiling.** Bots run on the same plans as your own Claude Code and Codex, so a busy team can use up the 5-hour or weekly limit you work with. Start with low limits and check **Activity → Tokens today** before raising them.
+
 ### Make it yours
 
 **Settings → Appearance** has four themes:
@@ -203,7 +217,7 @@ Files your bots mention become links once Any Bot confirms they exist: click to 
 
 ### Keep working in the background
 
-- **The tray:** closing the window keeps Any Bot running in the tray, so your bots keep working. **Quit and stop active work** in the tray menu stops everything. Work cut off by quitting is marked in its conversation, and the bot that handed it off is told; start it again when you're back.
+- **The tray:** closing the window keeps Any Bot running in the tray, so your bots keep working. The tray menu has **Team on**, **Pause team 1 hour** and **Stop the team** (see [Let the team work on its own](#let-the-team-work-on-its-own)); **Quit and stop active work** stops everything. Work cut off by quitting is marked in its conversation, and the bot that handed it off is told; start it again when you're back.
 - **Launch at login** (Settings → Runtime & privacy) starts Any Bot when you sign in to Windows, so routines and queued work pick up again. The computer still has to stay on.
 
 ## Supported harnesses

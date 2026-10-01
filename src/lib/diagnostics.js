@@ -123,6 +123,34 @@ export function describeIssue(issue) {
       title: "Autopilot turned itself off",
       hint: "The bots in this project started 20 tasks they created for themselves in 24 hours, so Autopilot stopped to keep them from running without end. Check the board, then turn Autopilot back on if the work should go on.",
     },
+    "budget.cap_reached": {
+      title:
+        c.scope === "bot"
+          ? `A bot reached its daily limit of runs on its own`
+          : c.scope === "project"
+            ? "A project reached its daily limit of runs"
+            : c.scope === "tokens"
+              ? "The team reached its daily token limit"
+              : "The team reached its daily limit of runs",
+      hint: "With Team on, work nobody at the desk started (routines, Autopilot, hand-offs, and messages from Slack, Buzz or a phone) has daily limits. That work now waits in the queue until midnight; nothing was lost, and your own messages still go through. To allow more today, raise the limit in Settings → Team.",
+    },
+    "breaker.opened": {
+      title: `${tool(c)} hit a ${c.reason === "auth" ? "sign-in problem" : "usage limit"}, so its routines, Autopilot and hand-offs are waiting`,
+      hint: "Two runs on this harness were refused by the provider within 10 minutes, so its routines, Autopilot tasks and hand-offs wait instead of failing again and again: 15 minutes at first, then 30, 60 and 120, or until the reset time the provider gave. Then one of them tries; as soon as the provider answers it, the rest go on. Messages from you, Slack, Buzz or your phone still try, so whoever sent them sees the reason. Settings → Team has Try now. Your Claude and ChatGPT plans' own limits are the real ceiling for everything your bots do.",
+    },
+    "breaker.closed": {
+      title: `${tool(c)} is answering again`,
+      hint: "The provider answered a run on this harness (or you pressed Try now), so its waiting work goes on.",
+    },
+    "run.dontask_refused": {
+      title: `${who(c)} didn't take unattended work`,
+      hint: "Its permission mode lets it act without asking you, so with Team on it only takes work you send it yourself. To let it take routines, Autopilot tasks and hand-offs too, opt it in under Settings → Team.",
+      action: "employee",
+    },
+    "run.codex_mcp_unverified": {
+      title: `${who(c)} (Codex) didn't take unattended work`,
+      hint: "Codex's MCP servers (such as node_repl) run outside Codex's sandbox, and Any Bot can't yet prove it can switch them off for work nobody is watching. So with Team on, Codex bots only take work you send them yourself. Turn Team off, or move the work to a Claude Code bot.",
+    },
     "task.settle_failed": { title: "A task didn't update after its run", hint: "This is a bug in Any Bot.", bug: true },
     "update.failed": {
       title: "An update failed",

@@ -9,4 +9,7 @@ import { createContext } from "react";
 //   onRevealArtifact(artifact) Show in folder (artifacts.reveal)
 //   onRetry(runId)             runs.retry
 //   onDetails(run)             the harness's problems, or Settings → Diagnostics
+//   waits                      why each queued run waits (snapshot.team.waits)
+//   harnessName(id)            a harness's display name
+//   onInterrupt(runId, waiting) runs.interrupt, so the owner's queued run `waiting` goes first
 export const ChatContext = createContext(null);

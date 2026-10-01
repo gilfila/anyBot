@@ -38,3 +38,14 @@ export function parseOrigin(text) {
 // (for approvals and proposals); everything from a bridge is a guest's until
 // a later rule says otherwise.
 export const ownerAuthority = (origin) => origin?.via === "desktop";
+
+// How a bot's prompt names a message that came through a bridge: "Guest via
+// Buzz #general", "Guest via Slack (user U123)". The owner at the desk stays
+// "Human", as before. Ids only, from the label.
+export function guestLabel(origin) {
+  const label = originLabel(origin);
+  if (label.via === "slack") return `Guest via Slack${label.user ? ` (user ${label.user})` : ""}`;
+  if (label.via === "buzz") return `Guest via Buzz${label.channel ? ` #${label.channel}` : ""}`;
+  if (label.via === "phone") return `Guest via phone${label.member ? ` (member ${label.member})` : ""}`;
+  return "Guest via a bridge";
+}

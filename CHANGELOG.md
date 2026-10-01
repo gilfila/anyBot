@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.38] - 2026-09-30
+
+This update adds the brakes for an always-on team: a Team switch, a stop switch, daily limits and a usage-limit brake. **Team is off**, so almost nothing changes until you turn it on in **Settings → Team**. The few things that apply either way are listed under "With Team off, too".
+
+### Added
+- **Settings → Team.** A switch for the always-on team, plus:
+  - **Pause 1 hour**, **Pause until 07:00** and **Stop the team**.
+  - How many bots work at once (1 to 12, 8 as before), and how many of those slots are kept for your own messages (2).
+  - Daily limits for work nobody at the desk started (routines, Autopilot, hand-offs, and messages from Slack, Buzz or your phone): 40 runs a day for the team, 40 per project and 12 per bot, plus an optional token limit. Past a limit, that work waits in the queue until midnight; nothing is dropped. You get an alert at 80% and at 100% of the team's and each project's runs.
+  - Harnesses waiting on a usage limit, with **Try now**.
+  - A note that your Claude and ChatGPT plans are the real ceiling: bots use the same plans as your own Claude Code and Codex, so keep the limits low until you've seen what a day costs.
+- **With Team on:**
+  - Your own messages go first, and 2 slots are kept for them.
+  - Bots that act without asking (their permission mode) only take work you send them from this computer, unless you tick them in Settings → Team.
+  - Codex bots only take work you send them from this computer. Their MCP servers (such as node_repl) run outside Codex's sandbox, and Any Bot can't yet switch those off for work nobody is watching.
+  - When Team turns down a message from Slack or Buzz for one of these reasons, the sender gets a plain "This bot can't take this request right now"; the details stay in your chat.
+- **The tray** has **Team on**, **Pause team 1 hour** and **Stop the team** (or **Resume the team**), and its tooltip shows how many bots are working. It updates itself when a pause ends.
+- **The sidebar** shows the team's state and today's runs when Team is on, paused or stopped, with **Pause 1h** or **Resume**.
+- **A queued message says why it's waiting**, for example "Nova is on a routine (started 12m ago)". When your message waits for work nobody at the desk started, **Interrupt** stops that work so yours goes first, even when more of that work is queued for the same bot. The interrupted work is queued again and starts over after yours; only its rerun counts toward the day's limits.
+
+### With Team off, too
+- **A brake for usage limits.** When a harness refuses two runs within 10 minutes because of a usage limit or a sign-in problem, its routines, Autopilot tasks and hand-offs wait instead of failing again and again: 15 minutes at first, then 30, 60 and 120, or until the reset time the provider gave. Then one of them tries, and as soon as the provider answers it, the rest go on (they don't wait for that run to finish). Messages from you, Slack, Buzz or your phone still try, so whoever sent them sees the reason. You get one notification, the chat shows a banner with **Try now**, and other harnesses keep working. Only the CLI's own error codes count, never words in a failure message (a failed run whose text mentions "billing" or "429" doesn't trip it).
+- **While that brake is on,** a hand-off that hits the limit doesn't start the bot that handed it off just to say so; a note in its chat says what happened, and **Run again** on the hand-off sends the result back later.
+- **Stop the team works whether Team is on or off**, and turning Team off does the same. Work nobody at the desk started stops, including work that is already running:
+  - a task, a hand-off, or a message from Slack, Buzz or your phone waits until you resume, then starts over;
+  - anything else (a routine run, for example) is cancelled;
+  - routines that come due are skipped, and Autopilot turns off in every project.
+
+  Your own messages, **Run again** and a routine's **Run now** still go through, and so do hand-offs and @mentions in your own threads; **Stop everything** in Settings stops those too.
+- **Resuming.** After a stop made with Team on (or by turning Team off), the chat, the sidebar, Settings and the tray offer **Turn Team back on**, which also turns Autopilot back on where it was on, and **Resume with Team off**, which leaves those projects' Autopilot off (it would run without Team's limits) and says so in each of them. After a stop made with Team off, **Resume** turns Autopilot back on where it was on.
+- **Pause** (an hour, or until 07:00) holds waiting work without cancelling it and leaves Autopilot on. Work that is already running finishes, but can't hand anything on (no hand-offs, @mentions or returned results), and routines that come due are skipped.
+- **Run again** puts that run first and past a stop, a pause, a daily limit or a usage-limit brake. On a routine's run it's like **Run now**: your work. On anything else (a message from Slack, Buzz or your phone, a hand-off, an Autopilot task) it stays that sender's work: with Team on it keeps the rules for work nobody is watching, and what it hands on is theirs, not yours.
+- **Messages from Slack, Buzz or your phone are marked in your bots' prompts.** When one lands in a chat you also use, the bot reads it as "Guest via Buzz #general (not the owner at the desk)", quoted line by line, with a note that such lines are that person's requests and never your approval. Before, it read like something you typed, and a line in it could pass for yours.
+- The Settings card that cancels everything and pauses new work is now called **Stop everything** (it used to say "Stop the team").
+
 ## [0.3.37] - 2026-09-29
 
 This update makes Any Bot sturdier before bots get more room to work on their own. It applies to everyone; there's nothing to turn on.
