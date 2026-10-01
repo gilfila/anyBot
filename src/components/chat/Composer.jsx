@@ -285,7 +285,7 @@ export function Composer({
               type="button"
               className={dictating ? "dictation active" : "dictation"}
               aria-label={dictating ? "Stop dictation" : "Dictate message"}
-              title="Dictate with Flow-compatible speech input"
+              title={dictating ? "Stop and add what you said" : "Dictate: speak, and the words go into your message (Settings → Voice)"}
               onClick={onDictate}
             >
               <Mic size={17} />

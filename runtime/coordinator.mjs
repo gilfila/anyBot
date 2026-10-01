@@ -76,6 +76,7 @@ import { TerminalLog } from "./terminal.mjs";
 import { actionsFrom, withoutActions } from "./actions.mjs";
 import { buildContext, stripMachineBlocks } from "./context.mjs";
 import { effortFor } from "./effort.mjs";
+import { findHq } from "./hq.mjs";
 import {
   harnessInputs,
   materialize as materializeAttachments,
@@ -533,6 +534,10 @@ export class Coordinator extends EventEmitter {
       }
       case "bridge.updates":
         return this.bridgeUpdates(payload);
+      // Voice chat (src/lib/voice-session.js) follows the owner's own
+      // messages by their request ids. Not a snapshot.
+      case "messages.follow":
+        return this.followRequests(payload);
       // Buzz (runtime/buzz-bridge.mjs). Each returns the setup status for the
       // bot in `employee`, not a snapshot.
       case "buzz.status":
@@ -1395,27 +1400,11 @@ export class Coordinator extends EventEmitter {
   // bot is in no project, there is no section: never its direct chat, where
   // Slack and Buzz reach it and every run reads the canvas.
   peopleHq() {
-    const bots = this.store.all("SELECT id,name,manager FROM employees WHERE archived=0 ORDER BY created, rowid");
-    const active = new Set(bots.map((bot) => bot.id));
-    let top = null;
-    let most = 0;
-    for (const bot of bots) {
-      if (bot.manager && active.has(bot.manager)) continue;
-      const under = this.org.allReports(bot.id).length;
-      if (under > most) {
-        top = bot;
-        most = under;
-      }
-    }
-    if (!top) return null;
-    const direct = new Set(this.org.directReports(top.id).map((report) => report.id));
-    const reports = (room) => room.members.filter((member) => direct.has(member)).length;
+    const bots = this.store.all("SELECT id,manager,archived FROM employees WHERE archived=0 ORDER BY created, rowid");
     const rooms = this.store
-      .all("SELECT id,members FROM conversations WHERE archived=0 ORDER BY created, rowid")
-      .map((room) => ({ id: room.id, members: JSON.parse(room.members) }))
-      .filter((room) => room.members.length > 1 && room.members.includes(top.id))
-      .sort((a, b) => reports(b) - reports(a));
-    return rooms[0]?.id || null;
+      .all("SELECT id,members,archived FROM conversations WHERE archived=0 ORDER BY created, rowid")
+      .map((room) => ({ ...room, members: JSON.parse(room.members) }));
+    return findHq(bots, rooms)?.conversation || null;
   }
   // Replaces the canvas section as the system (never appends): only the
   // heading and blocks it wrote, so what a bot or the owner adds below stays.
@@ -2583,6 +2572,25 @@ export class Coordinator extends EventEmitter {
         const body = stripMachineBlocks(answer?.body);
         const reply = answer && answer.employee !== top.employee && body ? `${name(answer.employee)}: ${body}` : body;
         return { message, run: top.id, status: "succeeded", reply: reply || undefined, approvals, handoffs };
+      }),
+    };
+  }
+  // Voice chat follows the messages it sent (by request id, the requests
+  // table) the way Slack and Buzz do: bridgeUpdates through the whole piece
+  // of work, however long it runs, plus when the first run started. A
+  // request id that was never sent is "unknown".
+  followRequests(payload) {
+    const keys = Array.isArray(payload.requestIds) ? payload.requestIds.slice(0, 20).map((key) => text(key, "Request ID", 100)) : [];
+    const sent = keys.map((key) => ({ key, message: this.store.one("SELECT result FROM requests WHERE key=?", key)?.result || null }));
+    const updates = new Map(
+      this.bridgeUpdates({ messages: sent.filter((s) => s.message).map((s) => s.message) }).items.map((item) => [item.message, item]),
+    );
+    return {
+      items: sent.map(({ key, message }) => {
+        const item = message && updates.get(message);
+        if (!item) return { requestId: key, status: "unknown" };
+        const started = item.run ? this.store.one("SELECT started FROM runs WHERE id=?", item.run)?.started || null : null;
+        return { requestId: key, ...item, started };
       }),
     };
   }

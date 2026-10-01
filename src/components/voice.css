@@ -1,0 +1,225 @@
+/* Voice: Settings → Voice (VoicePanel.jsx) and the voice bar shown while a
+   voice chat or dictation runs (VoiceBar.jsx). Studio paper tokens only;
+   vermilion is for the live mic. */
+.settings-card.voice-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 16px;
+}
+.voice-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--paper-2);
+  color: var(--ink-2);
+}
+.voice-body {
+  min-width: 0;
+}
+.voice-state {
+  margin: 8px 0 4px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.voice-state.is-ready {
+  color: var(--ok);
+}
+.voice-providers {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  border: 0;
+}
+.voice-providers legend {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.voice-provider {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  cursor: pointer;
+}
+.voice-provider.is-chosen {
+  border-color: var(--ink-2);
+}
+.voice-provider input {
+  margin-top: 3px;
+}
+.voice-provider span {
+  display: grid;
+  gap: 2px;
+}
+.voice-provider small {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.voice-section {
+  margin-top: 14px;
+}
+.voice-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+.voice-row button,
+.voice-download button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.voice-select,
+.voice-key {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.voice-select span,
+.voice-key span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.voice-key {
+  flex: 1 1 260px;
+}
+.voice-key input,
+.voice-select select {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+.voice-note {
+  display: block;
+  max-width: 720px;
+  margin: 8px 0;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.voice-note svg {
+  vertical-align: -2px;
+  color: var(--ok);
+}
+.voice-error {
+  margin: 8px 0;
+  font-size: 12.5px;
+  color: var(--danger);
+}
+.voice-download {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.voice-download progress {
+  flex: 1 1 220px;
+  height: 8px;
+  accent-color: var(--ink-2);
+}
+.voice-ptt {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  max-width: 120px;
+  text-align: right;
+}
+.voice-ptt small {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+/* The bar at the top of the window while voice is on. */
+.voice-bar {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(720px, calc(100vw - 32px));
+  padding: 8px 10px 8px 14px;
+  transform: translateX(-50%);
+  border: 1px solid var(--rule-strong);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--ink);
+  /* --block stays dark in every theme, so this is a shadow, never a glow. */
+  box-shadow: 0 10px 30px color-mix(in oklch, var(--block) 16%, transparent);
+  font-size: 13px;
+}
+.voice-bar-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--paper-2);
+  color: var(--ink-2);
+}
+.voice-bar.is-listening .voice-bar-icon,
+.voice-bar.is-holding .voice-bar-icon {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+.voice-bar-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.voice-meter {
+  flex: none;
+  width: 56px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--paper-3);
+}
+.voice-meter span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--accent);
+  transform-origin: left center;
+  transition: transform 80ms linear;
+}
+.voice-bar button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  font-size: 12.5px;
+}
+.voice-hold.is-held {
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-meter span {
+    transition: none;
+  }
+}

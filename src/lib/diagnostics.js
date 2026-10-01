@@ -138,6 +138,43 @@ export function describeIssue(issue) {
       title: `${tool(c)} hit a ${c.reason === "auth" ? "sign-in problem" : "usage limit"}, so its routines, Autopilot and hand-offs are waiting`,
       hint: "Two runs on this harness were refused by the provider within 10 minutes, so its routines, Autopilot tasks and hand-offs wait instead of failing again and again: 15 minutes at first, then 30, 60 and 120, or until the reset time the provider gave. Then one of them tries; as soon as the provider answers it, the rest go on. Messages from you, Slack, Buzz or your phone still try, so whoever sent them sees the reason. Settings → Team has Try now. Your Claude and ChatGPT plans' own limits are the real ceiling for everything your bots do.",
     },
+    "voice.provider_missing": {
+      title: "Voice was used before speech-to-text was set up",
+      hint: "Voice chat and dictation need a way to turn your speech into text. In Settings → Voice, download speech-to-text for this computer, or add a Groq or OpenAI API key.",
+    },
+    "voice.stt_failed": {
+      title:
+        c.provider === "whisper-local"
+          ? "Speech-to-text on this computer failed"
+          : `${c.provider === "groq" ? "Groq" : c.provider === "openai" ? "OpenAI" : "The speech-to-text service"} couldn't turn a recording into text`,
+      hint:
+        c.status === 401 || c.status === 403
+          ? "The API key was refused. Check it, or enter a new one, in Settings → Voice."
+          : c.status === 429
+            ? "The service says you've hit a rate or usage limit. Wait a while, or switch provider in Settings → Voice."
+            : c.reason === "key"
+              ? "The saved key can't be read on this computer (for example after a Windows account change). Enter it again in Settings → Voice."
+              : c.reason === "timeout" && c.provider === "whisper-local"
+                ? "It took over a minute, so it was stopped. Keep turns shorter, or switch to the Base model in Settings → Voice. Nothing you said was kept."
+                : c.reason === "format"
+                  ? "The service's answer wasn't understood. Try again; if it keeps happening, switch provider in Settings → Voice. Nothing you said was kept."
+                  : c.provider === "whisper-local"
+                    ? "Try again. If it keeps failing, remove speech-to-text in Settings → Voice and download it again. Nothing you said was kept."
+                    : "Check your connection and try again. Nothing you said was kept.",
+    },
+    "voice.download_failed": {
+      title: "The speech-to-text download didn't finish",
+      hint:
+        c.reason === "hash"
+          ? "The downloaded file didn't match the one Any Bot expects, so it was deleted before anything used it. Try again in Settings → Voice."
+          : c.reason === "space"
+            ? "There isn't enough free disk space. Free some up, then try again in Settings → Voice."
+            : c.reason === "extract" || c.reason === "missing"
+              ? "The download was incomplete or not the file Any Bot expects, so nothing was installed. Try again in Settings → Voice."
+              : c.reason === "http"
+                ? "The download server didn't hand over the file. Try again later in Settings → Voice."
+                : "Check your connection, then try again in Settings → Voice.",
+    },
     "people.review_failed": {
       title: "The daily people review couldn't run",
       hint: "The review only reads your bots' history, so nothing else was affected, and it tries again in 10 minutes. Org → People → Run now tries it right away. If it keeps failing, copy the report; it's a bug in Any Bot.",

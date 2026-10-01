@@ -22,6 +22,18 @@ export function shortcutFor(event) {
   return null;
 }
 
+// A keydown listener for something that closes on Esc (the HTML preview,
+// the open task, the bot menu). It marks the key as used, so the voice
+// chat's own Esc (src/lib/voice.js voiceKey) leaves the voice chat running.
+// `skip(event)`: an Esc this layer leaves alone (its own text fields).
+export function closeOnEscape(close, { skip } = {}) {
+  return (event) => {
+    if (event.key !== "Escape" || skip?.(event)) return;
+    event.preventDefault();
+    close();
+  };
+}
+
 // The pending approval to show next: the oldest one after `current` (the
 // one on screen), wrapping around, so pressing again steps through them.
 export function nextApproval(approvals = [], current = null) {

@@ -16,6 +16,7 @@ import { RobotAvatar } from "../RobotAvatar.jsx";
 import { RunTerminal } from "../RunTerminal.jsx";
 import { Status } from "../Status.jsx";
 import { PRIORITIES, STATUSES, authorName, isWorking, statusLabel } from "./meta.js";
+import { closeOnEscape } from "../../lib/shortcuts.js";
 
 const time = (value) =>
   new Date(value).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -137,7 +138,8 @@ export function TaskPeek({ taskId, data, conversation, act, onClose, onOpenArtif
     };
   }, [taskId, task?.revision, task?.updated, runKey, data.messages.length]);
   useEffect(() => {
-    const onKey = (event) => event.key === "Escape" && !event.target.closest?.("input,textarea,select") && onClose();
+    // Esc closes the task (not in its fields), and not a voice chat too.
+    const onKey = closeOnEscape(onClose, { skip: (event) => Boolean(event.target.closest?.("input,textarea,select")) });
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);

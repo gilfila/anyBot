@@ -31,7 +31,8 @@ const {
 } = require("./lifecycle.cjs");
 const { commandDirectory, killTree } = require("./shell-command.cjs");
 const fileAccess = require("./file-access.cjs");
-const { contextMenuItems, fileRequestBlocked, navigationTarget } = require("./window-shell.cjs");
+const { contextMenuItems, fileRequestBlocked, navigationTarget, permissionAllowed, stopVoiceWhenHidden } = require("./window-shell.cjs");
+const { clearVoiceTemp, createVoice } = require("./voice.cjs");
 const { teamTrayItems, teamTrayTooltip, traySignature, trayRefreshDelay } = require("./team-tray.cjs");
 let diagnostics = null;
 let fileLinks = null;
@@ -714,6 +715,7 @@ const methods = new Set([
   "conversations.updateSettings",
   "conversations.setArchived",
   "messages.send",
+  "messages.follow",
   "runs.cancel",
   "runs.dismiss",
   "runs.retry",
@@ -777,6 +779,8 @@ if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on("second-instance", () => showWindow());
   app.whenReady().then(() => {
+    // A recording left by a quit or crash mid-turn (desktop/voice.cjs).
+    clearVoiceTemp(app.getPath("userData"));
     const startupPreference = loadStartupPreference();
     applyStartupPreference(startupPreference.launchAtLogin);
     applyTrayPreference(startupPreference.keepRunningInTray);
@@ -904,6 +908,9 @@ else {
       if (method === "phone.app") return phoneAppDownload();
       // A bot's menu → Connect to Slack (runtime/slack-bridge.mjs).
       if (method.startsWith("slack.")) return slackRequest(method, payload || {});
+      // Settings → Voice and voice chat (desktop/voice.cjs): speech-to-text and
+      // its keys stay in main.
+      if (method.startsWith("voice.")) return voiceRequest(method, payload || {});
       if (method === "phone.pair") {
         if (!phoneLink) throw new Error(phoneError || "Phone connections are still starting. Try again in a moment.");
         return phoneLink.createPairing();
@@ -1118,6 +1125,7 @@ else {
     });
     // Slack starts when the coordinator first reports ready (ensureSlack).
     guardFileRequests();
+    guardMedia();
     startWorker();
     startMobileAccess().catch((error) => {
       mobileError = String(error.message);
@@ -1189,6 +1197,14 @@ function guardFileRequests() {
     });
     notifyRenderer();
   });
+}
+// The microphone, for voice chat on the app's own page only; never the
+// camera, the screen or a frame inside the page (window-shell.cjs).
+function guardMedia() {
+  session.defaultSession.setPermissionRequestHandler((_contents, permission, callback, details) =>
+    callback(permissionAllowed(permission, details, page)),
+  );
+  session.defaultSession.setPermissionCheckHandler((_contents, permission, _origin, details) => permissionAllowed(permission, details, page));
 }
 // A message's folders come from the coordinator (files.context, main-only:
 // it is not in the renderer's `methods` allowlist).
@@ -1550,6 +1566,8 @@ function showWindow(rendererSandbox = app.isPackaged) {
   window.webContents.on("will-navigate", (event, url) => {
     if (url !== page) event.preventDefault();
   });
+  // Closing to the tray or minimizing ends a voice chat (window-shell.cjs).
+  stopVoiceWhenHidden(window);
   window.loadURL(page);
   window.on("close", (event) => {
     if (!quitting) {
@@ -1713,6 +1731,33 @@ function slackRequest(method, payload) {
   if (method === "slack.pair") return slackBridge.pair(employee);
   if (method === "slack.disconnect") return slackBridge.disconnect(employee);
   if (method === "slack.removeUser") return slackBridge.removeUser(employee, String(payload.user || ""));
+  throw new Error("Operation not allowed");
+}
+// Settings → Voice and voice chat. Each voice.* method has its own branch;
+// voice.download starts the download and answers at once (the panel polls
+// voice.status for progress). ANYBOT_FAKE_STT answers every turn with fixed
+// text, only in a copy run from source (the Electron e2e).
+let voice = null;
+function voiceRequest(method, payload) {
+  voice ??= createVoice({
+    dir: app.getPath("userData"),
+    protect: protectSecret,
+    unprotect: unprotectSecret,
+    onDiagnostic: (entry) => {
+      diagnostics?.record(entry);
+      notifyRenderer();
+    },
+    fakeStt: !app.isPackaged && process.env.ANYBOT_FAKE_STT ? String(process.env.ANYBOT_FAKE_STT).slice(0, 2000) : null,
+  });
+  if (method === "voice.status") return voice.status();
+  if (method === "voice.start") return voice.start();
+  if (method === "voice.setProvider") return voice.setProvider(payload.provider);
+  if (method === "voice.setKey") return voice.setKey({ provider: payload.provider, key: payload.key });
+  if (method === "voice.set") return voice.set(payload);
+  if (method === "voice.download") return voice.download({ model: payload.model });
+  if (method === "voice.cancelDownload") return voice.cancelDownload();
+  if (method === "voice.remove") return voice.remove();
+  if (method === "voice.transcribe") return voice.transcribe({ wav: payload.wav });
   throw new Error("Operation not allowed");
 }
 async function startPhoneLink(gateway) {

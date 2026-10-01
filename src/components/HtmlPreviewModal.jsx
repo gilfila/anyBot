@@ -1,14 +1,14 @@
 import React, { useRef, useEffect, useState } from "react";
 import { X, ExternalLink, Download, Maximize2, Minimize2, Globe } from "lucide-react";
+import { closeOnEscape } from "../lib/shortcuts.js";
 
 export function HtmlPreviewModal({ html, title, onClose, onOpenInBrowser }) {
   const iframeRef = useRef(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
-    const onKey = (event) => {
-      if (event.key === 'Escape') onClose?.();
-    };
+    // Marks Esc as used, so it closes the preview and not a voice chat too.
+    const onKey = closeOnEscape(() => onClose?.());
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
